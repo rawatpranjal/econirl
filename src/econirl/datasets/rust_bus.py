@@ -22,6 +22,7 @@ import pandas as pd
 def load_rust_bus(
     group: Optional[int] = None,
     as_panel: bool = False,
+    original: bool = False,
 ) -> pd.DataFrame:
     """
     Load the Rust (1987) bus engine replacement dataset.
@@ -31,12 +32,14 @@ def load_rust_bus(
     The data was used in Rust's pioneering work on dynamic discrete choice models.
 
     Args:
-        group: If specified, load only buses from this group (1-8).
-            Groups differ by bus type and usage patterns.
+        group: If specified, load only buses from this group (1-8 for synthetic,
+            1-4 for original). Groups differ by bus type and usage patterns.
             If None, loads all groups.
         as_panel: If True, return data structured as a Panel object
             compatible with econirl estimators. If False (default),
             return as a pandas DataFrame.
+        original: If True, load original Rust (1987) data from NFXP files.
+            If False (default), load synthetic data with similar characteristics.
 
     Returns:
         DataFrame with columns:
@@ -45,7 +48,7 @@ def load_rust_bus(
             - mileage: Odometer reading (in thousands of miles)
             - mileage_bin: Discretized mileage state (0-89)
             - replaced: 1 if engine was replaced this period, 0 otherwise
-            - group: Bus group (1-8)
+            - group: Bus group (1-4 for original, 1-8 for synthetic)
 
     Example:
         >>> from econirl.datasets import load_rust_bus
@@ -54,25 +57,44 @@ def load_rust_bus(
         >>> print(f"Buses: {df['bus_id'].nunique()}")
         >>> print(f"Replacement rate: {df['replaced'].mean():.2%}")
 
+        >>> # Load original data for replication
+        >>> df_original = load_rust_bus(original=True)
+        >>> print(f"Original data: {len(df_original):,} observations")
+
     Notes:
-        The original Rust (1987) paper focused on groups 1-4 (GMC buses).
-        Groups 5-8 are from different manufacturers with different characteristics.
+        The original Rust (1987) paper used groups 1-4:
+        - Group 1: Grumman model 870 (15 buses)
+        - Group 2: Chance model RT50 (4 buses)
+        - Group 3: GMC model T8H203 (48 buses)
+        - Group 4: GMC model A5308, 1975 (37 buses)
+
+        For the synthetic data, groups 5-8 represent additional bus types
+        with different characteristics.
 
         Mileage bins follow Rust's discretization: each bin represents 5,000 miles,
         so bin 0 = [0, 5000), bin 1 = [5000, 10000), etc.
     """
-    data_path = Path(__file__).parent / "rust_bus_data.csv"
-
-    if not data_path.exists():
-        # Generate the dataset if it doesn't exist
-        df = _generate_rust_bus_data()
-        df.to_csv(data_path, index=False)
-    else:
+    if original:
+        data_path = Path(__file__).parent / "rust_bus_original.csv"
+        if not data_path.exists():
+            raise FileNotFoundError(
+                "Original Rust data not found. Run: python scripts/download_rust_data.py"
+            )
         df = pd.read_csv(data_path)
+        max_group = 4
+    else:
+        data_path = Path(__file__).parent / "rust_bus_data.csv"
+        if not data_path.exists():
+            # Generate the dataset if it doesn't exist
+            df = _generate_rust_bus_data()
+            df.to_csv(data_path, index=False)
+        else:
+            df = pd.read_csv(data_path)
+        max_group = 8
 
     if group is not None:
-        if group not in range(1, 9):
-            raise ValueError(f"group must be between 1 and 8, got {group}")
+        if group not in range(1, max_group + 1):
+            raise ValueError(f"group must be between 1 and {max_group}, got {group}")
         df = df[df["group"] == group].copy()
 
     if as_panel:
