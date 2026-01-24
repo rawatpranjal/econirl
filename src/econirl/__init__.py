@@ -6,13 +6,35 @@ Provides economist-friendly APIs for estimating dynamic discrete choice models w
 rich statistical inference.
 
 Key Features:
-- Economist-friendly terminology (utility, preferences, characteristics)
+- Sklearn-style API with fit()/predict() interface
 - StatsModels-style summary() output with standard errors and hypothesis tests
-- Multiple estimation methods (NFXP, CCP, MaxEnt IRL)
+- Multiple estimation methods (NFXP, CCP)
 - Gymnasium-compatible environments
 - Rich visualization and counterfactual analysis
 
-Example:
+Sklearn-style API (recommended):
+    >>> from econirl import NFXP, CCP, LinearCost, TransitionEstimator
+    >>> import pandas as pd
+    >>>
+    >>> # Load your data as a DataFrame
+    >>> df = pd.read_csv("bus_data.csv")
+    >>>
+    >>> # First stage: estimate transition probabilities
+    >>> trans = TransitionEstimator(n_states=90)
+    >>> trans.fit(data=df, state="mileage_bin", id="bus_id", action="replaced")
+    >>>
+    >>> # Second stage: estimate utility parameters
+    >>> model = NFXP(n_states=90, discount=0.9999, utility=LinearCost())
+    >>> model.fit(data=df, state="mileage_bin", action="replaced", id="bus_id",
+    ...           transitions=trans.matrix_)
+    >>> print(model.summary())
+    >>>
+    >>> # Or use the faster CCP estimator
+    >>> model_ccp = CCP(n_states=90, discount=0.9999)
+    >>> model_ccp.fit(data=df, state="mileage_bin", action="replaced", id="bus_id")
+    >>> print(model_ccp.summary())
+
+Legacy API (deprecated, for backward compatibility):
     >>> from econirl import RustBusEnvironment, LinearUtility, NFXPEstimator
     >>> from econirl.simulation import simulate_panel
     >>>
@@ -34,9 +56,18 @@ from econirl.environments.rust_bus import RustBusEnvironment
 # Preferences
 from econirl.preferences.linear import LinearUtility
 
-# Estimators
+# Legacy Estimators (for backward compatibility)
 from econirl.estimation.nfxp import NFXPEstimator
 from econirl.estimation.ccp import CCPEstimator
+
+# Sklearn-style Estimators (recommended)
+from econirl.estimators import NFXP, CCP
+
+# Sklearn-style Utilities
+from econirl.utilities import Utility, LinearCost, make_utility
+
+# Sklearn-style Transition Estimator
+from econirl.transitions import TransitionEstimator
 
 # Datasets
 from econirl import datasets
@@ -53,9 +84,17 @@ __all__ = [
     "Trajectory",
     # Environments
     "RustBusEnvironment",
-    # Preferences
+    # Sklearn-style Estimators (recommended)
+    "NFXP",
+    "CCP",
+    # Sklearn-style Utilities
+    "Utility",
+    "LinearCost",
+    "make_utility",
+    # Sklearn-style Transition Estimator
+    "TransitionEstimator",
+    # Legacy API (for backward compatibility)
     "LinearUtility",
-    # Estimators
     "NFXPEstimator",
     "CCPEstimator",
     # Datasets
