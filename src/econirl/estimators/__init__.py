@@ -3,9 +3,11 @@
 This module provides high-level estimators with a scikit-learn style API:
 - NFXP: Nested Fixed Point estimator (Rust 1987, 1988)
 - CCP: Conditional Choice Probability estimator (Hotz-Miller 1993, NPL)
+- MaxEntIRL: Maximum Entropy IRL estimator (Ziebart 2008)
+- MaxMarginIRL: Maximum Margin IRL estimator (Abbeel & Ng 2004)
 
 Example:
-    >>> from econirl.estimators import NFXP, CCP
+    >>> from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL
     >>> import pandas as pd
     >>>
     >>> # Load your data
@@ -19,12 +21,19 @@ Example:
     >>> model_ccp = CCP(n_states=90, discount=0.9999)
     >>> model_ccp.fit(data=df, state="mileage_bin", action="replaced", id="bus_id")
     >>>
+    >>> # For IRL: recover reward from expert demonstrations
+    >>> model_irl = MaxEntIRL(n_states=90, n_actions=2, discount=0.99)
+    >>> model_irl.fit(data=df, state="state", action="action", id="agent_id")
+    >>> print(model_irl.reward_)  # Recovered reward function
+    >>>
     >>> # Access results (same interface)
     >>> print(model.params_)
     >>> print(model.summary())
 """
 
 from econirl.estimators.ccp import CCP
+from econirl.estimators.max_margin_irl import MaxMarginIRL
+from econirl.estimators.maxent_irl import MaxEntIRL
 from econirl.estimators.nfxp import NFXP
 
-__all__ = ["NFXP", "CCP"]
+__all__ = ["NFXP", "CCP", "MaxEntIRL", "MaxMarginIRL"]
