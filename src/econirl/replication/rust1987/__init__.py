@@ -9,6 +9,10 @@ from econirl.replication.rust1987.monte_carlo import (
     run_monte_carlo,
     summarize_monte_carlo,
 )
+from econirl.replication.rust1987.export import (
+    table_to_latex,
+    save_all_tables,
+)
 
 __all__ = [
     "table_ii_descriptives",
@@ -16,4 +20,6 @@ __all__ = [
     "table_v_structural",
     "run_monte_carlo",
     "summarize_monte_carlo",
+    "table_to_latex",
+    "save_all_tables",
 ]

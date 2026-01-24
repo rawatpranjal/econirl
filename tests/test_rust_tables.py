@@ -108,3 +108,33 @@ class TestTableV:
 
         table = table_v_structural(groups=[1], estimators=["Hotz-Miller"], original=False)
         assert table['converged'].all()
+
+
+class TestExport:
+    """Tests for LaTeX export."""
+
+    def test_table_ii_latex(self):
+        """Table II should export to LaTeX."""
+        from econirl.replication.rust1987.export import table_to_latex
+        from econirl.replication.rust1987 import table_ii_descriptives
+
+        table = table_ii_descriptives(original=False)
+        latex = table_to_latex(table, caption="Table II: Descriptive Statistics")
+
+        assert "\\begin{table}" in latex
+        assert "Descriptive Statistics" in latex
+
+    def test_save_all_tables(self):
+        """save_all_tables should create output files."""
+        import tempfile
+        import os
+        from econirl.replication.rust1987.export import save_all_tables
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_all_tables(output_dir=tmpdir, original=False, groups=[1])
+
+            # Check files exist
+            assert os.path.exists(os.path.join(tmpdir, "table_ii.csv"))
+            assert os.path.exists(os.path.join(tmpdir, "table_ii.tex"))
+            assert os.path.exists(os.path.join(tmpdir, "table_iv.csv"))
+            assert os.path.exists(os.path.join(tmpdir, "table_v.csv"))
