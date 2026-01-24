@@ -28,7 +28,7 @@ Example:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Callable, Sequence
+from typing import Callable
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -157,9 +157,16 @@ class LinearCost(Utility):
         return ["theta_c", "RC"]
 
     @property
+    def param_bounds(self) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
+        """Parameter bounds enforcing non-negativity for theta_c and RC."""
+        lower = np.array([0.0, 0.0])
+        upper = np.array([np.inf, np.inf])
+        return lower, upper
+
+    @property
     def param_init(self) -> NDArray[np.floating]:
         """Reasonable initial values for optimization."""
-        return np.array([0.001, 3.0])
+        return np.array([0.001, 5.0])
 
     def __call__(
         self,

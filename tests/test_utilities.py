@@ -219,22 +219,45 @@ class TestUtilityBaseClass:
 class TestUtilityParamBounds:
     """Test parameter bounds functionality."""
 
-    def test_linear_cost_param_bounds_default(self):
-        """LinearCost has default bounds of (-inf, inf)."""
+    def test_linear_cost_param_bounds_non_negative(self):
+        """LinearCost has bounds enforcing non-negativity: [(0, inf), (0, inf)]."""
         utility = LinearCost()
 
         lower, upper = utility.param_bounds
 
         assert len(lower) == 2
         assert len(upper) == 2
-        assert all(l == float("-inf") for l in lower)
-        assert all(u == float("inf") for u in upper)
+        # Both parameters must be non-negative
+        assert lower[0] == 0.0
+        assert lower[1] == 0.0
+        assert upper[0] == np.inf
+        assert upper[1] == np.inf
 
     def test_linear_cost_param_init_default(self):
-        """LinearCost has default initial values."""
+        """LinearCost has default initial values [0.001, 5.0]."""
         utility = LinearCost()
 
         init = utility.param_init
 
         assert len(init) == 2
-        assert all(np.isfinite(init))
+        np.testing.assert_array_equal(init, [0.001, 5.0])
+
+    def test_callable_utility_custom_param_bounds(self):
+        """CallableUtility respects custom param_bounds."""
+        def my_utility(state, action, params):
+            return -params[0] * state
+
+        custom_lower = np.array([0.0])
+        custom_upper = np.array([10.0])
+
+        utility = CallableUtility(
+            fn=my_utility,
+            n_params=1,
+            param_names=["cost"],
+            param_bounds=(custom_lower, custom_upper),
+        )
+
+        lower, upper = utility.param_bounds
+
+        np.testing.assert_array_equal(lower, [0.0])
+        np.testing.assert_array_equal(upper, [10.0])
