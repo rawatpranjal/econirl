@@ -399,3 +399,224 @@ class TestNFXPImport:
 
         assert hasattr(estimators, "__all__")
         assert "NFXP" in estimators.__all__
+
+
+class TestNFXPSimulate:
+    """Tests for NFXP.simulate() method."""
+
+    @pytest.fixture
+    def fitted_estimator(self):
+        """Create and fit an NFXP estimator."""
+        from econirl.estimators import NFXP
+
+        np.random.seed(42)
+        n_individuals = 20
+        n_periods = 30
+
+        data = []
+        for i in range(n_individuals):
+            state = 0
+            for t in range(n_periods):
+                action = 1 if state > 60 or np.random.random() < 0.02 else 0
+                next_state = 0 if action == 1 else min(state + np.random.choice([0, 1, 2], p=[0.35, 0.60, 0.05]), 89)
+                data.append({
+                    "bus_id": i,
+                    "period": t,
+                    "mileage_bin": state,
+                    "replaced": action,
+                    "next_mileage": next_state,
+                })
+                state = next_state
+
+        df = pd.DataFrame(data)
+
+        estimator = NFXP(n_states=90, verbose=False)
+        estimator.fit(
+            data=df,
+            state="mileage_bin",
+            action="replaced",
+            id="bus_id",
+        )
+
+        return estimator
+
+    def test_nfxp_simulate_returns_dataframe(self, fitted_estimator):
+        """simulate() should return a pandas DataFrame."""
+        result = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=42)
+
+        assert isinstance(result, pd.DataFrame)
+
+    def test_nfxp_simulate_has_correct_columns(self, fitted_estimator):
+        """simulate() should return DataFrame with required columns."""
+        result = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=42)
+
+        assert "agent_id" in result.columns
+        assert "period" in result.columns
+        assert "state" in result.columns
+        assert "action" in result.columns
+
+    def test_nfxp_simulate_has_correct_shape(self, fitted_estimator):
+        """simulate() should return correct number of rows."""
+        n_agents = 5
+        n_periods = 10
+        result = fitted_estimator.simulate(n_agents=n_agents, n_periods=n_periods, seed=42)
+
+        # Should have n_agents * n_periods rows
+        assert len(result) == n_agents * n_periods
+
+    def test_nfxp_simulate_agent_ids(self, fitted_estimator):
+        """simulate() should have correct agent IDs."""
+        n_agents = 5
+        n_periods = 10
+        result = fitted_estimator.simulate(n_agents=n_agents, n_periods=n_periods, seed=42)
+
+        # Should have n_agents unique agent IDs
+        assert result["agent_id"].nunique() == n_agents
+
+        # Each agent should have n_periods observations
+        for agent_id in result["agent_id"].unique():
+            agent_data = result[result["agent_id"] == agent_id]
+            assert len(agent_data) == n_periods
+
+    def test_nfxp_simulate_valid_states(self, fitted_estimator):
+        """simulate() should produce valid state values."""
+        result = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=42)
+
+        # States should be in valid range [0, n_states)
+        assert (result["state"] >= 0).all()
+        assert (result["state"] < fitted_estimator.n_states).all()
+
+    def test_nfxp_simulate_valid_actions(self, fitted_estimator):
+        """simulate() should produce valid action values."""
+        result = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=42)
+
+        # Actions should be in valid range [0, n_actions)
+        assert (result["action"] >= 0).all()
+        assert (result["action"] < fitted_estimator.n_actions).all()
+
+    def test_nfxp_simulate_seed_reproducibility(self, fitted_estimator):
+        """simulate() should be reproducible with same seed."""
+        result1 = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=42)
+        result2 = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=42)
+
+        pd.testing.assert_frame_equal(result1, result2)
+
+    def test_nfxp_simulate_different_seeds(self, fitted_estimator):
+        """simulate() should produce different results with different seeds."""
+        result1 = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=42)
+        result2 = fitted_estimator.simulate(n_agents=5, n_periods=10, seed=123)
+
+        # Results should differ (at least in some rows)
+        # Note: there's a tiny chance this could fail randomly, but extremely unlikely
+        assert not result1["action"].equals(result2["action"]) or not result1["state"].equals(result2["state"])
+
+
+class TestNFXPCounterfactual:
+    """Tests for NFXP.counterfactual() method."""
+
+    @pytest.fixture
+    def fitted_estimator(self):
+        """Create and fit an NFXP estimator."""
+        from econirl.estimators import NFXP
+
+        np.random.seed(42)
+        n_individuals = 20
+        n_periods = 30
+
+        data = []
+        for i in range(n_individuals):
+            state = 0
+            for t in range(n_periods):
+                action = 1 if state > 60 or np.random.random() < 0.02 else 0
+                next_state = 0 if action == 1 else min(state + np.random.choice([0, 1, 2], p=[0.35, 0.60, 0.05]), 89)
+                data.append({
+                    "bus_id": i,
+                    "period": t,
+                    "mileage_bin": state,
+                    "replaced": action,
+                    "next_mileage": next_state,
+                })
+                state = next_state
+
+        df = pd.DataFrame(data)
+
+        estimator = NFXP(n_states=90, verbose=False)
+        estimator.fit(
+            data=df,
+            state="mileage_bin",
+            action="replaced",
+            id="bus_id",
+        )
+
+        return estimator
+
+    def test_nfxp_counterfactual_returns_result(self, fitted_estimator):
+        """counterfactual() should return a CounterfactualResult."""
+        from econirl.estimators.nfxp import CounterfactualResult
+
+        result = fitted_estimator.counterfactual(RC=15.0)
+
+        assert isinstance(result, CounterfactualResult)
+
+    def test_nfxp_counterfactual_has_params(self, fitted_estimator):
+        """CounterfactualResult should have params dict."""
+        result = fitted_estimator.counterfactual(RC=15.0)
+
+        assert hasattr(result, "params")
+        assert isinstance(result.params, dict)
+        assert "RC" in result.params
+        assert result.params["RC"] == 15.0
+        # theta_c should be from original estimate
+        assert "theta_c" in result.params
+        assert result.params["theta_c"] == fitted_estimator.params_["theta_c"]
+
+    def test_nfxp_counterfactual_has_value_function(self, fitted_estimator):
+        """CounterfactualResult should have value_function array."""
+        result = fitted_estimator.counterfactual(RC=15.0)
+
+        assert hasattr(result, "value_function")
+        assert isinstance(result.value_function, np.ndarray)
+        assert len(result.value_function) == fitted_estimator.n_states
+
+    def test_nfxp_counterfactual_has_policy(self, fitted_estimator):
+        """CounterfactualResult should have policy array."""
+        result = fitted_estimator.counterfactual(RC=15.0)
+
+        assert hasattr(result, "policy")
+        assert isinstance(result.policy, np.ndarray)
+        assert result.policy.shape == (fitted_estimator.n_states, fitted_estimator.n_actions)
+
+        # Policy should be valid probabilities
+        assert (result.policy >= 0).all()
+        assert (result.policy <= 1).all()
+        np.testing.assert_allclose(result.policy.sum(axis=1), np.ones(fitted_estimator.n_states), atol=1e-6)
+
+    def test_nfxp_counterfactual_changes_policy(self, fitted_estimator):
+        """counterfactual() with different RC should change policy."""
+        # Use very different RC values to ensure policy changes
+        # even with small/noisy estimated parameters
+        result_low_RC = fitted_estimator.counterfactual(RC=1.0)
+        result_high_RC = fitted_estimator.counterfactual(RC=100.0)
+
+        # With higher replacement cost, probability of replacement should generally decrease
+        # (At least at some states)
+        low_rc_p_replace = result_low_RC.policy[:, 1]
+        high_rc_p_replace = result_high_RC.policy[:, 1]
+
+        # The policies should be different with such extreme RC differences
+        assert not np.allclose(low_rc_p_replace, high_rc_p_replace, atol=1e-3)
+
+        # On average, replacement probability should be lower with higher RC
+        assert high_rc_p_replace.mean() < low_rc_p_replace.mean()
+
+    def test_nfxp_counterfactual_multiple_params(self, fitted_estimator):
+        """counterfactual() should accept multiple parameter changes."""
+        result = fitted_estimator.counterfactual(RC=15.0, theta_c=0.05)
+
+        assert result.params["RC"] == 15.0
+        assert result.params["theta_c"] == 0.05
+
+    def test_nfxp_counterfactual_invalid_param_raises(self, fitted_estimator):
+        """counterfactual() should raise error for unknown parameters."""
+        with pytest.raises(ValueError):
+            fitted_estimator.counterfactual(invalid_param=1.0)

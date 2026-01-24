@@ -23,20 +23,57 @@ Example:
     >>>
     >>> # Predict choice probabilities
     >>> proba = model.predict_proba(states=np.array([0, 10, 50]))
+    >>>
+    >>> # Simulate new data under estimated policy
+    >>> sim_df = model.simulate(n_agents=100, n_periods=50, seed=42)
+    >>>
+    >>> # Counterfactual analysis: what if RC was higher?
+    >>> cf_result = model.counterfactual(RC=15.0)
+    >>> print(cf_result.policy)  # New policy under higher replacement cost
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import pandas as pd
 import torch
 
+from econirl.core.bellman import SoftBellmanOperator
+from econirl.core.solvers import value_iteration
 from econirl.core.types import DDCProblem, Panel, Trajectory
 from econirl.estimation.nfxp import NFXPEstimator
 from econirl.preferences.linear import LinearUtility
 from econirl.transitions import TransitionEstimator
+
+
+@dataclass
+class CounterfactualResult:
+    """Result of a counterfactual policy analysis.
+
+    Contains the value function and policy computed under alternative
+    parameter values, enabling "what if" analysis after estimation.
+
+    Attributes:
+        params: Dictionary of parameter values used in the counterfactual.
+                Contains both the modified parameters and the original
+                estimated values for unchanged parameters.
+        value_function: Value function V(s) under the counterfactual parameters,
+                       shape (n_states,).
+        policy: Choice probabilities P(a|s) under the counterfactual parameters,
+               shape (n_states, n_actions). Each row sums to 1.
+
+    Example:
+        >>> # After fitting NFXP estimator
+        >>> cf = estimator.counterfactual(RC=15.0)
+        >>> print(f"Under RC=15.0, P(replace|state=50) = {cf.policy[50, 1]:.3f}")
+    """
+
+    params: dict[str, float]
+    value_function: np.ndarray
+    policy: np.ndarray
 
 
 class NFXP:
@@ -404,6 +441,181 @@ class NFXP:
         proba = policy[states]
 
         return proba
+
+    def simulate(
+        self,
+        n_agents: int,
+        n_periods: int,
+        seed: int | None = None,
+    ) -> pd.DataFrame:
+        """Simulate choices under the estimated policy.
+
+        Generates synthetic data by simulating agents making decisions
+        according to the fitted model. Each agent starts at state 0 and
+        evolves according to the estimated transition probabilities and
+        choice probabilities.
+
+        Parameters
+        ----------
+        n_agents : int
+            Number of agents to simulate.
+        n_periods : int
+            Number of time periods per agent.
+        seed : int, optional
+            Random seed for reproducibility.
+
+        Returns
+        -------
+        pandas.DataFrame
+            DataFrame with columns:
+            - agent_id: Identifier for each agent (0 to n_agents-1)
+            - period: Time period (0 to n_periods-1)
+            - state: State at the beginning of the period
+            - action: Action taken (sampled from estimated policy)
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted yet.
+
+        Examples
+        --------
+        >>> model = NFXP(n_states=90)
+        >>> model.fit(data, state="mileage", action="replaced", id="bus_id")
+        >>> sim_data = model.simulate(n_agents=100, n_periods=50, seed=42)
+        >>> print(sim_data.head())
+        """
+        if self._result is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+
+        # Set random seed
+        if seed is not None:
+            np.random.seed(seed)
+
+        # Get the policy (choice probabilities)
+        policy = self._result.policy.numpy()  # shape: (n_states, n_actions)
+
+        # Get transition probabilities (for action 0 = keep)
+        transitions = self.transitions_  # shape: (n_states, n_states)
+
+        # Storage for results
+        data = []
+
+        for agent_id in range(n_agents):
+            state = 0  # All agents start at state 0
+
+            for period in range(n_periods):
+                # Sample action from policy
+                action_probs = policy[state]
+                action = np.random.choice(self.n_actions, p=action_probs)
+
+                # Record observation
+                data.append({
+                    "agent_id": agent_id,
+                    "period": period,
+                    "state": state,
+                    "action": action,
+                })
+
+                # Transition to next state
+                if action == 1:  # Replace: reset to state 0, then transition
+                    state = 0
+                    trans_probs = transitions[0]
+                else:  # Keep: use transition from current state
+                    trans_probs = transitions[state]
+
+                state = np.random.choice(self.n_states, p=trans_probs)
+
+        return pd.DataFrame(data)
+
+    def counterfactual(self, **param_changes) -> CounterfactualResult:
+        """Compute outcomes under different parameter values.
+
+        Performs counterfactual analysis by solving the dynamic programming
+        problem under alternative parameter values. This enables "what if"
+        questions like "what would the policy be if RC was 15 instead of 10?"
+
+        Parameters
+        ----------
+        **param_changes : float
+            Keyword arguments specifying parameter changes.
+            Keys must be valid parameter names (e.g., "theta_c", "RC").
+            Values are the counterfactual parameter values.
+
+        Returns
+        -------
+        CounterfactualResult
+            Object containing:
+            - params: Dictionary of all parameter values used
+            - value_function: V(s) under new parameters
+            - policy: P(a|s) under new parameters
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted yet.
+        ValueError
+            If an unknown parameter name is provided.
+
+        Examples
+        --------
+        >>> model = NFXP(n_states=90)
+        >>> model.fit(data, state="mileage", action="replaced", id="bus_id")
+        >>>
+        >>> # What if replacement cost was higher?
+        >>> cf = model.counterfactual(RC=15.0)
+        >>> print(f"Original RC: {model.params_['RC']:.2f}")
+        >>> print(f"Counterfactual RC: {cf.params['RC']:.2f}")
+        >>> print(f"P(replace|state=50) changes from "
+        ...       f"{model.predict_proba(np.array([50]))[0,1]:.3f} to "
+        ...       f"{cf.policy[50,1]:.3f}")
+        >>>
+        >>> # Multiple parameter changes
+        >>> cf2 = model.counterfactual(RC=15.0, theta_c=0.05)
+        """
+        if self._result is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+
+        # Check for invalid parameter names
+        valid_params = set(self.params_.keys())
+        for param_name in param_changes:
+            if param_name not in valid_params:
+                raise ValueError(
+                    f"Unknown parameter '{param_name}'. "
+                    f"Valid parameters are: {sorted(valid_params)}"
+                )
+
+        # Build counterfactual parameter dictionary
+        cf_params = self.params_.copy()
+        cf_params.update(param_changes)
+
+        # Build parameter vector in correct order
+        param_names = self._result.parameter_names
+        param_vector = torch.tensor(
+            [cf_params[name] for name in param_names],
+            dtype=torch.float32,
+        )
+
+        # Compute utility matrix with new parameters
+        utility_matrix = self._utility_fn.compute(param_vector)
+
+        # Build transition tensor
+        transition_tensor = self._build_transition_tensor(self.transitions_)
+
+        # Create Bellman operator
+        operator = SoftBellmanOperator(
+            problem=self._problem,
+            transitions=transition_tensor,
+        )
+
+        # Solve for new value function and policy
+        result = value_iteration(operator, utility_matrix)
+
+        return CounterfactualResult(
+            params=cf_params,
+            value_function=result.V.numpy(),
+            policy=result.policy.numpy(),
+        )
 
     def __repr__(self) -> str:
         if self.params_ is not None:
