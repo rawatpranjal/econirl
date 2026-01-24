@@ -41,6 +41,9 @@ from econirl.estimation.ccp import CCPEstimator
 # Datasets
 from econirl import datasets
 
+# Replication
+from econirl import replication
+
 __all__ = [
     # Version
     "__version__",
@@ -57,4 +60,6 @@ __all__ = [
     "CCPEstimator",
     # Datasets
     "datasets",
+    # Replication
+    "replication",
 ]
