@@ -168,17 +168,32 @@ def process_rust_data(df: pd.DataFrame) -> pd.DataFrame:
     - bus_id: int (unique across all groups)
     - period: int (1-indexed)
     - mileage: float (in thousands)
-    - mileage_bin: int (5000-mile bins, 0-89)
+    - mileage_bin: int (5000-mile bins, 0-89) - based on mileage since last replacement
     - replaced: int (0/1)
     - group: int (1-4 for paper analysis)
+
+    Note: The state variable in Rust (1987) DDC model is mileage since last engine
+    replacement, NOT cumulative odometer. When an engine is replaced (replaced=1),
+    the state resets toward zero in the following period.
     """
     df = df.copy()
-
-    # Create mileage bins (5000 miles = 5 units in thousands)
-    df['mileage_bin'] = (df['mileage'] / 5.0).astype(int).clip(0, 89)
-
-    # Sort and reset index
     df = df.sort_values(['bus_id', 'period']).reset_index(drop=True)
+
+    # Compute mileage since last replacement
+    # In Rust (1987), the state variable x represents mileage since last engine replacement
+    mileage_since_replacement = []
+    for bus_id in df['bus_id'].unique():
+        bus_df = df[df['bus_id'] == bus_id].sort_values('period')
+        last_replacement_mileage = 0.0
+        for idx, row in bus_df.iterrows():
+            mileage_since_replacement.append(row['mileage'] - last_replacement_mileage)
+            if row['replaced'] == 1:
+                last_replacement_mileage = row['mileage']
+
+    df['mileage_since_replacement'] = mileage_since_replacement
+
+    # Create mileage bins from mileage since replacement (5000 miles = 5 units in thousands)
+    df['mileage_bin'] = (df['mileage_since_replacement'] / 5.0).astype(int).clip(0, 89)
 
     return df[['bus_id', 'period', 'mileage', 'mileage_bin', 'replaced', 'group']]
 
