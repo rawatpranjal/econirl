@@ -61,6 +61,9 @@ packages = ["src/econirl"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
 
 [tool.ruff]
 line-length = 100
