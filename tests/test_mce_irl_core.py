@@ -16,61 +16,12 @@ from econirl.preferences.reward import LinearReward
 
 
 class TestMCEIRLConvergence:
-    """Test that MCE IRL converges on simple problems."""
+    """Test that MCE IRL converges on simple problems.
 
-    @pytest.fixture
-    def simple_problem(self):
-        """Create a simple 10-state MDP with known structure."""
-        n_states = 10
-        problem = DDCProblem(
-            num_states=n_states,
-            num_actions=2,
-            discount_factor=0.95,
-        )
-
-        # Deterministic transitions: keep -> next state, replace -> state 0
-        transitions = torch.zeros((2, n_states, n_states))
-        for s in range(n_states):
-            transitions[0, s, min(s + 1, n_states - 1)] = 1.0  # keep
-            transitions[1, s, 0] = 1.0  # replace
-
-        return problem, transitions
-
-    @pytest.fixture
-    def synthetic_panel(self, simple_problem):
-        """Generate synthetic data from a known policy."""
-        problem, transitions = simple_problem
-        n_states = problem.num_states
-
-        np.random.seed(42)
-        trajectories = []
-
-        for i in range(20):
-            states, actions, next_states = [], [], []
-            s = 0
-            for t in range(50):
-                states.append(s)
-                # Replace with higher prob at high states
-                p_replace = 0.05 + 0.15 * s / n_states
-                a = 1 if np.random.random() < p_replace else 0
-                actions.append(a)
-                # Compute next state based on action
-                if a == 1:
-                    next_s = 0
-                else:
-                    next_s = min(s + 1, n_states - 1)
-                next_states.append(next_s)
-                s = next_s
-
-            traj = Trajectory(
-                states=torch.tensor(states, dtype=torch.long),
-                actions=torch.tensor(actions, dtype=torch.long),
-                next_states=torch.tensor(next_states, dtype=torch.long),
-                individual_id=i,
-            )
-            trajectories.append(traj)
-
-        return Panel(trajectories=trajectories)
+    Uses shared fixtures from conftest.py:
+    - simple_problem: 10-state MDP with deterministic transitions
+    - synthetic_panel: Panel of 20 trajectories with 50 periods each
+    """
 
     def test_mce_irl_converges(self, simple_problem, synthetic_panel):
         """MCE IRL should converge on simple problem."""
@@ -177,58 +128,12 @@ class TestMCEIRLConvergence:
 
 
 class TestFeatureMatching:
-    """Test that MCE IRL matches feature expectations."""
+    """Test that MCE IRL matches feature expectations.
 
-    @pytest.fixture
-    def simple_problem(self):
-        """Create a simple 10-state MDP with known structure."""
-        n_states = 10
-        problem = DDCProblem(
-            num_states=n_states,
-            num_actions=2,
-            discount_factor=0.95,
-        )
-
-        transitions = torch.zeros((2, n_states, n_states))
-        for s in range(n_states):
-            transitions[0, s, min(s + 1, n_states - 1)] = 1.0  # keep
-            transitions[1, s, 0] = 1.0  # replace
-
-        return problem, transitions
-
-    @pytest.fixture
-    def synthetic_panel(self, simple_problem):
-        """Generate synthetic data from a known policy."""
-        problem, transitions = simple_problem
-        n_states = problem.num_states
-
-        np.random.seed(42)
-        trajectories = []
-
-        for i in range(20):
-            states, actions, next_states = [], [], []
-            s = 0
-            for t in range(50):
-                states.append(s)
-                p_replace = 0.05 + 0.15 * s / n_states
-                a = 1 if np.random.random() < p_replace else 0
-                actions.append(a)
-                if a == 1:
-                    next_s = 0
-                else:
-                    next_s = min(s + 1, n_states - 1)
-                next_states.append(next_s)
-                s = next_s
-
-            traj = Trajectory(
-                states=torch.tensor(states, dtype=torch.long),
-                actions=torch.tensor(actions, dtype=torch.long),
-                next_states=torch.tensor(next_states, dtype=torch.long),
-                individual_id=i,
-            )
-            trajectories.append(traj)
-
-        return Panel(trajectories=trajectories)
+    Uses shared fixtures from conftest.py:
+    - simple_problem: 10-state MDP with deterministic transitions
+    - synthetic_panel: Panel of 20 trajectories with 50 periods each
+    """
 
     def test_feature_matching(self, simple_problem, synthetic_panel):
         """MCE IRL should approximately match empirical feature expectations."""
