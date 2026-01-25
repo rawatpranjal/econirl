@@ -557,6 +557,16 @@ class MCEIRLEstimator(BaseEstimator):
         torch.Tensor
             Hessian matrix, shape (n_params, n_params).
             Guaranteed to be negative semi-definite for valid inference.
+
+        Notes
+        -----
+        Step size selection follows Gill, Murray, and Wright (1981) guidance:
+        - Use adaptive step h_i = max(eps, min(|params[i]| * eps, 0.1))
+        - Lower bound (eps) prevents division by zero for zero-valued parameters
+        - Upper bound (0.1) prevents excessively large steps for large parameters
+          that would introduce truncation error and numerical instability
+        - The default eps=1e-3 balances truncation error (favors larger h)
+          against rounding error (favors smaller h) for float32 precision
         """
         operator = SoftBellmanOperator(problem, transitions)
         n_params = len(params)
@@ -576,13 +586,13 @@ class MCEIRLEstimator(BaseEstimator):
             return ll
 
         # Compute Hessian using central differences
-        # Use adaptive step size based on parameter magnitude
+        # Use adaptive step size based on parameter magnitude with bounds
         for i in range(n_params):
-            # Adaptive step: larger for larger params, with minimum of eps
-            h_i = max(eps, abs(params[i].item()) * eps)
+            # Adaptive step: larger for larger params, bounded between eps and 0.1
+            h_i = max(eps, min(abs(params[i].item()) * eps, 0.1))
 
             for j in range(i, n_params):
-                h_j = max(eps, abs(params[j].item()) * eps)
+                h_j = max(eps, min(abs(params[j].item()) * eps, 0.1))
 
                 if i == j:
                     # Diagonal: use standard 2nd derivative formula

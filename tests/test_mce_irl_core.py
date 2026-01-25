@@ -630,3 +630,22 @@ class TestMCEIRLInference:
         # CI should contain the point estimate
         assert (ci_low <= params).all()
         assert (params <= ci_high).all()
+
+    def test_hessian_negative_semidefinite(self, fitted_result):
+        """Hessian should be negative semi-definite at maximum.
+
+        At a maximum of the log-likelihood, the Hessian must be negative
+        semi-definite (all eigenvalues <= 0). This is required for valid
+        variance estimation via the inverse Hessian.
+        """
+        hessian = fitted_result.hessian
+        assert hessian is not None, "Hessian should be computed"
+
+        # Compute eigenvalues
+        eigenvalues = torch.linalg.eigvalsh(hessian)
+
+        # All eigenvalues should be <= 0 (with small tolerance for numerical error)
+        assert (eigenvalues <= 1e-8).all(), (
+            f"Hessian is not negative semi-definite. "
+            f"Eigenvalues: {eigenvalues.tolist()}"
+        )
