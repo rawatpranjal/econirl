@@ -5,9 +5,10 @@ This module provides high-level estimators with a scikit-learn style API:
 - CCP: Conditional Choice Probability estimator (Hotz-Miller 1993, NPL)
 - MaxEntIRL: Maximum Entropy IRL estimator (Ziebart 2008)
 - MaxMarginIRL: Maximum Margin IRL estimator (Abbeel & Ng 2004)
+- MCEIRL: Maximum Causal Entropy IRL estimator (Ziebart 2010)
 
 Example:
-    >>> from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL
+    >>> from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL, MCEIRL
     >>> import pandas as pd
     >>>
     >>> # Load your data
@@ -26,6 +27,11 @@ Example:
     >>> model_irl.fit(data=df, state="state", action="action", id="agent_id")
     >>> print(model_irl.reward_)  # Recovered reward function
     >>>
+    >>> # MCE IRL (Maximum Causal Entropy)
+    >>> model_mce = MCEIRL(n_states=90, discount=0.99)
+    >>> model_mce.fit(data=df, state="state", action="action", id="agent_id")
+    >>> print(model_mce.reward_)  # Recovered reward function
+    >>>
     >>> # Access results (same interface)
     >>> print(model.params_)
     >>> print(model.summary())
@@ -34,6 +40,7 @@ Example:
 from econirl.estimators.ccp import CCP
 from econirl.estimators.max_margin_irl import MaxMarginIRL
 from econirl.estimators.maxent_irl import MaxEntIRL
+from econirl.estimators.mce_irl import MCEIRL
 from econirl.estimators.nfxp import NFXP
 
-__all__ = ["NFXP", "CCP", "MaxEntIRL", "MaxMarginIRL"]
+__all__ = ["NFXP", "CCP", "MaxEntIRL", "MaxMarginIRL", "MCEIRL"]
