@@ -32,7 +32,8 @@ from econirl.core.solvers import value_iteration
 from econirl.core.types import DDCProblem, Panel
 from econirl.estimation.base import BaseEstimator, EstimationResult
 from econirl.inference.standard_errors import SEMethod
-from econirl.preferences.base import UtilityFunction
+from econirl.preferences.action_reward import ActionDependentReward
+from econirl.preferences.base import BaseUtilityFunction, UtilityFunction
 from econirl.preferences.reward import LinearReward
 
 
@@ -128,19 +129,20 @@ class MaxMarginIRLEstimator(BaseEstimator):
     def _compute_feature_expectations(
         self,
         panel: Panel,
-        reward_fn: LinearReward,
+        reward_fn: BaseUtilityFunction,
     ) -> torch.Tensor:
         """Compute expert feature expectations from demonstration data.
 
         The feature expectation is the discounted sum of features visited:
-            mu_E = E[sum_t gamma^t * phi(s_t)]
+            mu_E = E[sum_t gamma^t * phi(s_t, a_t)]
 
         For finite-horizon data, we compute the empirical average:
-            mu_E = (1/N) * sum_i sum_t phi(s_{i,t})
+            - State-only: mu_E = (1/N) * sum_i sum_t phi(s_{i,t})
+            - Action-dependent: mu_E = (1/N) * sum_i sum_t phi(s_{i,t}, a_{i,t})
 
         Args:
             panel: Panel data with expert demonstrations
-            reward_fn: LinearReward function containing state features
+            reward_fn: Reward function (LinearReward or ActionDependentReward)
 
         Returns:
             Feature expectations tensor of shape (num_features,)
@@ -148,12 +150,29 @@ class MaxMarginIRLEstimator(BaseEstimator):
         num_features = reward_fn.num_parameters
         feature_expectations = torch.zeros(num_features, dtype=torch.float32)
 
-        # Sum features across all observed states
+        # Get feature matrix - handle both 2D (state-only) and 3D (action-dependent)
+        if isinstance(reward_fn, ActionDependentReward):
+            feature_matrix = reward_fn.feature_matrix  # (n_states, n_actions, n_features)
+            is_action_dependent = True
+        elif isinstance(reward_fn, LinearReward):
+            feature_matrix = reward_fn.state_features  # (n_states, n_features)
+            is_action_dependent = False
+        else:
+            raise TypeError(
+                f"MaxMarginIRLEstimator requires LinearReward or ActionDependentReward, "
+                f"got {type(reward_fn)}"
+            )
+
+        # Sum features across all observed state-action pairs
         total_count = 0
         for traj in panel.trajectories:
             for t in range(len(traj)):
                 state = traj.states[t].item()
-                feature_expectations += reward_fn.state_features[state]
+                if is_action_dependent:
+                    action = traj.actions[t].item()
+                    feature_expectations += feature_matrix[state, action, :]
+                else:
+                    feature_expectations += feature_matrix[state]
                 total_count += 1
 
         # Normalize by total observations
@@ -166,21 +185,22 @@ class MaxMarginIRLEstimator(BaseEstimator):
         self,
         policy: torch.Tensor,
         transitions: torch.Tensor,
-        reward_fn: LinearReward,
+        reward_fn: BaseUtilityFunction,
         problem: DDCProblem,
         initial_distribution: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute feature expectations under a given policy.
 
         Uses the stationary distribution under the policy to compute:
-            mu_pi = sum_s d_pi(s) * phi(s)
+            - State-only: mu_pi = sum_s d_pi(s) * phi(s)
+            - Action-dependent: mu_pi = sum_s d_pi(s) * sum_a pi(a|s) * phi(s, a)
 
         where d_pi(s) is the stationary state distribution under policy pi.
 
         Args:
             policy: Policy tensor of shape (num_states, num_actions)
             transitions: Transition matrices P(s'|s,a)
-            reward_fn: LinearReward with state features
+            reward_fn: Reward function (LinearReward or ActionDependentReward)
             problem: Problem specification
             initial_distribution: Initial state distribution (if None, use uniform)
 
@@ -218,9 +238,22 @@ class MaxMarginIRLEstimator(BaseEstimator):
                 d_pi = d_new
             d_pi = d_pi / d_pi.sum()
 
-        # Compute feature expectations
-        # mu_pi = sum_s d_pi(s) * phi(s)
-        feature_expectations = torch.einsum("s,sk->k", d_pi, reward_fn.state_features)
+        # Compute feature expectations based on reward type
+        if isinstance(reward_fn, ActionDependentReward):
+            # Action-dependent: mu_pi = sum_s d_pi(s) * sum_a pi(a|s) * phi(s, a, k)
+            feature_matrix = reward_fn.feature_matrix  # (n_states, n_actions, n_features)
+            # First compute sum_a pi(a|s) * phi(s, a, k) -> (n_states, n_features)
+            policy_weighted_features = torch.einsum("sa,sak->sk", policy, feature_matrix)
+            # Then compute sum_s d_pi(s) * policy_weighted_features
+            feature_expectations = torch.einsum("s,sk->k", d_pi, policy_weighted_features)
+        elif isinstance(reward_fn, LinearReward):
+            # State-only: mu_pi = sum_s d_pi(s) * phi(s)
+            feature_expectations = torch.einsum("s,sk->k", d_pi, reward_fn.state_features)
+        else:
+            raise TypeError(
+                f"MaxMarginIRLEstimator requires LinearReward or ActionDependentReward, "
+                f"got {type(reward_fn)}"
+            )
 
         return feature_expectations
 
@@ -228,19 +261,19 @@ class MaxMarginIRLEstimator(BaseEstimator):
         self,
         theta: torch.Tensor,
         transitions: torch.Tensor,
-        reward_fn: LinearReward,
+        reward_fn: BaseUtilityFunction,
         problem: DDCProblem,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Find the most violating policy under current reward weights.
 
-        Solves the MDP with reward R(s) = theta * phi(s) and returns
+        Solves the MDP with reward R(s,a) = theta * phi(s,a) and returns
         the optimal policy, which is the best candidate for violating
         the margin constraint.
 
         Args:
             theta: Current reward weight estimate
             transitions: Transition matrices
-            reward_fn: LinearReward specification
+            reward_fn: Reward function (LinearReward or ActionDependentReward)
             problem: Problem specification
 
         Returns:
@@ -370,7 +403,7 @@ class MaxMarginIRLEstimator(BaseEstimator):
     def _optimize(
         self,
         panel: Panel,
-        utility: UtilityFunction,
+        utility: BaseUtilityFunction,
         problem: DDCProblem,
         transitions: torch.Tensor,
         initial_params: torch.Tensor | None = None,
@@ -380,7 +413,7 @@ class MaxMarginIRLEstimator(BaseEstimator):
 
         Args:
             panel: Panel data with expert demonstrations
-            utility: Should be a LinearReward for IRL
+            utility: Reward function (LinearReward or ActionDependentReward)
             problem: Problem specification
             transitions: Transition probability matrices
             initial_params: Initial reward weights (optional)
@@ -390,10 +423,11 @@ class MaxMarginIRLEstimator(BaseEstimator):
         """
         start_time = time.time()
 
-        # Verify utility is LinearReward
-        if not isinstance(utility, LinearReward):
+        # Verify utility is a supported type
+        if not isinstance(utility, (LinearReward, ActionDependentReward)):
             raise TypeError(
-                f"MaxMarginIRLEstimator requires LinearReward, got {type(utility)}"
+                f"MaxMarginIRLEstimator requires LinearReward or ActionDependentReward, "
+                f"got {type(utility)}"
             )
 
         reward_fn = utility
@@ -553,7 +587,7 @@ class MaxMarginIRLEstimator(BaseEstimator):
         self,
         theta: torch.Tensor,
         panel: Panel,
-        reward_fn: LinearReward,
+        reward_fn: BaseUtilityFunction,
         problem: DDCProblem,
         transitions: torch.Tensor,
     ) -> float:
@@ -565,7 +599,7 @@ class MaxMarginIRLEstimator(BaseEstimator):
         Args:
             theta: Reward weights
             panel: Expert demonstrations
-            reward_fn: LinearReward specification
+            reward_fn: Reward function (LinearReward or ActionDependentReward)
             problem: Problem specification
             transitions: Transition matrices
 
