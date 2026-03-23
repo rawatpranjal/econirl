@@ -533,11 +533,12 @@ class MaxMarginIRLEstimator(BaseEstimator):
                 f"theta = {theta[:min(3, len(theta))]}..."
             )
 
-            # Check convergence
-            margin_improvement = margin - prev_margin
-            if margin_improvement < self._margin_tol and iteration > 0:
+            # Check convergence — margin decreases as constraints tighten,
+            # so check absolute change, not sign
+            margin_change = abs(margin - prev_margin)
+            if margin_change < self._margin_tol and iteration > 0:
                 converged = True
-                self._log(f"Converged: margin improvement {margin_improvement:.6e}")
+                self._log(f"Converged: margin change {margin_change:.6e}")
                 break
 
             prev_margin = margin

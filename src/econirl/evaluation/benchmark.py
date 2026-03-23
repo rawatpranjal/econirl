@@ -93,6 +93,7 @@ class BenchmarkResult:
     estimates: dict[str, float] = field(default_factory=dict)
     true_params: dict[str, float] = field(default_factory=dict)
     estimated_reward: torch.Tensor | None = None
+    learned_policy: torch.Tensor | None = None
     true_reward: torch.Tensor | None = None
 
 
@@ -210,16 +211,75 @@ def _compute_transfer_pct_optimal(
     return ((mean_v_transfer - mean_v_random) / denom) * 100.0
 
 
+def _evaluate_policy_transfer(
+    learned_policy: torch.Tensor,
+    true_utility: torch.Tensor,
+    problem: DDCProblem,
+    dgp: BenchmarkDGP,
+) -> float:
+    """Evaluate a fixed policy on transfer dynamics.
+
+    Unlike _compute_transfer_pct_optimal which re-solves the MDP with
+    estimated rewards, this directly evaluates the learned policy under
+    transfer transitions. Used for estimators that produce policies
+    without recovering rewards (e.g. behavioral cloning).
+
+    Args:
+        learned_policy: Policy to evaluate (n_states, n_actions).
+        true_utility: True reward matrix (n_states, n_actions).
+        problem: MDP specification.
+        dgp: DGP with transfer_transition_probs.
+    """
+    transfer_env = MultiComponentBusEnvironment(
+        K=1,
+        M=dgp.n_states,
+        replacement_cost=dgp.replacement_cost,
+        operating_cost=dgp.operating_cost,
+        quadratic_cost=dgp.quadratic_cost,
+        discount_factor=dgp.discount_factor,
+        mileage_transition_probs=dgp.transfer_transition_probs,
+    )
+    transfer_transitions = transfer_env.transition_matrices
+
+    operator = SoftBellmanOperator(problem=problem, transitions=transfer_transitions)
+    v_star = value_iteration(operator, true_utility).V
+
+    v_learned = _policy_evaluation_matrix(
+        true_utility, learned_policy, transfer_transitions,
+        beta=problem.discount_factor,
+        sigma=problem.scale_parameter,
+    )
+
+    uniform_policy = torch.ones_like(learned_policy) / learned_policy.shape[1]
+    v_random = _policy_evaluation_matrix(
+        true_utility, uniform_policy, transfer_transitions,
+        beta=problem.discount_factor,
+        sigma=problem.scale_parameter,
+    )
+
+    mean_v_star = v_star.mean().item()
+    mean_v_learned = v_learned.mean().item()
+    mean_v_random = v_random.mean().item()
+
+    denom = mean_v_star - mean_v_random
+    if abs(denom) < 1e-10:
+        return 100.0
+
+    return ((mean_v_learned - mean_v_random) / denom) * 100.0
+
+
 def get_default_estimator_specs() -> list[EstimatorSpec]:
-    """Get benchmark-tuned specs for all 10 estimators."""
+    """Get benchmark-tuned specs for all 12 estimators."""
     from econirl.estimation import (
         AIRLEstimator,
+        BehavioralCloningEstimator,
         CCPEstimator,
         GAILEstimator,
         GCLEstimator,
         GLADIUSEstimator,
         GLADIUSConfig,
         MaxEntIRLEstimator,
+        MaxMarginIRLEstimator,
         MaxMarginPlanningEstimator,
         MCEIRLEstimator,
         NFXPEstimator,
@@ -228,6 +288,12 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
     )
 
     return [
+        EstimatorSpec(
+            BehavioralCloningEstimator,
+            kwargs=dict(smoothing=1.0),
+            name="BC",
+            can_recover_params=False,
+        ),
         EstimatorSpec(
             NFXPEstimator,
             kwargs=dict(
@@ -281,6 +347,16 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
                 inner_max_iter=5000,
             ),
             name="Max Margin",
+        ),
+        EstimatorSpec(
+            MaxMarginIRLEstimator,
+            kwargs=dict(
+                max_iterations=50,
+                margin_tol=1e-4,
+                compute_hessian=False,
+            ),
+            name="Max Margin IRL",
+            can_recover_params=False,
         ),
         EstimatorSpec(
             TDCCPEstimator,
@@ -431,11 +507,18 @@ def run_single(
                     "sak,k->sa", env.feature_matrix, summary.parameters
                 )
 
-        # Transfer % of optimal (any estimator with estimated rewards)
+        # Transfer % of optimal
         pct_optimal_transfer = None
         if estimated_reward is not None:
+            # Re-solve MDP with estimated rewards under transfer dynamics
             pct_optimal_transfer = _compute_transfer_pct_optimal(
                 estimated_reward, true_utility, problem, dgp,
+            )
+        elif summary.policy is not None:
+            # No reward recovery — evaluate learned policy directly on
+            # transfer dynamics (e.g. behavioral cloning baseline)
+            pct_optimal_transfer = _evaluate_policy_transfer(
+                summary.policy, true_utility, problem, dgp,
             )
 
         return BenchmarkResult(
@@ -452,6 +535,7 @@ def run_single(
             estimates=estimates,
             true_params=true_dict,
             estimated_reward=estimated_reward,
+            learned_policy=summary.policy if summary.policy is not None else None,
             true_reward=true_utility,
         )
     except Exception as e:

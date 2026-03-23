@@ -19,14 +19,13 @@ _ACTION_DEPENDENT_NAMES = {
     "MCEIRLEstimator",
     "MaxEntIRLEstimator",
     "MaxMarginPlanningEstimator",
+    "MaxMarginIRLEstimator",
     "AIRLEstimator",
     "GAILEstimator",
 }
 
 # Estimator classes that need LinearReward (state-only features)
-_LINEAR_REWARD_NAMES = {
-    "MaxMarginIRLEstimator",
-}
+_LINEAR_REWARD_NAMES: set[str] = set()
 
 
 def project_state_features(env: DDCEnvironment) -> torch.Tensor:

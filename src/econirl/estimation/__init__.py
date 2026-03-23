@@ -6,6 +6,8 @@ from econirl.estimation.ccp import CCPEstimator
 from econirl.estimation.maxent_irl import MaxEntIRLEstimator
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
 from econirl.estimation.max_margin_planning import MaxMarginPlanningEstimator, MMPConfig
+from econirl.estimation.max_margin_irl import MaxMarginIRLEstimator
+from econirl.estimation.behavioral_cloning import BehavioralCloningEstimator
 from econirl.estimation.gcl import GCLEstimator, GCLConfig
 from econirl.estimation.td_ccp import TDCCPEstimator, TDCCPConfig
 from econirl.estimation.transitions import (
@@ -39,8 +41,11 @@ __all__ = [
     "MCEIRLConfig",
     "MaxMarginPlanningEstimator",
     "MMPConfig",
+    "MaxMarginIRLEstimator",
     "GCLEstimator",
     "GCLConfig",
+    # Supervised baseline
+    "BehavioralCloningEstimator",
     # TD-CCP Neural
     "TDCCPEstimator",
     "TDCCPConfig",
