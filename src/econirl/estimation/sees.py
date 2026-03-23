@@ -169,12 +169,9 @@ class SEESEstimator(BaseEstimator):
             q_vals = flow_u + continuation
             log_probs = torch.nn.functional.log_softmax(q_vals / sigma, dim=1)
 
-            ll = 0.0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    s = traj.states[t].item()
-                    a = traj.actions[t].item()
-                    ll += log_probs[s, a].item()
+            all_states = panel.get_all_states()
+            all_actions = panel.get_all_actions()
+            ll = log_probs[all_states, all_actions].sum().item()
 
             # L2 penalty on alpha
             penalty = self._penalty_lambda * (alpha ** 2).sum().item()

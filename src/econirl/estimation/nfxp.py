@@ -161,16 +161,12 @@ class NFXPEstimator(BaseEstimator):
         n_params = utility.num_parameters
 
         # Compute empirical replacement rate and average mileage
-        total_obs = 0
-        n_replace = 0
-        mileage_at_replace = 0.0
-
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                total_obs += 1
-                if traj.actions[t].item() == 1:  # Replace action
-                    n_replace += 1
-                    mileage_at_replace += traj.states[t].item()
+        all_states = panel.get_all_states()
+        all_actions = panel.get_all_actions()
+        total_obs = all_states.shape[0]
+        replace_mask = all_actions == 1
+        n_replace = replace_mask.sum().item()
+        mileage_at_replace = all_states[replace_mask].float().sum().item()
 
         if n_replace > 0 and total_obs > 0:
             replace_rate = n_replace / total_obs
@@ -264,13 +260,10 @@ class NFXPEstimator(BaseEstimator):
                 flow_utility, solver_result.V
             )
 
-            # Sum over observations
-            ll = 0.0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    state = traj.states[t].item()
-                    action = traj.actions[t].item()
-                    ll += log_probs[state, action].item()
+            # Sum over observations (vectorized)
+            all_states = panel.get_all_states()
+            all_actions = panel.get_all_actions()
+            ll = log_probs[all_states, all_actions].sum().item()
 
             if self._verbose and num_function_evals % 10 == 0:
                 self._log(f"Eval {num_function_evals}: LL = {ll:.4f}")
@@ -407,20 +400,13 @@ class NFXPEstimator(BaseEstimator):
                 flow_utility_minus, solver_minus.V
             )
 
-            # Compute gradients for each observation
-            obs_idx = 0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    state = traj.states[t].item()
-                    action = traj.actions[t].item()
-
-                    grad_k = (
-                        log_probs_plus[state, action]
-                        - log_probs_minus[state, action]
-                    ) / (2 * eps_k)
-                    gradients[obs_idx, k] = grad_k
-
-                    obs_idx += 1
+            # Compute gradients for all observations (vectorized)
+            all_states = panel.get_all_states()
+            all_actions = panel.get_all_actions()
+            gradients[:, k] = (
+                log_probs_plus[all_states, all_actions]
+                - log_probs_minus[all_states, all_actions]
+            ) / (2 * eps_k)
 
         return gradients
 
@@ -455,11 +441,8 @@ class NFXPEstimator(BaseEstimator):
             flow_utility, solver_result.V
         )
 
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                action = traj.actions[t].item()
-                ll += log_probs[state, action].item()
+        all_states = panel.get_all_states()
+        all_actions = panel.get_all_actions()
+        ll = log_probs[all_states, all_actions].sum().item()
 
         return ll
