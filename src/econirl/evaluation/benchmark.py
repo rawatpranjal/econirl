@@ -269,9 +269,10 @@ def _evaluate_policy_transfer(
 
 
 def get_default_estimator_specs() -> list[EstimatorSpec]:
-    """Get benchmark-tuned specs for all 12 estimators."""
+    """Get benchmark-tuned specs for all estimators."""
     from econirl.estimation import (
         AIRLEstimator,
+        BayesianIRLEstimator,
         BehavioralCloningEstimator,
         CCPEstimator,
         GAILEstimator,
@@ -425,6 +426,17 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
                 normalize_reward=True,
             ),
             name="GCL",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            BayesianIRLEstimator,
+            kwargs=dict(
+                n_samples=2000,
+                burnin=500,
+                proposal_sigma=0.1,
+                prior_sigma=5.0,
+            ),
+            name="BIRL",
             can_recover_params=False,
         ),
     ]

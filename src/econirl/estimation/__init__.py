@@ -28,6 +28,9 @@ from econirl.estimation.adversarial import (
 # Neural network IRL
 from econirl.estimation.gladius import GLADIUSEstimator, GLADIUSConfig
 
+# Bayesian IRL
+from econirl.estimation.bayesian_irl import BayesianIRLEstimator
+
 __all__ = [
     # Base
     "Estimator",
@@ -59,6 +62,8 @@ __all__ = [
     # Neural network IRL
     "GLADIUSEstimator",
     "GLADIUSConfig",
+    # Bayesian IRL
+    "BayesianIRLEstimator",
     # Utilities
     "estimate_transition_probs",
     "estimate_transition_probs_by_group",
