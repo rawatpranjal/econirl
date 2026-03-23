@@ -34,3 +34,8 @@ docs/_build/
 
 # Git worktrees
 .worktrees/
+
+# AutoLab runtime artifacts
+autolab/results/
+autolab/experiment_log.jsonl
+autolab/FINDINGS.md

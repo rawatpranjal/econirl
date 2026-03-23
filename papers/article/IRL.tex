@@ -1,0 +1,314 @@
+
+\section{Inverse Reinforcement Learning\label{sec:irl}}
+
+The IRL literature was initiated by \citet{ng:2000} who identified two motivations for inferring the underlying
+rewards that are presumed to generate observed behavior: 1) ``the potential use of reinforcement learning and
+related methods as potential models for human and animal learning'' and 2) to provide a reward function
+that RL can use to construct an ``intelligent agent that can behave successfully in a particular domain.'' Though
+they note that imitation and apprenticeship learning (IL and AL) can be used to learn a policy $\pi$, ``the reward
+function often provides a much more parsimonius description of behaviour'' so that IRL can constitute an effective
+form of AL. IRL has become an important method in many areas of robotics including development of autonomous 
+drones and vehicles (AV) where there is insufficient data on decisions to human drivers under multitudes of different
+road conditions to develop effective AVs.  \citet{av:2025} note that IRL has ``found great success in predicting 
+trajectories through inferring cost or reward functions from expert demonstrations, 
+and then using these functions to guide the behavior of self-driving vehicles in unseen driving environments.''
+
+This section provides a selective review of the IRL literature focusing on methods that overlap
+most closely with the structural DDC literature reviewed in section 3. We refer readers to surveys 
+by \citet{arora:2021}, \citet{gleave:2022}, and \citet{adams:2022} for a broader and more in depth view of IRL.
+The latter survey
+provides further examples of how IRL uses  ``an expert to demonstrate the successful task and then a highly parameterized reward function could be transferred to the robot for optimization'' and how IRL can generate more effective policies than AL, particularly
+for new, counterfactual environments where
+``IRL has the added advantage that the reward function can be transferred to new environments with different dynamics.''.
+
+There are three broad classes of IRL algorithms: 1) max-margin, 2) Bayesian methods, and 3) maximum entropy methods.
+\citet{ng:2000} introduced three different types of max-margin estimators, which
+search for a reward function for which payoffs under the observed policy are 
+higher than any other policy (i.e. behavior), an approach that shares similarities with the ``moment inequality'' simulation
+estimator  proposed by \citet{bbl:2007} discussed in section 3. \citet{ng:2000} recognized the identification problem discussed
+in the previous section, namely there may be many reward functions that satisfy the max-margin inequalities (payoff inequalities)
+including the trivial solution $r=0$. 
+
+Bayesian IRL (BIRL) was introduced by \citet{birl:2007}. They assumed $\pi$ is a mixed strategy with the softmax
+form (\ref{eq:ccp}) that depends on $Q$ functions which are implicit functions or $r$ per the Bellman equations (\ref{eq:q1}) and
+(\ref{eq:q2}) and interpret the $\sigma$ parameter in the softmax function for $\pi$ as
+ controlling for the ``degree of confidence we have in the [DM's] ability to
+choose actions with high value.'' This allowed them to formulate a likelihood for the sequence of observed actions by
+the DM that depends on $r$. Using  Bayes' Rule, they computed a posterior distribution for $r$, treating it as the unknown parameter
+with a prior distribution. Since it is infeasible to directly compute the
+posterior,  BIRL uses MCMC to generate draws from the posterior
+distribution, with policy iteration used to solve for $Q$ for each draw of $r$. This makes BIRL method computationally intensive
+for large state spaces similar to NFXP. Overall BIRL is similar to the Bayesian MCMC methods discussed in section 3, except that those
+methods use stochastic updates of $Q$ similar to those produced by Q-learning to gradually compute $Q$ over the course
+of the MCMC simulations rather than use policy iteration to find $Q$ for each MCMC draw of $r$.
+
+A seminal contribution to the IRL literature is
+\citet{ziebart:2008}, who introduced {\it maximum entropy IRL\/} as a means of justifying the use of the softmax/logit
+probability for  $\pi(a|s)$ as the probability with maximum entropy subject to certain constraints that make
+expectations of certain functions known as {\it features\/} equal the sample averages of these features.\footnote{\footnotesize
+\citet{ziebart:2010} extended these ideas to MDPs and called it {\it Maximum causal entropy RL.\/}}
+They proposed to estimate the parameters of a reward function that is a linear
+combination of a set of known features using a partial likelihood for observed $(a,s)$ pairs
+that is identical to the partial likelihood (\ref{eq:ccplf}) used in the DDC literature.\footnote{\footnotesize
+The full likelihood
+(\ref{eq:lf}) is not frequently used as the estimation criterion in IRL
+ because of the model-free or non-parametric approach that bypasses
+the need to explicity specify or estimate the transition probability $p(s'|s,a)$.} 
+They applied this method to model the route choices of 25 Yellow cab drivers in Pittsburgh with a reward
+function that involves four features: road type, speed, lanes and transitions. They showed that the estimated
+model could correctly predict nearly 80\% of the cab paths in a holdout or evaluation sample and that
+their new method was a significant improvement over other IRL methods such as max-margin.
+
+These ideas evolved into the already cited work of \citet{softqlearning:2017} who characterized $\pi$ as the policy that maximizes the
+expected discounted entropy-regularized payoff given in equation (\ref{eq:vdefentropy}). 
+Various criteria are used to estimate $r$ such as ``occupancy matching'' (\citet{hoermon:2016}, \citet{clare:2023}). For our purposes
+we focus on IRL where the likelihood function is the estimation criterion, such as \citet{ermon:2015}, \citet{zeng:2023}, \citet{zeng:2024},
+\citet{rp:2022} and \citet{kang:2025}.\footnote{\footnotesize \citet{zeng:2023} and \citet{zeng:2024} maximize a discounted log-likelihood function.} 
+This results in a nearly complete equivalence between the DDC and IRL literatures, with
+identical softmax/logit formulas for the policy $\pi(a|s)$ (\ref{eq:ccp}) 
+that depend on the choice-specific or ``soft $Q$'' values that satisfy the ``soft Bellman equation''
+in equation (\ref{eq:smoothQ}). Overall, DDC and maximum entropy IRL result in
+mathematically identical optimization problems for recovering $r$ from data on states and actions of a sample of DMs.
+The main difference is in the algorithms used to solve the DM's DP problem.
+
+In DDC the $Q$ functions are computed  by non-stochastic algorithms such as SA or PI, or in large state spaces
+by parametrizing $Q$ or the value function $V$ and finding parameters $\phi$ that minimize the squared ``Bellman
+residuals'' as in the SEES estimator, (\ref{eq:penalizedllf}). All of these methods can be described as {\it model-based\/}
+because they require knowledge of the transition probability $p(s'|s,a)$, or at least $p$ must be estimable from
+data. \citet{adams:2022} notes that most IRL methods are model-based. However, we will focus on 
+model-free IRL that does not require specification of a function form for $p$ or
+even require that it be explicitly estimated non-parametrically. Instead, 
+new offline IRLs inspired model-free methods such as Q-learning are able to approximate the $Q$ functions 
+using only realizations from $p$ without knowing $p$ itself.  
+But how is it possible to generate realizations $s'$ from $p(s'|s,a)$ without knowing $p$ itself?
+
+Model-free IRL solves this problem in a clever way: it uses already realized transitions in demonstration datasets to provide the
+``simulator'' needed by RL algorithms  to train the Q and values functions.
+The insight is that the data on observed states and decisions provides the  ``environment'' and the state transitions needed
+by RL to find  the value and Q functions needed to recover $r$, reminiscent of the idea
+of {\it experience replay\/} in the deep Q learning literature, \citet{mnih:2015}.\footnote{\footnotesize Also related is the
+distinction between online and offline RL. IRL generally uses offline RL since the estimation of rewards is based
+on already collected datasets rather than being done in real time.  See the survey of offline RL by
+ \citet{offlinerl:2020} who note ``Offline reinforcement learning algorithms hold tremendous promise for making it possible to turn large datasets into powerful decision making engines.''.  \citet{clare:2023} note that offline IRL also focuses on 
+``learning from a previously collected dataset without online interaction with the environment'' 
+and ``holds tremendous promise for safety-sensitive applications where manually identifying an appropriate reward 
+is difficult but historical datasets of human demonstrations are readily available (e.g., in healthcare, autonomous driving, robotics, etc.).''}
+To get a better understanding of these methods, we will provide a more in-depth discussion of two recent contributions the IRL literature
+that can recover $r$ from data in a model-free manner. One can be regarded as an IRL version of the CCP estimator and
+the other is similar to the SEES estimator (\ref{eq:penalizedllf}).  Both of these
+methods use parametric function approximation methods (expressing $V$ and $Q$ as outputs of neural networks or
+linear combinations of a set of basis functions) that enables them to handle problems with large 
+state spaces.
+
+
+\citet{ae:2022} (AE) introduce a model-free two step CCP estimator similar
+the one  described in the previous section but using RL-inspired methods to
+avoid estimating or making parametric assumptions about $p(s'|s,a)$. They do assume 
+that the reward function is a linear combination of known ``features'', i.e. $r_\theta(s,a)=\sum_{k=1}^K \theta_k r_k(s,a)$.
+Their estimator is inspired by the temporal difference (TD) method of RL,
+and they apply it to approximate the functions $R$ and $Q_\epsilon$ 
+(defined in equations (\ref{eq:Qeps}) and (\ref{eq:hequation}), respectively) that
+enter as covariates in the CCP $\pi$ in equation (\ref{eq:ccpestimator}), using
+transitions in the data to estimate these functions 
+without having to explicitly estimate $p(s'|s,a)$. To  accommodte 
+empirical applications with large state spaces they propose parameterizing $R$ and $Q_\epsilon$ as linear
+combinations of a set of known basis functions that depend on $(s,a)$. Let $\nu(s,a)=\{\nu_1(s,a),\ldots,\nu_J(s,a)\}$
+denote $J$ basis functions that are used to approximate $R$ nad $Q_\varepsilon$ by a regression that uses the
+basis functions evaluated at values of $(s,a)$ in the data set as regressors.  We will describe AE's approach
+to approximating $R$, since the same procedure is used to approximate $Q_\varepsilon$ and is omitted
+for brevity. Let  $R_\phi$ denote an approximation to $R$ based
+on a $J \times 1$ parameter vector $\phi$ of the form $R_\phi(s,a)=\nu(s,a)\phi=\sum_{j=1}^J \theta_j\nu_j(s,a)$. AE propose to 
+to choose $\hat\phi$ to minimize the mean-squared TD error given by
+\begin{equation}
+     \hat\phi =\argmin_\phi E\left\{ [\vec{r}(s,a)+\beta R_\phi(s',a')-R_\phi(s,a)]^2\right\},
+\label{eq:hatphi}
+\end{equation}
+where $E$ denotes the expectation operator over $(s,a,s',a')$.
+Using results from \citet{TsitsiklisVanRoy:1997} on the convergence of TD learning with linear function approximation, 
+AE show that $\hat\phi$ can be computed using the sample expectation operator $E_N$ in (\ref{eq:hatphi})
+using the formula
+\begin{equation}
+     \hat\phi = \left[E_N\{\nu(s,a)[\nu(s,a)-\beta\nu(s',a')]^{{\scriptscriptstyle T}}\}\right]^{-1} E_N\{\nu(s,a)\vec{r}(s,a)\},
+\label{eq:QR_regression}
+\end{equation}
+and the implied estimate $\hat R(s,a)=\phi(s,a)\hat\phi$ of the features or 
+``covariates'' for the $\theta$ in (\ref{eq:ccpestimator}). We also have to approximate the 
+second ``correction term''  $\hat Q_\varepsilon(s,a)$, which can be estimated via  regression
+similar to (\ref{eq:QR_regression}) but it requires a first stage non-parametric estimate of $\pi(a|s)$ to construct
+estimates of the expected choice-specific unobserved shocks $E\{\varepsilon(a)|s,a\}=-\log(\pi(a|s))$.\footnote{\footnotesize 
+AE normalize  $\sigma$ to 1 since it cannot be separately identified from the $\theta$ parameters.}
+Using the estimated $\hat R(s,a)$ and $\hat Q_{\varepsilon}(s,a)$ values, 
+ they can compute a second stage pseudo-maximum likelihood (PMLE) estimator of $\theta$ by maximizing 
+the partial likelihood (\ref{eq:ccplf})  using the formula for $\pi_\theta(a|s)$ in (\ref{eq:ccpestimator}). Consistency
+of this first stage estimator requires specification of a sieve with $J$ basis functions $\{\nu_1,\ldots,\nu_J\}$ that increases with
+sample size $N$ at an appropriate rate and with sufficient linear independence
+to allow any function $R$ to be perfectly approximated by its projection $\Pi_\nu R$ in the limit as $J \to \infty$. 
+The PMLE is affected by ``estimation noise'' in the $\hat R$ and $\hat Q_{\varepsilon}$ functions
+that can introduce bias and noise. To deal with this, AE propose a third estimation stage that uses the PMLE
+to create a modified  score (i.e. gradient) of the  partial log-likelihood (\ref{eq:ccplf}) to create 
+a robust (Neyman orthogonal) version of the score function
+which they used to their preferred estimator $\hat\theta$  as the value that sets the modified score to zero following the
+approach of \citet{lrspe:2022}. 
+
+AE proposed a different  estimator they call AVI (for Approximate Value Iteration) that allows for nonlinear parametrizations
+of the $R$ and $Q_\varepsilon$ functions which are computed using an iterative procedure for updating the parameter $\hat\phi_k$ is the estimated
+parameters determining $\hat R_k(s,a)=R_{\hat\phi_k}(s,a)$ as follows
+\begin{equation}
+    \hat\phi_{k+1} = \argmin_\phi E_N\left\{\left[ \vec{r}(s,a)+\beta R_{\hat\phi_k}(s',a')-R_{\phi}(s,a)\right]^2\right\}.
+\label{eq:avi}
+\end{equation}
+These  iterations continue  until the sequence $\{\hat\phi_k\}$ converges and the resulting estimator of $R$ is $\hat R=R_{\hat\phi_k}$ where
+$\hat\phi_k$ is the last value of the iterative procedure (\ref{eq:avi}), and similarly for  $\hat Q_\varepsilon$.\footnote{\footnotesize 
+It is possible to extend their approach to reward functions $r_\theta(s,a)$ where $\theta$ does not enter as a linear combination
+of a set of known features $\vec{r}(s,a)$. However in that case, we can no longer express $Q_r(s,a)=R(s,a)*\theta$, and in general
+$\theta$ will enter $Q_r$ in a non-linear fashion. The TD estimator can still be adapted to work in this situation except
+that now there must be a nested TD subroutine that recomputes $\hat Q_r$ as a function of $\theta$ each time $\theta$ is updated
+in an outer optimization algorithm that searches over $\theta$ to maximize the partial likelihood function (\ref{eq:ccplf}).}
+AE conclude that ``A range of Monte Carlo simulations using a dynamic firm entry problem, a dynamic firm entry game and two versions of the famous Rust (1987) engine replacement problem show that the proposed algorithms work well in practice.''\footnote{\footnotesize
+See \citet{khwaja:2025} for an alternative approach to AE's TD methods that they call RLTD-CCS that combines the TD algorithm 
+from RL with the Conditional Choice Simulator (CCS) estimator of \citet{hmss:1994} that relies on forward simulations
+of paths to produce a Monte Carlo estimate the $Q_\theta(s,a)$  and hence is a model-based approach to estimation.}
+
+\citet{kang:2025} developed an estimator they call GLADIUS (Gradient-based Learning with Ascent-Descent for Inverse Utility learning from Samples)
+that is 1) model-free, 2) does not require a first stage non-parametric estimation of $\pi(a|s)$,
+and 3) does not require a parametric specification for rewards. Instead, GLADIUS is an iterative 
+algorithm that uses gradient ascent/descent to maximize a penalized likelihood function similar to the SEES estimator
+(\ref{eq:penalizedllf}). However instead of parametrizing $r$ as a function of ``structural parameters''
+$\theta$  and using using auxilliary parameters $\phi$ to approximate
+the $Q$ functions, GLADIUS relies on 
+flexible parametrization of the $Q$ function as $Q_{\theta_1}(s,a)$ and the conditional expectation of the value function $E\{V(s')|s,a\}$ as
+$EV_{\theta_2}(s,a)$ for parameters $\theta_1$ and $\theta_2$ of flexible approximations
+to $Q$ and $EV$ such as  DNNs. Once GLADIUS converges, returning parameters $\hat\theta_1$ and
+$\hat\theta_2$, rewards are estimated as the function
+\begin{equation}
+             r(s,a) = Q_{\hat\theta_1}(s,a)-\beta EV_{\hat\theta_2}(s,a),
+\end{equation}
+i.e. they are  ``backed out'' from the fixed point equation for smoothed $Q$ function, (\ref{eq:smoothQ}).
+
+Both GLADIUS and SEES use an objective function that maximizes a penalized likelihood where the penalty term 
+is a ``mean squared Bellman error'' for the $Q$ functions. That is, if we express $Q$ as a fixed point $Q=\Lambda_\sigma(Q)$,
+$Q$ minimizes the quantity $\rho_{BE}(Q)=E\{[Q(s,a)-\Lambda_\sigma(Q)(s,a)]^2\}$ over a joint distribution of $(s,a)$ pairs.
+SEES is a model-based approach that uses an assumed parametric functional form
+for rewards, $r_\theta(s,a)$ and  knowledge (or estimated version thereof) of the transition probability'
+$p(s'|s,a)$ to compute the Bellman operator $\Lambda_{\theta,p,\sigma}$, where we subscript
+$\Lambda_\sigma$ to emphasize its dependence on $\theta$ as well as $p$. Thus, SEES calculates
+the mean squared Bellman error $\rho_{BE}(Q)$ numerically using deterministic methods such as numerical quadrature
+to compute the conditional expectations of the $Q$ functions. 
+
+GLADIUS is a model-free approach inspired
+by Q-learning that uses transitions $(s',s,a)$ in the data to construct an 
+estimate of the mean squared Bellman error $\rho_{BE}(Q)$. That is, GLADIUS seeks to approximate the quantity
+\begin{equation}
+\Lambda_\sigma(Q)(s,a)=r(s,a)+\beta \sum_{s'} V(s')p(s'|a,d)
+\label{eq:Lambda}
+\end{equation}
+by averaging realizations of the form 
+\begin{equation}
+   \tilde\Lambda_\sigma(Q)(s',s,a) = r(s,a)+\beta V(s'),
+\label{eq:Lambdadraw}
+\end{equation}
+using observed $(s,a,s')$ transitions in the sample. It follows that
+$E\{\tilde\Lambda_\sigma(s',s,a)|s,a\}=\Lambda_\sigma(Q)(s,a)$ so 
+we can use transitions $(s',s,a)$ in the data to calculate
+ $\Lambda_\sigma(Q)(s',s,a)$ values, and then use these as dependent variables
+in a regression to estimate its conditional expectation  $\Lambda_\sigma(s,a)$.
+This suggests a strategy of  estimating $Q$ by searching for $\theta_1$ to minimize
+the mean squared temporal difference error $\rho_{TD}(Q)$
+given by
+\begin{equation}
+        \rho_{TD}(Q)=E\{[\Lambda_\sigma(Q)(s',s,a)-Q(s,a)]^2\},
+\end{equation}
+where, using the terminology of the RL literature,  $\tilde\Lambda_\sigma(Q)(s',s,a)-Q(s,a)$ is the TD error.
+
+However \citet{kang:2025} note an important  complication: the true fixed point $Q$ will minimize
+the mean squared Bellman error $\rho_{BE}(Q)$ but it will not necessarily minimize the mean squared
+TD error. To see, this, the note the following identity
+\begin{equation}
+   \rho_{TD}(Q)=\rho_{BE}(Q)+\beta^2 E\{[V(s')-EV(s,a)]^2\},
+\label{eq:tdbe}
+\end{equation}
+where the second term reflects expected ``heteroscedasicity'' in the TD error, i.e. it is the average of the
+conditional variances given by $H(V)(s,a)=E\{[V(s')-EV(s,a)]^2|s,a\}$. Since $V$ is a function of $Q$
+from (\ref{eq:smoothV}), we write $V$ as $V(Q)$ and the heteroscedasticity term as $H(Q)$.  It 
+it follows from (\ref{eq:tdbe}) that the $Q$ that minimizes $\rho_{TD}(Q)$ will not necessarily be the same as the $Q$ that minimizes $\rho_{BE}(Q)$.
+To deal with this issue, they express the mean squared Bellman
+error as  $\rho_{BE}(Q)=\rho_{TD}(Q)-H(Q)$. Though $H(Q)$ is also an unknown quantity
+Kang {\it et. al.\/}  note that it can be approximated as the solution to
+\begin{equation}
+             H(Q)(s,a) =\min_{v \in R} \sum_{s'}[V(Q)(s')-v]^2 p(s'|s,a).
+\label{eq:condvar}
+\end{equation}
+Of course the $v$ that minimizes (\ref{eq:condvar}) is  $EV(s,a)$.  \citet{kang:2025} parametrize $Q$ and $EV$  by DNNs as 
+$Q_{\theta_1}$ and $EV_{\theta_2}$, respectively, to obtain an estimation criterion that is a penalized likelihood
+function similar to SEES, except it is a max-min problem  given by
+\begin{equation}
+       (\hat\theta_1,\hat\theta_2) =\argmax_{\theta_1}\argmin_{\theta_2} \log(L(\theta_1))-\lambda\rho(\theta_1,\theta_2),
+\label{eq:maxmin}
+\end{equation}
+where $\lambda$ is a penalization parameter, and $\rho(\theta_1,\theta_2)$ is the estimate of the mean squared Bellman error
+given by
+\begin{equation}
+       \rho(\theta_1,\theta_2) =\frac{1}{N} \sum_i^N [\Lambda_\sigma(Q_{\theta_1}(s'_i,s_i,a_i)-Q_{\theta_1}(s_i,a_i)]^2 - \beta^2
+ [V(Q_{\theta_1})(s'_i)-EV_{\theta_2}(s_i,a_i)]^2 
+\label{eq:kangpenality}
+\end{equation}
+Computation of the penalty term can be further reduced to limiting the summation to a subset of states
+$s_i$ where the corresponding action $a_i$ equals the {\it normalizing action.\/} The reason is that
+\cite{kang:2025} impose the identifying assumption that for each $s$ there is an action $a_s$ called the
+normalizing action for which $r(s,a_s)$ is known. From our discussion of identification in section 3.2, this
+restriction on rewards implies that we can determine all $Q$ values by enforcing the fixed point
+constraint $Q=\Lambda_\sigma(Q)$ only for the subset of pair $(s,a_s)$ which enables us to determine the
+corresponding $Q$ at the normalizing action,  $Q(s,a_s)$ for all $s \in S$. Then given $Q(s,a_s)$ the remaining
+$Q(s,a)$ values are determined from $\pi(a|s)$ using the Hotz-Miller inversion  formula (\ref{eq:ccpinverse}).
+
+\citet{kang:2025} establish an important result on the global convergence of GLADIUS. First, under a ``realizability assumption''
+that there exists $\theta_1^*$ such that $Q^*=Q_{\theta_1^*}^*$, where $Q^*$ is the true Q function
+(as well as some other regularity conditions), they show that 
+if $\hat Q_{T,N}$ is the estimate of $Q^*$ after $T$ iterations of the GLADIUS algorithm using a data set with $N$ observations
+on agent's states and transitions $(s',s,a)$, then
+\begin{equation}
+     E_N\left\{[Q^*(s,a)-\hat Q_{T,N}(s,a)]^2\right\} \le O(1/T) + O(1/N).
+\end{equation}
+They note that ``To the best of our knowledge,  
+no prior work has proposed an algorithm that guarantees global optimum convergence of the minimization problem that involves
+the [mean squared Bellman residual term]''. They compare GLADIUS to several other DDC estimation methods using the
+\citet{rust:1987} bus engine problem and a high dimensional version of this problem where they added between
+2 and 100 additional irrelevant
+state variables (i.e. variables that have no effect on cost of maintaining the bus or its mileage
+transitions, and thus on the Q values and decision rule $\pi$) that take on 20 possible values each, thus 
+massively increasing the size of the state space. They conclude that
+``We find that, on average, our method performs quite well in recovering rewards in both low and high-dimensional settings. Further, it has better/on-par performance compared to other benchmark algorithms in this area (including algorithms that assume the parametric form of the reward function and knowledge of state transition probabilities) and is able to recover rewards even in settings where other algorithms are not viable.''\footnote{\footnotesize
+\citet{kang:2025} also note GLADIUS corrects a problem in IRL methods that use ``occupancy matching'' as the estimation criterion
+such as \citet{hoermon:2016}, \citet{iqlearn:2022}, and \citet{clare:2023}. They show that occupancy matching is not guaranteed
+to consistency estimate the true $Q$ function, and ``This implies that $r$ cannot be inferred from $Q$ 
+using the Bellman equation after deriving $Q$ using occupancy matching.''}
+
+We have provided a very selective survey of the 
+IRL literature, going into depth on two recent contributions to this literature
+that are particularly closely related to and we think particular promising new methods 
+for structural estimation of DDC models.  We have emphasized the distinction between model-based and model-free
+estimation methods, but we wish to make clear that not all IRL methods are model-free. 
+For example \citet{zeng:2024} use non-parametric methods to estimates $p$ to provide a ``generative world model'' 
+in a model-based version of IRL and ``Through extensive experiments, we demonstrate that our algorithm outperforms existing benchmarks for offline IRL and Imitation Learning, especially on high-dimensional robotics control tasks.'' 
+Thus, it is not obvious that model-free approaches are necessarily superior to model-based approaches,
+though we agree that good models of $p$ should be used, since  ``inaccurate models of the world obtained from finite data with limited coverage could compound inaccuracy in estimated rewards.''  It is also clear that if we are interested in 
+doing a counterfactual that involves changing $p$, model-based methods will
+probably be necessary to estimate/construct this new $p$ and
+then train the model to calculate the new optimal decision rule $\pi(a|s)$ corresponding to counterfactual $p$.
+
+We also do not want to leave an impression that the two studies we have focused on are the first to use
+function approximation methods such as DNNs to estimate models with large scale state spaces
+in the IRL literature. There are also many seemingly different variants of
+IRL that are actually closely related on closer inspection. For example, \citet{ziebart:2010}
+introduced {\it maximum causal entropy\/} (MCE) IRL, which is nearly isomorphic to DDC models
+under the AS/CI/EV assumptions discussed in  section 3.  As the survey by \citet{gleave:2022} notes:
+``algorithms based on MCE IRL have scaled to high-dimensional environments. Maximum Entropy Deep IRL \citet{maxentdeepirl:2016} was one of the first extensions, and is able to learn rewards in gridworlds from pixel observations. More recently, Guided Cost Learning 
+\citet{guidedcostlearning:2016} and Adversarial IRL \citet{airl:2018} have scaled to MuJoCo continuous control tasks.''  
+The introduction also noted two large scale studies using IRL: the study by
+\citet{barnes:2024} that uses a version of IRL called Receding Inverse Horizon Planning to infer preferences  over
+route choice using data from Google Maps,  and  the study by \citet{zhao:2023} who used AIRL and showed 
+that it outperforms competing methods in an application to inferring context-dependent preferences for route choice 
+using data on taxi drivers in Shanghai. All this work indicates the promise of IRL methods for estimation
+of large scale DDC problems.
+ 
+

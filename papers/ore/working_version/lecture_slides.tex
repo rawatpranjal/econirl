@@ -1,0 +1,1533 @@
+\documentclass[10pt,english,t,handout]{beamer}
+% \documentclass[handout,fleqn,12pt]{beamer}
+% \documentclass[fleqn,12pt]{beamer}
+\usetheme{Frankfurt}
+\input slideformat.tex
+\usepackage{graphicx,caption}
+\usepackage{color, colortbl}
+\definecolor{LightCyan}{rgb}{0.88,1,1}
+\definecolor{Gray}{gray}{0.9}
+\setbeamertemplate{footline}{%
+  \raisebox{5pt}{\makebox[\paperwidth]{\hfill\makebox[10pt]{}}}}
+  %\raisebox{5pt}{\makebox[\paperwidth]{\hfill\makebox[10pt]{\scriptsize\insertframenumber}}}}
+
+
+%\addtobeamertemplate{block begin}{\vspace{-50pt}}{}
+%\addtobeamertemplate{frametitle}{}{\vspace{-1em}} % decrease
+
+\usepackage{subfig}
+\usepackage{multirow}
+\usepackage{ulem}
+\usepackage{fontawesome}
+
+%% NEW COMMANDS
+\newcommand{\stress} {\textcolor[rgb]{.85,0,0}}
+%macro for standard slide, args= title, content
+\newcommand{\slide}[2]{\begin{frame}[c]{#1} #2 \end{frame}}
+\newcommand{\whiteslide}[1]{\begin{frame}\begin{center}\Large{#1}\end{center}\end{frame}}
+
+\def\argmax{\mathop{\rm argmax}}
+
+
+
+\begin{document}
+
+%Put the following inside the square brackets next to your "short title" to get page numbers:
+%\hspace{2em} \insertframenumber/ \inserttotalframenumber%
+
+\title[ML, RL and SE]{Connections between Machine Learning, Reinforcement Learning and Structural Estimation}
+\author[Rawat and Rust]{Pranjal Rawat and John Rust Georgetown University}
+\institute[Georgetown University]{ }
+\date{July 1, 2025}
+
+%\setbeameroption{show notes}
+
+
+\frame{\titlepage} 
+
+\begin{frame} \frametitle{Three Overview Papers}
+\bi
+\item Iskhakov, Rust and Schjerning (2020) ``Machine learning and structural econometrics: contrasts and synergies'' {\it Economic Journal\/}
+\item Rawat and Rust (2025) ``Structural Econometrics and Reinforcement Learning'' (chapter in Pranjal's PhD thesis)
+\item Rawat and Rust (2025) ``Structural Econometrics and {\it Inverse\/} Reinforcement Learning: Inferring Preferences and Beliefs from Human Behavior''
+(for {\it Oxford Research Encyclopedia on Economics and Finance\/})
+\ei
+\bigskip
+\noindent {\blue{And a deeper dive into a promising recent paper to be presented by Enoch Kang, University of Washington}}
+\medskip
+\bi
+\item   Kang, Yoganarashiman and Jain (2025) ``Gradients can train reward models:
+An Empirical Risk Minimization Approach for
+Offline Inverse RL and Dynamic Discrete Choice Models''  forthcoming, {\it 26th ACM Conference on Economics and Computation (EC'25)}
+\ei
+\end{frame}
+
+
+\begin{frame} \frametitle{Four key concepts}
+\bi
+\item {\it Structural estimation} what we do: econometric methods 
+that uncover/infer preferences and beliefs from observed behavior, and  test the predictions of economic theories empirically. 
+\item {\it Machine Learning\/} a subfield of artificial intelligence that enables computer systems to learn from data and improve their performance on specific tasks without explicit programming. Example: using Deep Neural Networks to build Large Language Models, trained on massive
+bodies of text from the internet.
+\item {\it Reinforcement Learning\/} a subfield of machine learning where an agent learns to make decisions by interacting with an environment to maximize a cumulative reward via a trial-and-error or ``learning by doing'' process where the agent responds to the rewards
+it receives while interacting with its environment, dynamically updating its actions to achieve optimal performance
+\item {\it Inverse Reinforcement Learning} a subfield of Reinforcement Learning focused on inferring the preferences or
+``reward function'' driving the behavior an intelligent agent (e.g. a human being) using only observations of the agent's
+states and actions over time.
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Why do we do structural estimation?}
+\bi
+\item To test economic theories and get more insight into economic behavior
+\item To make {\it counterfactual predictions} i.e. to use a sufficiently realistic
+computer simulation to ``crash test'' changes in economic policies and the environment
+rather than doing policy changes ``online'' and learning by trial and error
+\item We are interested in the statistical properties of our estimators for testing hypotheses
+and providing confidence bands
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Why do ``they'' do inverse reinforcement learning?}
+\bi
+\item To train robots/AI to behave intelligently, like people
+\item In many cases the ``reward function'' is a more parsimonious description of what motivates
+intelligent agents to do what they do compared to trying to predict the behavior directly with 
+reduced-form models (or what they call {\it behavioral cloning\/}
+\item Not so interested/concerned with statistical inference on the estimated reward function.
+\item The goal is to  recover a reward function in order to produce
+intelligent agents that can perform tasks that
+involve goals that are complex, poorly-defined, or hard to specify, by inferring rewards
+underlying human performance of these same tasks, using limited human {\it demonstration data.\/} 
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Example application of IRL: training robots}
+
+
+\begin{block}{``Deep Reinforcement Learning from Human Preferences'' Christiano {\it et. al.\/} 2017 }
+Suppose that we wanted to use reinforcement learning to train a robot to clean a table or scramble an egg. It's not clear how to construct a suitable reward function, which will need to be a function of the robot's sensors. In this work, we explore goals defined in terms of (non-expert) human preferences between pairs of trajectory segments. We show that this approach can effectively solve complex RL tasks without access to the reward function, including Atari games and simulated robot locomotion, while providing 
+feedback on less than 1\% of our agent's interactions with the environment. This reduces the cost of human oversight far enough that it can be 
+practically applied to state-of-the-art RL systems.  We show that a small amount of feedback 
+from a non-expert human, ranging from fifteen minutes to five hours, suffice to learn both standard RL tasks and 
+novel hard-to-specify behaviors such as performing a backflip or driving with the flow of traffic.
+\end{block}
+\end{frame}
+
+\begin{frame} \frametitle{Example application of IRL: improving Google Maps}
+\begin{block}{``Massively Scalable Inverse Reinforcement Learning in Google Maps'' Barnes {\it et. al.\/} 2024 }
+Given an origin and destination location anywhere in the world, the goal is to provide routes that best reflect travelers' latent preferences. These preferences are only observed through their physical behavior, which implicitly trade-off factors including traffic conditions, distance, hills, safety, scenery, road conditions, etc. Although we primarily focus on route finding, the advancements in this paper are general enough to find use more broadly. $\ldots$ The
+policy with the largest 360M parameter reward model achieves state-of-the-art results [with]
+a significant 15.9\% and 24.1\% increase in route accuracy relative to baseline models.
+\end{block}
+\end{frame}
+
+\begin{frame} \frametitle{Example: using human preferences to ``align'' ChatGPT}
+\begin{block}{``Training language models to follow instructions with human feedback'' Ouyang {\it et. al.\/} 2022}
+Starting with a set of labeler-written prompts and prompts submitted through the OpenAI API, we collect a dataset of labeler demonstrations of the desired model behavior, which we use to fine-tune GPT-3 using supervised learning. We then collect a dataset of rankings of model outputs, which we use to further fine-tune this supervised model using reinforcement learning from human feedback. We call the resulting models InstructGPT. In human evaluations on our prompt distribution, outputs from the 1.3B parameter InstructGPT model are preferred to outputs from the 175B GPT-3, despite having 100x fewer parameters. Moreover, InstructGPT models show improvements in truthfulness and reductions in toxic output generation while having minimal performance regressions on public NLP datasets. Even though InstructGPT still makes simple mistakes, our results show that fine-tuning with human feedback is a promising direction for aligning language models with human intent.
+\end{block}
+\end{frame}
+
+\begin{frame} \frametitle{Reinforcement Learning with Human Feedback at OpenAI}
+\begin{center} \includegraphics[scale=0.4]{fig/open_ai_rlhf.png} \end{center}
+\end{frame}
+
+%\begin{frame} \frametitle{Some Terminology}
+%\bi
+%\item {\it learning vs inference}
+%\item {\it training vs estimation vs solution}
+%\item {\it supervised vs unsupervised learning\/}
+%\item {\it offline vs online learning\/}
+%\item {\it on-policy vs off-policy learning\/}
+%\item {\it model-free vs model-based reinforcement learning\/}
+%\item {\it softmax function vs multinomial logit probability}
+%\item {\it Q-learning vs soft-Q learning\/}
+%\item {\it Maximum entropy vs Maximum Likelihood\/}
+%\item {\it Tabular learning vs Learning with Function approximation\/}
+%\ei
+%\end{frame}
+
+\begin{frame} \frametitle{Machine learning: neural networks (perceptrons)}
+\bi 
+\item A nonlinear regression of the form $f(x,w)$  where $x$ are inputs and $w$ are {\it weights\/} (parameters)
+Assume $x$ is a $d \times 1$ vector that includes a constant term. 
+\item Single layer (wide) neural network  with $U_1$ {\it hidden units\/} is
+$$  f^1(x,w^1) =w^1_0+ \sum_{i=1}^{U_1} w^1_i\sigma(\vec{w}^1_ix) =w^1_0+\sum_{i=1}^{U_1} w^1_i f^1_i(x,\vec{w}^1_i)$$
+where
+$$   f^1_i(x,\vec{w}^1_i) = \sigma(\sum_{j=1}^d \vec{w}^1_{i,j}x_j), $$
+\item where $\vec{w}^1_i$ is the $d\times 1$ vector of weights (plus bias) for the $i^{\mbox{th}}$ hidden unit
+and $\sigma$ is the {\it squashing\/} or {\it activation function.\/} Examples are logistic $\sigma(x)=\exp\{x\}/(1+\exp\{x\})$
+or RELU $\sigma(x)=\max(0,x)$.
+\item Total number of parameters with $U_1$ hidden units and 1 (scale) output $y=f^1(x,\vec{w}^1)$ is 
+$\vec{w}^1=(\vec{w}^1_1,\ldots,\vec{w}^1_{U_1},w_0,w_1,\ldots,w_{U_1})$ i.e. $U_1*(d+1)+1$ total parameters.
+\ei
+\end{frame}
+
+
+\begin{frame} \frametitle{Single layer neural network (single layer perceptron)}
+\begin{center} \includegraphics[scale=0.6]{fig/1layer_neural_network.png} \end{center}
+\end{frame}
+
+\begin{frame} \frametitle{Define multi-layer (deep) neural networks recursively}
+\bi
+\item Let $L$ be the {\it depth\/} i.e. number of layers in the NN. Let layer $l$ have $U_l$ outputs,   
+$f^l(x,\vec{w}^l): R^d \to R^{U_l}$, $l=1,\ldots,L$ then the neural net output at the last layer $L$ is
+$$  f^L(x,\vec{w}^L)= w^L_0+\sum_{i=1}^{U_L} w^L_i f^{L}_i(x,\vec{w}^L_i), $$
+where
+$$   f^L_i(x,\vec{w}^L_i)=\sigma(w^L_{0,i}+\sum_{j=1}^{U_{L-1}} \vec{w}^L_{i,j} f^{L-1}_j(x,\vec{w}^{L-1}_j)) $$
+For example for $L=2$ we can write 
+$$  f^2(x,\vec{w}^2)= w^2_0+\sum_{i=1}^{U_2} w^2_i f^2_i(x,\vec{w}^2_i), $$
+where
+$$   f^2_i(x,\vec{w}^2_i)=\sigma(w^2_{0,i}+\sum_{j=1}^{U_1} \vec{w}^2_{i,j} f^1(x,\vec{w}^1_i)) $$
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Two layer neural network (two layer perceptron)}
+\begin{center} \includegraphics[scale=0.2]{fig/2layer_neural_network.png} \end{center}
+\end{frame}
+
+\begin{frame} \frametitle{Multi layer neural network (deep neural network/perceptron)}
+\begin{center} \includegraphics[scale=0.2]{fig/Multi_layer_neural_network.png} \end{center}
+\end{frame}
+
+\begin{frame} \frametitle{Further reading and Python code}
+\large{See chapter 13 of {\it Machine Learning Refined}} \bigskip
+\Large{https://kenndanielso.github.io/mlrefined/} 
+\begin{block}{Universal Approximation Theorem\\ (Cybenko, Hornik, Stinchecomb and White, 1989/88)}
+Given any continuous function $g: D \to R$ with a compact domain $D \subset R^d$ and any $\epsilon > 0$, there is a single
+layer neural network $f^1(x,w^1)$ with $U_1$ hidden units and weights $w^1$ such that $\sup_{x \in D}|g(x)-f^1(x,w^1)|<\epsilon$.
+\end{block}
+\end{frame}
+
+\begin{frame} \frametitle{Dynamic Programming and Markovian Decision Processes}
+\bi 
+\item Bellman equation
+$$ V(s) = \max_{a \in A(s)}\left[ r(s,a)+ \beta \sum_{s' \in S} V(s')p(s'|s,a)\right] \equiv \Gamma(V)(s),$$
+where $\Gamma$ is the {\it Bellman operator}
+\item  Optimal policy (decision rule) can be read-off from the Bellman equation
+$$ \pi^*(a|s) = \argmax_{a \in A(s)}\left[ r(s,a)+\beta \sum_{s' \in S} V(s')p(s'|s,a)\right].$$
+note that $\pi(a|s)$ is generally a {\it pure strategy\/} rather than a {\it mixed strategy.\/}
+\item $\Gamma$ is a {\it contraction mapping\/} so method of {\it successive approximations\/}
+$V_{t+1}=\Gamma(V_t)$ is a sure-fire way solve Bellman's equation.
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Solving MDPs by Policy Iteration}
+\bi 
+\item {\bf Policy valuation:} given a trial policy $\pi$ find the value fuction $V_\pi$  implied by it
+$$ V_\pi(s)=r(s,\pi(s|a))+\beta \sum_{s'} V_\pi(s')p(s'|s,\pi(s|a)) \quad  V_\pi=r_\pi+\beta E_\pi V_\pi $$
+or in matrix notation $V_\pi=r_\pi+\beta E_\pi V_\pi \Longrightarrow V_\pi=(I-\beta E_\pi)^{-1}r_\pi$.
+\item {\bf Policy improvement:} Given an intial policy $\pi$ and implied value $V_\pi$ find an improved policy $\pi'$ as
+$$  \pi'(a|s)=\argmax_{a \in A(s)} \left[ r(s,a)+\beta \sum_{s' \in S} V_\pi(s')p(s'|s,a)\right] $$
+\item {\bf Policy iteration:} given an initial policy $\pi_0$ cycle through policy valuation/iteration steps until
+ $\pi_t$ is no longer an improvement, i.e. $\pi_t=\pi_{t-1}$. Then stop, $V_{\pi_t}$ solves the
+Bellman equation and $\pi_t=\pi^*$ the optimal policy.
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Breaking the Curse of Dimensionality}
+\bi 
+\item {\it Curse of Dimensionality}  each policy iteration take $O(|S|^3)$ time. Even though 
+policy iteration takes few iterations to converge, when $|S|$ is large,  policy iteration isn't feasible.
+\item Example: with 5 continuous state variables $s=(s_1,\ldots,s_5)$ if we discretize them into a grid of 10 values each
+we have a discrete MDP with $|S|=10^5$ possible states, and each policy iteration requires $O(10^{15})$ time.
+\item {\it Function approximation} Bellman and Dreyfus sugggested a possible solution: approximate $V$ parametrically
+as $V_w$ for some parameters (weights) $w$.  For example $V_w(s)=f^L(s,w)$ where $f^L(s,w)$ is a deep neural net with $L$ layers.
+\item Then convert Bellman's equation into a nonlinear least squares problem to minimize the {\it squared Bellman error\/}
+$$    \hat w=\argmin_x  \sum_{i=1}^N [V_w(s_i)-\Gamma(V_w)(s_i)]^2   $$
+where $(s_1,\ldots,s_N)$ is a grid of points over the state space. Then  $V_{\hat w}$ is the approximate solution
+to Bellman's equation.
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Solving MDPs with Reinforcement Learning}
+\bi
+\item RL is a huge literature, but we will focus on a prominent member of this class, {\it Q-learning\/}
+\item Q-learning first appeared in the 1989 PhD dissertation by Christopher Watkins, who developed it 
+as a ``general formal model of an animal's behavioural choices in its environment''. 
+\item Overall, we can think of RL as a class of stochastic iterative methods for solving MDPs. 
+\item The function $Q(s,a)$ is what we would call the {\it choice-specific value function\/} and it is given by
+\begin{eqnarray*} Q(s,a) &=& r(s,a) +\beta \sum_{s'} V(s')p(s'|s,a) \\
+               & =& r(s,a)+\beta \sum_{s'} \left[ \max_{a' \in A(s')} Q(s',a') \right] \\
+               & = & r(s,a)+\beta E\{ \max_{a' \in A(s')} Q(s',a')|s,a\}
+ \end{eqnarray*}
+since $V(s)=\max_{a \in A(s)} Q(s,a)$ is the largest of the Q values.
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Q-learning iteration}
+\bi
+\item For a finite state space, $Q_t(s,a)$ is essentially a table that stores the value of the Q function after
+$t$ iterations of Q-learning.
+\item Imagine that at time $t$ you are in state $s_t$, take action $a_t$ and after doing that, the next state is $\tilde s_{t+1}$.
+Then we update $Q$ only at the current state/action pair $(s_t,a_t)$ as follows
+$$  Q_{t+1}(s,a) = Q_t(s,a)+ \alpha_t \left[ r(s_t,a_t)+\beta \max_{a \in A(\tilde s_{t+1})} Q_t(\tilde s_{t+1},a)- Q_t(s_t,a_t)\right],
+$$
+where $\alpha_t$ is a {\it step size\/} and $\sum_{t=1}^\infty \alpha_t = \infty$ and $\sum_{t=1}^\infty \alpha_t^2 < \infty$.
+Note that when $Q_t=Q$, the term in brackets is a mean zero ``error term''
+\item Q-learning is a form of {\it asynchronous stochastic approximation\/} since not all of the values $Q_t(s,a)$ get ``backed up''
+at each iteration $t$.
+\item Tsitsiklis (1994) proved that with probability 1, $Q_t \to Q$, the true $Q$ function satisfying Bellman's equation.
+\item Notice that Q-learning is {\it model-free\/} when done ``online'' --- the environment serves as a simulator
+of $p(s'|s,a)$ so we don't have to know $p$ to converge to an optimal policy.
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Soft Q-learning}
+\bi
+\item The proof of convergence of Q-learning requires all $(s,a)$ pairs be visited infinitely often as $t \to \infty$.
+\item But this may not always happen under a ``greedy'' policy where $\pi_t(a|s)=\argmax_{a \in A(s)} Q_t(s,a)$. Some ``dominated''
+actions may stop getting chosen.
+\item A solution is to use an {$\varepsilon$-greedy\/} policy: choose the $a$ with the highest $Q_t(s_t,a)$ with probability
+$1-\varepsilon$ and any other action at random with probability $\varepsilon$.
+\item This ensures that all actions get chosen infinitely often but the implied policy will not be optimal
+unless $\varepsilon \to 0$ as $t \to \infty$. 
+\item Alternate solution: look for DPs where the optimal policy is {\it mixed\/}
+\item RL literature suggests an  {\it entropy regularization\/} i.e. the objective is to find $\pi$ that maximizes
+$$ V_\sigma(s) = \max_\pi E\left\{ \sum_{t=0}^\infty r(s_t,a_t)+H(\pi(s_t))\big| s_0=s \right\} $$
+where $H(\pi(s))=-\sigma\sum_{a \in A(s)} \pi(a|s)\log(\pi(a|s))$ is the {\it entropy\/} of policy $\pi$. 
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Bellman equation for entropy-regularized MDP}
+$$  V_\sigma(s) = \sigma \log\left(\sum_{a \in A(s)} \exp\{ Q(s,a)/\sigma\}\right), $$
+where $Q(s,a)$ is given by
+$$  Q(s,a)=r(s,a)+ \beta \sum_{s'} V_\sigma(s')p(s'|s,a) $$
+and the optimal policy $\pi$ is given by the {\it softmax function\/}
+$$  \pi_\sigma(a|s) = { \exp\{Q(s,a)/\sigma\} \over \sum_{a' \in A(s)} \exp\{Q(s,a')/\sigma\}}  $$
+\bi 
+\item Of course we recognize this as the value and choice-specific value functions for the dynamic
+discrete choice model when the unobserved random shocks have an Extreme value distribution.
+\item Since $\pi(a|s) > 0$, all alternatives will always have positive probability of being chosen
+so soft-Q learning will converge to $Q$ with probability 1.
+\ei
+\end{frame} 
+
+\begin{frame} \frametitle{Soft Q-learning iteration}
+\begin{eqnarray*} &&  Q_{t+1}(s,a) = Q_t(s,a)+ \\
+ && \alpha_t \left[ r(s_t,a_t)+\beta \log\left(\sum_{a' \in A(\tilde s_{t+1}}
+\exp\{ Q_t(\tilde s_{t+1},a)/\sigma\}\right)- Q_t(s_t,a_t)\right],  \end{eqnarray*}
+where term in brackets has conditional mean 0.
+\bi
+\item Note that as $\sigma \downarrow 0$, $V_\sigma(s) \to V(s)$ and $\pi_\sigma(a|s) \to \pi(a|s)$, the
+pure strategy solution to the MDP without entropy regularization.
+\ei
+\end{frame}
+
+\begin{frame} \frametitle{Deep Q-learning}
+\bi
+\item We described {\it tabular Q-learning \/} i.e. where there are only a finite number of $(s,a)$  pairs, so each $Q_t$
+is a finite dimensional vector. But when $|S|$ and/or $|A|$ get large, tabular Q-learning is far too slow.
+\item One solution is to parameterize $Q$, say as the output of a deep neural network. Call this $Q_w$ where $w$ is
+ a vector of the neural network weights. 
+\item 
+
+%\begin{frame} \frametitle{Daniel Kahneman, 1934-2024}
+%\begin{center} \includegraphics[scale=0.6]{figures/Daniel_Kahneman.png} \end{center}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Kahneman and Tversky: People are not Bayesian}
+%\bi
+%\item ``On the Psychology of Prediction'' {\it Psychological Review\/} 1973
+%\item Subjects were asked to report, based on a brief  personality sketch,  the subjective probability that the person 
+%is an engineer.
+%\ei
+%\begin{quote}
+%{\bf Prior information:} A panel of psychologists have interviewed and administered personality tests to 70 engineers and 30 lawyers, all successful in their respective fields. On the basis of this information, thumbnail  descriptions of the 70 engineers and 30 lawyers have been written.
+%\end{quote}
+%\begin{quote}
+%{\bf Sample evidence} Jack is a 45-year-old man. He is married and has four children. He is generally conservative, careful, and ambitious. He shows no interest in political and social issues and spends most of his free time on his many hobbies which include home carpentry, sailing, and mathematical puzzles.
+%\end{quote}
+%\begin{quote}
+%    {\bf Subject response} What is the probability that Jack is one of the 70 engineers from the sample of 100?
+%\end{quote}
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Kahneman and Tversky: People are not Bayesian}
+%\noindent A second group of subjects were provided the same sketches but with the percentages of engineers and lawyers reversed: 30 engineers and 70 lawyers.
+%\begin{quote} 
+%``The odds that any particular description belongs to an engineer rather than to a lawyer should be higher in the first condition, where there is a majority
+%of engineers, than in the second condition, where there is a majority of lawyers. $\ldots$ In a sharp violation of Bayes' rule, the subjects in the 
+%two conditions produced essentially the same probability judgements.'' 
+%\end{quote}
+%\begin{quote}
+%``Apparently, subjects evaluated the likelihood that a particular description belonged to an engineer rather than to a lawyer 
+%by the degree to which this description was representative of the two stereotypes, with little regard for the prior probabilities of the 
+%categories.''
+%\end{quote}
+%\end{frame}
+%
+%\begin{frame} \frametitle{David Grether, 1938-2021}
+%\begin{center} \includegraphics[scale=0.3]{figures/Grether_David.jpg} \end{center}
+%\end{frame}
+%
+%\begin{frame} \frametitle{The Grether critique}
+%\bi
+%\item Grether {\it AER\/} 1978 noted that  ``there are features
+%that make the applicability of the findings to economic decisions doubtful'' 
+%and their framing of scenarios created ``difficulty of controlling the information given when verbal
+%descriptions or situations are presented. Both of these difficulties could be taken care of
+%by the use of actual balls in urns or book-bag pokerchip set ups'' 
+%\item Cosmides and Tooby {\it Cognition\/} 1998 also that experiments framed in frequentist terms are more likely to
+%generate behavior that conforms to Bayes Rule since ``our inductive reasoning mechanisms
+%do embody aspects of a calculus of probability, but they are designed to take frequency
+%information as input and produce frequencies as output.''
+%\item ``Grether (1978) noted that the descriptions in this experiment were hypothetical and wondered whether the subjects truly believed the stated population proportions. He also noted that the nature of the monetary payoffs was unclear since subjects were told that they would be paid a bonus to the extent that their estimates were close to those submitted by an `expert panel.''' (Holt and Smith, 2009)
+%\ei
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Are People Bayesian?}
+%\bi 
+%\item Title of the classic 1995 article by El-Gamal and Grether in {\it Journal of American Statistical Association\/}
+%\item Experiment with 257 subjects from 4 UCLA, Pasadena Community College, Occidental College and Cal State Univ Los Angeles
+%\item Subjects were shown samples of 6 balls drawn at random (with replacement) from one of two cages, A or B, and
+%asked to predict which cage the sample came from.
+%\ei
+%\begin{center}\includegraphics[scale=0.3]{figures/cageA_cageB.png}
+%\end{center}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Experimental design}
+%\bi 
+%\item In each trial a 6 sided die was thrown. If it landed $\{1,\ldots,k\}$ cage A was selected,
+%otherwise cage B was selected  where $k \in \{2,3,4\}$. 
+%\item This results in a {\it  credible\/} prior probability of cage A, 
+% $\pi \in \{1/3,1/2,2/3\}$.
+%\item Subjects were not shown the outcome of the dice throw determining the cage
+%used to draw 6 balls with replacement: they were only shown the results of the 6 draws.
+%\item Let $d$ be the number of balls marked $N$ in the sample of 6 balls from the cage.
+%\item Based on the information they were given $I=(\pi,d)$ subjects were asked to choose which of the two cages, A or B, the
+%sample was drawn from. 
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Experimental design}
+%\bi 
+%\item All subjects were paid a flat fee just for participating in the experiment. 
+%\item However some subjects were paid a bonus \$10 for selecting the correct cage in a randomly selected trial that the
+%subject participated in.
+%\item They refer to these as the {\it pay treatment\/} and {\it no pay treatment\/} respectively.
+%\item A further key design choice:  {\it no ``pre-training'' or other feedback to subjects while the trials occurred.\/}
+%\ei
+%\begin{quote} ``In both treatments, subjects were not given any feedback on the correctness of their responses until the very end of the experiment, when their payoffs were computed.''
+%\end{quote}
+%\begin{quote} ``The sessions lasted approximately 1 hours, and the number of decisions made by each subject ranged from 14 to 21.''
+%\end{quote}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Why don't you try it?}                                                                                                                  
+%\bi 
+%\item Suppose that $\pi=1/3$ so the probability of using cage A to draw the 6 ball sample is 1/3. Since probabilties sum to
+%1, the probability of selecting cage B is $\pi_B=2/3$.
+%\item One of the cages is selected and 6 balls are drawn from it with replacement. Suppose the sample drawn is
+%$$    (N,N,G,N,N,G) $$
+%\item Probability of drawing an N from cage A is $2/3$ and for  cage B, $1/2$. 
+%Which of the two cages is more likely to have been the cage from which the sample above was drawn?
+%\ei
+%\begin{center}
+% {\large\color{blue} https://editorialexpress.com/are\_people\_bayesian}
+%\end{center}
+%\begin{center}\includegraphics[scale=0.25]{figures/cageA_cageB.png} \end{center}
+%\end{frame}
+%
+%\begin{frame} \frametitle{El-Gamal and Grether's conclusion} 
+%\begin{quote}
+%``even though the answer to `are experimental subjects Bayesian?' is `no,' the answer to 
+%`what is the most likely rule that people use?' is
+%`Bayes's rule.' The second most prominent rule that people
+%use is `representativeness,' which simply means that they
+%ignore the prior induced by the experimenter and make a
+%decision based solely on the likelihood ratio. The third
+%most prominent rule that our algorithm selects on the basis
+%of the data is `conservatism,' which means that subjects
+%give too much weight to the prior induced by the experimenter, needing more evidence to change their priors than
+%the Bayes rule would imply.''
+%\end{quote}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Why should people use Bayes Rule?}
+%\bi 
+%\item Because we're {\it greedy\/}
+%\item A rational person should  use an {\it optimal decision rule\/} for choosing A or B, one that maximizes their
+%expected payoff from the choice. 
+%\item Mathematically, this can be represented by a function, $\delta(d,\pi) \rightarrow \{A,B\}$ that maximizes
+%the probability of selecting the correct cage from which the sample was drawn. 
+%\item An optimal decision rule can be expressed in terms of Bayes Rule where $\Pi(A|d,\pi)$ is the posterior 
+%probability of A given $(d,\pi)$.
+%\ei
+%\begin{block}{{\bf Theorem} {\it The optimal decision rule is given by}}
+%\begin{equation}
+%           \delta(d,\pi) = \left\{ \begin{array}{ll} A & \hbox{if} \; \Pi(A|d,\pi) \ge 1/2 \cr
+%           B & \hbox{otherwise} \end{array} \right.
+%\nonumber
+%\end{equation}
+%\end{block}
+%\bi
+%\item However we will show that {\it you can  behave like a Bayesian even if your don't believe like a Bayesian\/}
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Is ChatGPT Bayesian?}
+%\bi
+%\item We replicated the experiments of El-Gamal and Grether (using subjects from California and a subsequent experiment
+%at University of Wisconsin in 1999) that involved only binary choices of which bingo cage is more likely
+% as well as experiments by Holt and Smith (2009) that used the {\it Becker-Degroot-Marshak\/} (BDM) mechanism to elicit
+%subjective posterior probabilities of each bingo cage, but instead of using human subjects we used various versions
+%of ChatGPT. 
+%\item The versions we studied were
+%\begin{enumerate}
+%\item  ChatGPT 3.5 (introduced in November 2022), 
+%\item  ChatGPT 4 (introduced in March 2023),
+%\item  ChatGPT 4o (introduced in May 2024). 
+%\end{enumerate}
+%\item We exactly replicated the number of subjects and trials used in El-Gamal and Grether and Holt and Smith to serve
+%as an {\it exact matching control group\/}
+%\ei
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Which are humans and which is ChatGPT?}
+%\begin{center} \includegraphics[scale=0.5]{figs/robots_vs_humans.eps} \end{center}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Who is more Bayesian: Humans or ChatGPT?}
+%\begin{table}[H]
+%\centering
+%\caption{Performance of GPTs and humans in the 6-Ball Experiments}
+%\label{table:6ballsummary}
+%\begin{tabular}{lcccc}
+%\toprule
+%Model number                & GPT 3.5       & GPT-4         & GPT-4o            & Homo sapiens \\
+%Release date                & 11/2022       & 3/2023        & 5/2024            & -300,000 BCE \\
+%Weights                     & 175 billion   & 1.8 trillion  &  3 trillion?      & 100 trillion? \\
+%             
+%\midrule
+%Efficiency            & 84.9          & 96.0          & 97.5              & 96.5 \\
+%                            & (0.6\%)       & (0.3\%)       & (0.2\%)           & (0.5\%) \\
+%Accuracy         & 59.4          & 77.7          & 85.5              & 81.9 \\
+%                            & (8.4\%)       & (7.4\%)       & (6.3\%)           & (9.1\%) \\
+%No. of Types             & 2             & 1             & 1                 & 3 \\
+%\bottomrule
+%\end{tabular}
+%\end{table}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Why do we care if ChatGPT is more Bayesian than Humans?}
+%\bi
+%\item Because the rapid improvement in the capability and reasoning power of GPTs 
+%is starting to threaten human livelihoods.  ``The Machines They Will Replace Us!''
+%\item The bingo cage example is a simple metaphor or prototype for more complicated, 
+%important ``high stakes'' decision problems where GPT may outperform humans as well.
+%\item For example, consider medical {\it differential diagnoses\/} (DDx) is a name for a diagnostic
+%procedure when multiple different diseases or conditions could be the cause of a set of
+%observed symptoms in a patient. 
+%\item A good DDx is one where the doctor  determine the {\it most likely disease or medical problem
+%that is consistent with observed symptoms\/}
+%\item Recent studies (e.g. Goh et al. (2024) and McDuff et al. (2023)) have demonstrated that LLMs and GPTs can outperform human physicians in the quality and accuracy of their differential diagnoses. 
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{How to determine whether GPT is ``better'' than Humans?}
+%\bi
+%\item This is an issue in many studies such as the DDx studies. There is no clear definition of what an ``optimal''
+%decision or objective way to quantify which medical condition or disease is ``most likely'' to have caused a 
+%given set of symptoms.
+%\item The studies so far rely on panels of medical experts to grade or ``score'' the quality of decision making,
+%often using a somewhat arbitrary scale. If a GPT scores twice as high as a human, is it twice as good?
+% Not clear how to trade off the cost of a misdiagnosis or failure to test for prostrate cancer (e.g. PSA test)
+%that could ultimately lead to a fatality versus the financial cost of testing? 
+%\item An advantage of our framework is that we have an {\it objective measure of performance\/}  namely, 
+%the probability of selecting the correct bingo cage, and thus an objective measure of the quality and efficiency
+%of different decision makers.  
+%\item A Bayesian decision maker has the highest probability of making a correct prediction
+%so we can measure efficiency as the ratio of a human or GPT decision maker's probability of a correct prediction to the one implied by  the
+%optimal Bayesian decision rule.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Is GPT approaching holy grail of AGI?}
+%\bi
+%\item Note that GPT is trained generically to predict {\it tokens\/}  i.e. successive symbols such as words. It is not
+%specifically trained to do well in the specific problem we are asking it to solve.
+%\item  GPT must  ``understand'' the question we are asking and ``reason'' through several logical steps
+%to produce a final answer. {\it We ask it to provide full reasoning in its answer to get more insight into where it makes errors.\/}
+%\item Despite amazingly rapid improvements, the consensus is that LLMs still lack full rationality, including the capability to reason and think creatively the way humans do, and other features associated with intelligence including `consciousness'.
+%\item The review by Maslej {\it et al.\/} (2024) concludes ``AI has surpassed human performance on several benchmarks, including some in image classification, visual reasoning, and English understanding. Yet it trails behind on more complex tasks like competition-level mathematics, visual commonsense reasoning and planning.''
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Human reasoning: more intuitive and adaptive}
+%\bi
+%\item Untrained human subjects may have never encountered a problem like this or heard of ``Bayes Rule'' before, yet they do surprisingly well
+%as ``intuitive statisticians''
+%\item Human reasoning is far less formal and more heuristic, 
+%based in part on gut instinct:  that is, ```System 1'' rather than the slower more effortful ``System 2'' in Kahneman's book  {\it Thinking Fast and Slow\/}
+%\item Humans possess general intelligence whereas most machine learning algorithms are designed to work in narrow domains and will not necessarily make sensible decisions in a huge variety of different (and often unexpected) situations as humans do
+%\item As Hutchinson and Meyer (1994) noted, ``From a broader perspective, however, one can argue that optimal solutions are known for a relatively small number of similar, well-specified problems whereas humans evolved to survive in a world filled with a large and diverse set of ill-specified problems. Our `suboptimality' may be a small price to pay for the flexibility and adaptiveness of our intuitive decision processes.''
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Outline for rest of talk}
+%\begin{enumerate}
+%\item Statistical decision theory and the definition of ``decision efficiency''
+%\item Structural econometric model and identification of ``revealed beliefs''
+%\item Reanalysis of human subjects:\\ El-Gamal and Grether's binary response data 
+%\item Reanalysis of human subjects:\\ Holt and Smith's revealed subjective posteriors
+%\item Economeric analysis of GPT subject data 
+%\item Error analysis of GPT subjects' response text
+%\end{enumerate}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Binomial Experiments}
+%\bi 
+%\item The experiments run by El-Gamal and Grether and Holt and Smith have the same general structure: they are {\it statistical experiments\/}
+%following a {\it binomial design\/}
+%\item There are two cups or bingo cages each containing balls of two types, N or G or red and blue.
+% A credible random device is used to select one of the two cages with probability $\pi$
+%\item $D$ balls are drawn with replacement from the selected cage (i.e. draws are {\it IID\/}). Let $d$ be the sufficient statistic
+%for the outcome of the draw: the number of such balls of the designated type, e.g. a ball labelled N or a red ball
+%\item Let $p_A$ be the probability of drawing an N ball from cage A and $p_B$ the probability of drawing an N ball from cage B.
+%\item Then the outcome of any trial in the experiment is summarized by the vector $(d,\pi,p_A,p_B,D)$.
+%\item Typically $(d,\pi)$  varied randomly over trials but $(p_A,p_B,D)$ remain fixed, 
+%so we call the latter {\it design parameters.\/} Subsequent experiments changed the design parameters to see how subjects would respond.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Bayes Rule and Decision Rules}
+%\bi 
+%\item Let $f(d|p_A,D)$ be the probability that $d$ balls out of a total of $D$ {\it IID\/} draws are  marked N, given that the probability
+%of drawing an N ball is $p_A$. $f(d|p_A,D)$ has a binomial distribution.
+%\begin{block}{Bayes Rule}
+%The posterior probability of A given $(d,\pi,p_A,p_B,D)$ is given by
+%\begin{equation}  \Pi(A|d,\pi,p_A,p_B,D)= { f(d|p_A,D)\pi \over f(d|p_A,D)\pi + f(d|p_B,D)(1-\pi)}. \nonumber
+%\end{equation}
+%\end{block}
+%\begin{block}{Decision Rule}
+%A conditional probability of selecting A given $(d,\pi,p_A,p_B,D)$, $P(A|d,\pi,p_A,p_B,D)$. \nonumber
+%\end{block}
+%\item We also refer to $P(A|d,\pi,p_A,p_B,D)$ as the {\it conditional choice probability\/} or CCP.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Win and Loss Functions}
+%\bi 
+%\item Let $\tilde W_P=1$ if the decision rule $P$ selects the correct cage used to draw the sample and $\tilde L_P=1$ if $P$ selected the wrong cage.
+%\item Thus $\tilde W_P$ denotes a ``win'' and $\tilde L_P$ denotes a loss. Obviously with probability 1 we have $\tilde W_P+\tilde L_P=1$.
+%\ei
+%\begin{block}{Loss Function}
+%The conditional probability of a loss under $P$
+%\begin{eqnarray*}  L_P(d,\pi,p_A,p_B,D) & = & E\{\tilde L_P|d,\pi,p_A,p_B,D\} \\
+%   &=&  P(A|d,\pi,p_A,p_B,D)[1-\Pi(A|d,\pi,p_A,p_B,D)+ \\
+%   && [1-P(A|d,\pi,p_A,p_B,D)]\Pi(A|d,\pi,p_A,p_B,D)
+%\end{eqnarray*}
+%\end{block}
+%\begin{block}{Win Function}
+%\begin{equation}
+%   W_P(d,\pi,p_A,p_B,D) = E\{\tilde W_P|d,\pi,p_A,p_B,D\} = 1 - L_P(d,\pi,p_A,p_B,D).
+%\nonumber
+%\end{equation}
+%\end{block}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Optimality of Bayes Rule}
+%\bi 
+%\item Define the decision rule $\delta^*(d,\pi,p_A,p_B,D)$ by
+%\begin{block}{Bayesian Decision Rule}
+%\begin{equation}
+%   \delta^*(d,\pi,p_A,p_B,D) = \left\{ \begin{array}{ll}  A & \hbox{if} \; \Pi(A|d,\pi,p_A,p_B,D) \ge 1/2 \cr
+%      B & \hbox{otherwise}  \end{array} \right. \nonumber
+%\end{equation}
+%\end{block}
+%\begin{block}{Optimality of Bayes Rule}
+%For any decision rule $P$ and all $(d,\pi,p_A,p_B,D)$  we have
+%\begin{equation}
+%    W_{\delta^*}(d,\pi,p_A,p_B,D) \ge W_P(d,\pi,p_A,p_B,D).
+%\nonumber
+%\end{equation}
+%\end{block}
+%\item Equivalently the Bayesian decision rule $\delta^*$ achieves minimal loss, $L_{\delta^*}(d,\pi,p_A,p_B,D) \le 
+%L_P(d,\pi,p_A,p_B,D)$ for any decision rule $P$.
+%\item So selecting according to Bayes Rule is an {\it optimal statistical decision rule.\/}
+%\ei
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Decision Efficiency}
+%\bi 
+%\item {\it Decision Efficiency\/} is the ratio of the win function under decision rule $P$
+%relative to the optimal win probability under Bayes Rule.
+%\item Let $\delta^*$ be the optimal (Bayesian) decision rule and $W_{\delta^*}(d,\pi,p_A,p_B,D)$ be the corresponding win function.
+%\item Suppose $F(d,\pi,p_A,p_B,D)$ is the distribution of possible trial outcomes a subject might encounter in an experiment. We
+%can define the expected win relative to this distribution as
+%\begin{equation}
+%  W_P = E\{\tilde W_P\} = \int W_P(d,\pi,p_A,p_B,D)F(d,\pi,p_A,p_B,D),\nonumber
+%\end{equation}
+%i.e. the overall average win probability. Define $W_{\delta^*}$ similarly.
+%\begin{block}{Decision Efficiency}
+%The efficiency of a decision rule $P$ is given by
+%  \begin{equation}
+%    \omega_P =  { W_P \over W_{\delta^*}}.
+%\nonumber
+%\end{equation}
+%\end{block}
+%Since  $W_P \le W_{\delta^*}$ it follows that $\omega_P  \in [0,1]$.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Easy vs Hard Decisions and Accuracy vs Efficiency}
+%\bi 
+%\item Notice that for a Bayesian, the ``hardest cases'' are those where the posterior is close to $1/2$: for these cases there is
+%only a 50/50 chance of a win.
+%\item The ``easy cases'' are those where the posterior is close to 0 or 1: for these cases there is essentially a sure chance of a win.
+%\item Given any decision rule $P$ its efficiency depends on where in the ``state space'' it makes most of its ``decision errors'',
+%i.e. decisions that disagree with what a Bayesian would choose.
+%\item If most of the decision errors occur for the hard cases where the posterior is nearly 1/2, then it is easy to see that
+%the efficiency of such decision rules can be nearly 100\% despite less than 100\% {\it accuracy\/} (i.e. conformance with Bayes Rule).
+%\item Among two decision rules with the same accuracy (i.e. same probability of agreeing with Bayes Rule) the decision rule that
+%disagrees more on the easy cases than on the hard cases will have lower efficiency.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Subjects' choices in California experiments }
+%\includegraphics[scale=0.55]{figures/california_sample_human_decision_makers.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Experience/learning effects in the experiment}
+%\includegraphics[scale=0.55]{figures/fraction_subjects_choosing_cage_A_fig_6.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Incentive effects in the experiment}
+%\includegraphics[scale=0.55]{figures/fraction_subjects_choosing_cage_A_fig_1.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{El-Gamal and Grether's structural model of subjects' choices}
+%\bi 
+%\item Assume subjects use {\it cutoff rules\/} to choose cage A or B
+%\item {\bf Cutoff Rule}  An integer $c \in \{0,1,\ldots,6\}$ such that  $\mbox{subject chooses cage A if} \; n > c\; \mbox{otherwise choose B}$.
+%\item In the experiment there are 3 priors $\pi \in \{1/3,1/2,2/3\}$ so let $c_\pi$ denote the cutoff rule corresponding to prior $\pi$.
+%\item ``Ignoring the order of draws, there are seven possible outcomes (zero through six N's) and three priors, resulting in 21 possible
+%decision situations. In each of these situations the subject could choose either cage A or cage B. Therefore there are in principle $2^{21}=2,097,052$
+%possible decision rules.''
+%\item However there are only $8^3=512$ possible cutoff rules, $(c_1,c_2,c_3)$ since each cutoff $c_i$ for prior $\pi_i$, $i \in \{1,2,3\}$ 
+%can take 8 possible values $c_i \in \{-1,0,\ldots,6\}$.
+%\item Note that {\it Bayes Rule\/} corresponds to the cutoffs $(c_1,c_2,c_3)=(4,3,2)$.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Generating a likelihood function}
+%\bi 
+%\item Let $x_{s,t}(c)=1$ if the choice of subject $s$ on trial $t$ is consistent with the cutoff rule $c=(c_1,c_2,c_3)$.
+% Note that no single cutoff rule will generally be able to ``explain'' all choices of any given subject.
+%\item To derive a non-zero likelihood for the observations, El-Gamal and Grether assumed that with probability $\varepsilon$ the subject guesses
+%(in effect flips a coin), whereas with probability $1-\varepsilon$ the subject's decision is governed by the cutoff rule $c$.
+%\item This implies a {\it non-degenerate likelihood\/} i.e. every observed choice will have positive probability for any cutoff rule $c$. Define
+%the sufficient statistic $X_s(c)=\sum_{t=1}^{t_s} x_{st}(c)$, the number of the $t_s$ choices by subject $s$ that are consistent with
+%cutoff rule $c$. Then the likelihood for all subjects is
+%\begin{equation}
+%    L(c,\varepsilon) =  \prod_{s=1}^S L(X_s(c)|\varepsilon), \; \mbox{where} \;
+%    L(X_s(c)|\varepsilon) = \left(1-\frac{\varepsilon}{2}\right)^{X_s(c)}\left(\frac{\varepsilon}{2}\right)^{1-X_s(c)}  \nonumber
+%\end{equation}
+%and  the MLE is $(\hat c,\hat\varepsilon) =\argmax_{c,\varepsilon} L(c,\varepsilon)$.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Allowing for subject heterogeneity: the EC algorithm}
+%\bi 
+%\item This likelihood assumes subjects are {\it homogeneous\/} -- they have the same probability $\varepsilon$ of guessing
+%and use the same cutoff rule $c$.
+%If subjects are different can {\it unsupervised learning\/} discover their types?
+%\item With {\it panel data\/} we can allow for heterogeneity using {\it fixed effects\/} -- estimate
+%{\it subject-specific\/} parameters $(\hat c^s,\hat\varepsilon^s)=\argmax_{c,\varepsilon} L(X^s_c|c,\varepsilon)$. 
+%\item However subjects participated in relatively small numbers of trials: $t_s=19$ or 20 for most subjects. We have 4 unknown parameters
+%$(c,\varepsilon)$ with only 19 parameters per subject, so not many ``degrees of freedom'' and a potential {\it incidental parameters problem\/}
+%leading to poor performance of fixed effects maximum likelihood.
+%\item {\bf Solution:}  The EC (Estimation-Classification) Estimator.  Suppose  we restrict
+%the number of ``types'' to be $K < S$. Let $(c^k,\varepsilon^k)$ be the cutoff rule and error rate of a ``type k'' subject.  Let the
+%indicator $\delta_{s,k}=1$ if subject $s$ is ``assigned'' to be a type $k$. Then for a fixed number of types $K$ the EC algorithm
+%estimates the $K$ types $(\hat c^1,\ldots,\hat c^K,\hat\varepsilon^1,\ldots,\hat\varepsilon^K)$  as follows
+%\begin{equation}
+% (\hat c^1,\ldots,\hat c^K,\hat\varepsilon^1,\ldots,\hat\varepsilon^K,\{\hat\delta_{s,k}\}) = \argmax_{\vec{c},\vec{\varepsilon},\{\delta_{s,k}\}}
+%    L(\vec{c},\vec{\varepsilon},\{\delta_{s,k}\}).
+%\end{equation}
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{EC likelihood}
+%\bi 
+%\item where $ L(\vec{c},\vec{\varepsilon},\{\delta_{s,k}\})$ is given by
+%\begin{equation}
+%   L(\vec{c},\vec{\varepsilon},\{\delta_{s,k}\}) = \prod_{s=1}^S \prod_{k=1}^K L(X^s_{c^k}|c^k,\varepsilon^k)^{\delta_{s,k}},
+%\end{equation}
+%and the maximization of $ L(\vec{c},\vec{\varepsilon},\{\delta_{s,k}\})$ is done subject to the constraint that $\delta_{s,k}\in \{0,1\}$
+%and $\sum_{k=1}^K \delta_{s,k}=1$ for all subjects $s \in \{1,\ldots,S\}$. {\it Each subject can be assigned to only one of the $K$ types
+%$(c^1,\ldots,c^K,\varepsilon^1,\ldots,\varepsilon^K)$ and $\hat\delta_{s,k}=1$ denotes the type choice for subject $k$ that has the
+%highest likelihood $L(X^s_{c^k}|c^k,\varepsilon^k)$ across the $k=\{1,\ldots,K\}$ types.\/} 
+%\item Thus the EC algorithm consists of an ``outer loop'' that searches over $(c^1,\ldots,c^K,\varepsilon^1,\ldots,\varepsilon^K)$
+%and an ``inner loop'' that for each subject $s$ sets $\hat\delta_{s,k}=1$ for the type $k$ for which $L(X^s_{c^k}|c^k,\varepsilon^k)$ is the 
+%largest.
+%\item The total number of parameters for EC is $4*K$ vs $4*S$ in a fixed effects estimation approach, 
+%which in effect is trying to estimate infinitely many parameters as $S \to \infty$ with $t/4$ observations per parameter,
+%whereas it equals  $St/4k$ for EC.
+%\ei
+%\end{frame}
+%
+%  
+%
+%\begin{frame} \frametitle{El-Gamal and Grether's empirical findings}
+%\bi 
+%\item They started out estimating a single type $k=1$ model and found that $\hat c=(4,3,2)$. That is, subjects are making
+%choices consistent with Bayes Rule!
+%\item However the estimated error rate is large: $\hat\varepsilon=.38$.
+%\item Error rates were lower in experiments where subjects were paid (.3 vs .45), and errors for UCLA subjects were lower
+%than the other schools (PCC,Occidental,CSULA).
+%\item If $k=2$ types are allowed, EC finds that Bayes Rule $(4,3,2)$ is the most frequent, but ``Representativeness'' $(3,3,3)$
+%is the next most frequently used cutoff rule (63\% vs 37\%).
+%\item If $k=3$ types are allowed, EC finds that the 3rd most common cutoff rule is ``Conservatism'' $(5,3,1)$.
+%\item Using likelihood ratio tests, they strongly reject the hypothesis that ``subjects at different schools act in similar ways
+%and subjects across different payment schemes act in similar ways.''
+%\ei
+%\end{frame}
+%
+%
+%
+%\begin{frame} \frametitle{Evidence in favor of cutoff rules }
+%\bi
+%\item The graph suggests that interpreting subjects as using ``cutoff rules'' is a reasonable
+%way to view the experimental outcomes.
+%\item We can view the figure as a type of {\it confusion matrix\/} that indicates where subjects make
+%most of their mistakes (classification errors) in the experiment: {\it close to the cutoff line separating the ``choose A''
+%region from the ``choose B'' region.\/}
+%\item The size of the dots conveys sample size, the color conveys the ``confusion'' i.e. the classification error
+%rates:  deep blue colors imply that subjects mostly chose cage B, deep red indicates that subjects mostly chose cage A.
+%Purple colors reveal the higher rate of classification errors that occur for experiments near the boundary of the
+%two regions, i.e. near the border where the true posterior probability for cage A, $\Pi(A|d,\pi)=1/2$.
+%\item Thus: the experiment suggests that the subjects made the most errors at the boundary between the two regions, which
+%is precisely where we would expect them to make the most errors because the ``evidence'' $(d,\pi)$ is not strong for
+%choosing A or B.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{The data vs El-Gamal/Grether and binary logit models}
+%\includegraphics[scale=0.55]{figures/fraction_subjects_choosing_cage_A_fig_10.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{A 2nd type really improves fit of the EG  model $\ldots$}
+%\includegraphics[scale=0.55]{figures/fraction_subjects_choosing_cage_A_fig_5.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{But a 2 type logit model fits even better}
+%\includegraphics[scale=0.55]{figures/fraction_subjects_choosing_cage_A_fig_9.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Critique of the El-Gamal/Grether model}
+%\bi
+%\item Why should a person ``randomly guess''  especially when the evidence makes them pretty certain that
+%the cage from which the sample was drawn was either cage A or cage B?
+%\item We would expect that a person would be most likely to ``guess'' when their {\it subjective posterior\/}
+%is close to 1/2, i.e. when the evidence does not clearly favor cage A or cage B.
+%\item Estimating cutoff rules does not reveal {\it underlying beliefs\/} of the subjects, i.e. their
+%{\it subjective posterior belief\/} about the probability that the observed sample was drawn from cage A.
+%\item There is no way that the model reflects the extra incentives for the Pay subjects (who received a bonus
+%for choosing the correct cage) except indirectly via reduced error rates.
+%\item  The cutoff parameters $(c_1,c_2,c_3)$ they estimate are not {\it structural\/} because they
+%depend on the other design parameters $(p_A,p_B,D)$. Changing the latter changes the cutoffs.
+%\item The the EG model would not be able to make {\it out of sample predictions\/} of a change in the
+%design parameters $(p_A,p_B,D)$.
+%\ei
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{The logit model: the simplest possible neural net}
+%\bi
+%\item A natural alternative but {\it reduced-form model\/} of subject choices is the {\it binary logit model\/} which is a 3 parameter
+%model of the probability that a subject chooses cage A given by
+%\begin{equation}
+%    P(A|d,\pi) = { 1 \over 1 + \exp\{\beta_0+\beta_1 d + \beta_2 \pi\}}.
+%\end{equation}
+%\item The logit model can be regarded as  {\it flexible functional form for approximating the probability of choosing cage A.\/} But
+%it doesn't have a direct interpretation as a structural model or theory of how people learn.
+%But it is the simplest example of a {\it single layer feedforward neural network with 2 inputs, 1 output, and the
+%``softmax'' or logistic ``squashing function.''\/}
+%\item The  logit/NN model fits the data significantly better than the EG (single type) model:
+%the log-likelihood for the EG model (4 parameters) is $-1942.63$ whereas the logit/NN model results in 
+%a log-likelihood of $-1811.31$. A 2 type EG model (7 parameters) fit by  EC fits even better: 
+%log-likelihood $-1699.39$. A 2 type logit/NN model (6 parameters) also fit by EC fits even better, 
+%as is evident from comparing predicted probabilities to non-parametric CCP.
+%\ei
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Changing decision rules: the Wisconsin experiments}
+%\bi
+%\item in 1999 El-Gamal and Grether conducted further experiments on learning and decision making at the
+%University of Wisconsin involving 81 subjects.
+%\item Subjects participated in two different experimental designs over two successive days:
+%\item {\bf California design:} 6 balls drawn with replacement from either  Cage A (4 N balls and 2 G balls) or Cage B (3 N balls and 3 G balls)
+%\item {\bf Wisconsin design:} 7 balls drawn with replacement from either  Cage A (4 N balls and 6 G balls) or Cage B (6 N balls and 4 G balls)
+%\item Cage A was selected based on the draw of a 10 sided die, and $\pi$ was chosen from the 4 values 
+%$\pi \in \{.3,.4,.6,.7\}$. 
+%\item Under the California design $p_A=.6667$ and $p_B=.5$, while under the Wisconsin design $p_A=.4$ and $p_B=.6$. 
+%\item This flips the likelihood ratios, so observing large values of $d$ makes cage A more likely under the 
+%California design, but less likely under the Wisconsin design. 
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Likelihood ratios in Wisconsin experiments}
+%\includegraphics[scale=0.55]{figures/wisconsin/figure_0_log_likelihood_ratios.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Subject choices under the California design ($D=6$)}
+%\includegraphics[scale=0.55]{figures/wisconsin/decision_regions_california_design.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Subject choices under the Wisconsin design  ($D=7$)}
+%\includegraphics[scale=0.55]{figures/wisconsin/decision_regions_wisconsin_design.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Subject choices in the Wisconsin experiments}
+%\includegraphics[scale=0.55]{figures/wisconsin/figure_1.eps}
+%\end{frame}
+%
+%%\begin{frame} \frametitle{Subject choices in the Wisconsin experiments}
+%%\includegraphics[scale=0.55]{figures/wisconsin/figure_2.eps}
+%%\end{frame}
+%%
+%%\begin{frame} \frametitle{Subject choices in the Wisconsin experiments}
+%%\includegraphics[scale=0.55]{figures/wisconsin/figure_3.eps}
+%%\end{frame}
+%%
+%%\begin{frame} \frametitle{Subject choices in the Wisconsin experiments}
+%%\includegraphics[scale=0.55]{figures/wisconsin/figure_4.eps}
+%%\end{frame}
+%
+%\begin{frame} \frametitle{The structural logit predicts the change in decision rules }
+%\includegraphics[scale=0.55]{figures/wisconsin/figure_6.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{But a reduced-form neural net specification does not }
+%\includegraphics[scale=0.55]{figures/wisconsin/nn_in_vs_out_of_sample.eps}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Why does the logit model do so poorly?}
+%\bi
+%\item Because subjects pay attention to more than $(d,\pi)$ but the reduced form logit/neural net model
+%only has  $(d,\pi)$ as inputs.
+%\item The Wisconsin experiments convincingly demonstrate that human subjects are paying attention 
+%to {\it 5 pieces of information} $(d,\pi,p_A,p_B,D)$ 
+%\item In the California design, $D=6$, $p_A=2/3$ and $p_B=1/2$.
+%\item In the Wisconsin design, $D=7$, $p_A=.4$ and $p_B=.6$.
+%\item A neural net that does not use all 5 pieces of information cannot approximate human behavior in
+%new experimental designs (policy shifts) where  $D,p_A,p_B$ have changed!
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Structural logit model of subjects' choice}
+%\bi
+%\item We posit that subjects' beliefs and therefore their choices are function of {\it transformed inputs\/} $(\hbox{LLR},\hbox{LPR})$ where
+%$\hbox{LLR}$ is the log likelihood ratio and $\hbox{LPR}$
+%\begin{eqnarray*}
+%      \hbox{LLR} & = & f(d|p_A,D)/f(d|p_B,D) \\
+%   \hbox{LPR} & = & \pi/(1-\pi) 
+%\end{eqnarray*}
+%\item Notice that $(\hbox{LLR},\hbox{LPR})$ are sufficient statistics for all 5 pieces of information needed to make
+%an informed prediction of the cage that was selected to draw the sample.
+%\item We allow for {\it calculational errors\/} in  computing $(\hbox{LLR},\hbox{LPR})$ from the 5 inputs $(d,\pi,p_A,p_B,D)$.
+%\item We assume that subjects have a {\it subjective posterior probability\/} that depends on a random {\it calculational error\/} $\nu$ given by
+%\begin{equation}
+%  \Pi_s(A|d,\pi,p_A,p_B,D,\nu) = { \exp\{ \beta_0+\beta_1 \hbox{LLR}+\beta_2 \hbox{LPR}+\nu\} \over
+% 1 + \exp\{ \beta_0+\beta_1 \hbox{LLR}+\beta_2 \hbox{LPR}+\nu\}}. \nonumber
+%\end{equation}
+%\item Notice the correct Bayesian posterior is nested in this specification when $(\beta_0,\beta_1,\beta_2)=(0,1,1)$ and $\nu=0$ with probability 1.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Structural logit model of subjects' choice}
+%\bi
+%\item Given the subjective posterior beliefs, the choice of A or B depends on which gives the subject a greater
+%expected payoff. Assume the payoff for a correct choice is $R$ but also assume that there
+%are  additional idiosyncratic ``choice distractions'' $(\epsilon(A),\epsilon(B))$ that affect the final choice. Then the decision
+%rule is given by
+%\begin{equation}
+%\delta(I,\nu,\epsilon) = \left\{\begin{array}{ll} A & \hbox{if} \; R\Pi_s(A|I,\nu)+\epsilon(A) \ge R\Pi_s(A|I,\nu)+\epsilon(B) \cr
+%         B & \hbox{otherwise} \end{array} \right. \nonumber 
+%\end{equation}
+%where $I=(d,\pi,p_A,p_B,D)$ is the observed public information in each trial and $(\nu,\epsilon)$ is private information only observed
+%by the subject.
+%\item Assuming $\epsilon$ and $\nu$ are independently distributed and $\epsilon$ is bivariate extreme value with scale parameter $\sigma$, we get the following
+%logit CCP or decision rule
+%\begin{equation}
+%  P(A|d,\pi,p_A,p_B,D,\nu) = {  1 \over 1 + \exp\{\left[1-2\Pi_s(A|d,\pi,p_A,p_B,D,\nu)\right]R/\sigma\} }.\nonumber
+%\end{equation}
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Structural logit model of subjects' choice}
+%\bi
+%\item Since $\nu$ is also unobservable we need to integrate it out of the decision rule to get the final CCP or ``mixed'' decision rule.
+%Assume that $\nu \sim N(0,\eta^2)$. Then we have
+%\begin{equation}
+%P(A|d,\pi,p_A,p_B,D) = \int_\nu P(A|d,\pi,p_A,p_B,D,\eta\nu)\phi(\nu)d\nu. \nonumber
+%\end{equation} 
+%\item This is a 5 parameter model where $\theta=(\beta_0,\beta_1,\beta_2,\sigma,\eta)$ are ``structural parameters''
+%\item Let $y_{ts}=1$ if subject $s$ chose cage A in trial $t$ in response to information $(d_{ts},\pi_{ts})$. Then the likelihood function
+%is given by
+%\begin{eqnarray*}
+%     L(\theta) =&& \prod_{s=1}^S \prod_{t=1}^{T_s} P(A|d_{ts},\pi_{ts},p_A,p_B,D,\theta)^{y_{ts}} \times \\
+%&& [1-P(A|d_{ts},\pi_{ts},p_A,p_B,D,\theta)]^{1-y_{ts}}. \nonumber
+%\end{eqnarray*}
+%where $(p_A,p_B,D)$ are the experimental design parameters.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{The structural logit model is a two layer neural network}
+%When $\eta=0$, the structural model can be viewed as simple two layer feedforward neural network:  a ``logit inside a logit''.  
+%\begin{enumerate}
+%\item  {\bf Layer 1} uses the ``transformed inputs'' $(\hbox{LLR},\hbox{LPR})$  to produce the  subjective posterior,
+% $\Pi_s(A|\hbox{LLR},\hbox{LPR},\beta)$ as output, where $\beta_0$ is the bias term and $(\beta_1,\beta_2)$ are the  ``input weights''.
+%\item {\bf Layer 2}  uses the output from layer 1 as input and generates the logit CCP as the single output.
+%\begin{equation} P(A|\hbox{LLR},\hbox{LPR},\sigma,\beta)=P(A|\Pi_s(A|\hbox{LLR},\hbox{LPR},\beta),\sigma) \end{equation}
+%where the 2nd layer bias term is $R/\sigma$ and weight on the layer 1 input is $2R/\sigma$.
+%\item If we add additional layers, we can use them to approximate the transformed inputs
+%$(\hbox{LLR},\hbox{LPR})$ from  the ``raw inputs'' $(d,\pi,p_A,p_B,D)$.
+%\end{enumerate}
+%\end{frame}
+%
+%
+%%\begin{frame} \frametitle{Generalizing: a 2 layer binary NN classifier}
+%%\bi
+%%\item We can generalize this model by adding a ``bias term'' to the 2nd output layer:
+%%\begin{equation}
+%%    P(A|n,\pi_A) = \phi\left(\alpha_0+\alpha_1\phi(\beta_0+\beta_1 T(n)+\beta_2 T(\pi_A))\right),
+%%\label{eq:2layer}
+%%\end{equation}
+%%where $\phi(x)=1/(1+\exp(-x))$ is the logistic activation or ``squashing function''
+%%and  $T(n)$ and $T(\pi)$ are the ``transformed inputs'' given by $T(n)=\log(f(n|A)/f(n|B))$ (log-likelihood ratio)
+%%and $T(\pi_A)=\log(\pi_A/(1-\pi_A))$ (log-prior odds ratio).
+%%\item This NN is  {\it shallow and thin\/} since it has only 2 layers (i.e. a ``depth'' of 2) and 
+%%1 hidden unit in each layer (i.e. a ``width'' of 1). It depends on only 5 parameters
+%%$(\alpha_0,\alpha_1,\beta_0,\beta_1,\beta_2)$ where $(\alpha_0,\beta_0)$ are the ``bias terms'' and
+%%$(\alpha_1,\beta_1,\beta_2)$ are the weights. 
+%%\item Notice that the structural logit model is a special case of the two layer binary NN classifier (\ref{eq:2layer})
+%%when 
+%%\begin{equation}
+%%     \alpha_0=\frac{-1}{2\sigma/U}, \; \beta_0=0, \; \alpha_1=\frac{1}{\sigma/U}, \; \beta_1=-1,\; \beta_2=1
+%%\end{equation}
+%%where $U=10$ is the payoff to a correct classification. The structural model depends on only 4 parameters
+%%since it restricts $\alpha_0=-2\alpha_1$.
+%%\ei
+%%\end{frame}
+%
+%\begin{frame} \frametitle{Example classification net for learning Bayes Rule}
+%\includegraphics[scale=0.35]{figures/neural_network_example.png}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Identification of subjective beliefs}
+%\bi
+%\item Maximum likelihood estimation of the structural logit model can be viewed as an exercise
+%in ``revealed beliefs'' using subjects' binary choices only.  Are these beliefs identified?
+%\item No, not in general. For example the optimal Bayesian decision rule $\delta^*$ is nested within
+%the structural logit model when $\theta^*=(\beta_0,\beta_1,\beta_2,\sigma,\eta)=(0,1,1,0,0)$.
+%But now consider for any $\lambda > 0$ a non-Bayesian decision maker given $\theta_\lambda=(0,\lambda,\lambda,0,0)$.
+%Then it is not hard to show that for any $(d,\pi,p_A,p_B,D)$ we have
+%\begin{equation}
+%  \Pi(A|d,\pi,p_A,p_B,D) \le 1/2  \iff  \Pi_s(A|d,\pi,p_A,p_B,D,\theta_\lambda) \le 1/2.
+%\nonumber
+%\end{equation} 
+%\item Thus {\it you don't have to believe like a Bayesian to act like a Bayesian!\/}
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Identification of subjective beliefs when $\sigma > 0$}
+%\bi
+%\item When $\sigma > 0$ we can use the random decision mistakes to show that the model is identified
+%if we have enough observations at extreme values of $\pi$ where the true posterior is close to 0 or 1
+%to identify $\sigma$. 
+%\begin{lemma} {\bf Identification of subject beliefs when $\sigma>0$}
+%\label{lemma:two}
+%Assume that $\eta=0$. When $\sigma>0$, all four parameters of the structural logit model are identified,
+%so the subject's subjective beliefs can be identified from knowledge
+%of their decision rule $P(A|d,\pi,p_A,p_B,D)$, where the latter
+%is identifiable given sufficient experimental data on a subject's choices for different
+%values of $(d,\pi,p_A,p_B,D)$.
+%\end{lemma}
+%\item But this result is unrealistic in practice since cannot do that much experimentation with a given subject.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Example of weak identification of beliefs}
+%\centerline{\includegraphics[height=2in]{figs/differing_subjective_probabilities.eps}\hskip -.3in
+%\includegraphics[height=2in]{figs/but_nearly_observationally_equivalent_choice_probabilities.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Results from reanalysis of California data}
+%\begin{table}
+%\begin{center} 
+%\fontsize{11pt}{11}\selectfont
+%        \setlength{\tabcolsep}{2pt}
+%        \renewcommand{\arraystretch}{1}
+%                \begin{tabular}{|lccc|} 
+%                        \hline
+%{\bf Model} & {\bf Parameters}& {\bf Log-likelihood} & {\bf AIC} \\
+%\hline
+%El-Gamal/Grether & 4 &  -1952 & 3912 \\
+%\hline
+%Structural probit & 3 & -1847 & 3700 \\
+%\hline
+%Reduced-form logit  & 3&  -1821 & 3648 \\
+%\hline
+%Noisy Bayesian & 1 & -1801 & 3604 \\
+%\hline
+%Structural logit & 4 & -1773 & 3554 \\ 
+%\hline
+%Neural network & 5 & -1772 & 3554 \\
+%\hline
+%\end{tabular}
+%\end{center}
+%\end{table}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Restricted estimation results}
+%\begin{table}[htbp]
+%\fontsize{11pt}{11}\selectfont
+%        \label{table:serverresults}
+%        \setlength{\tabcolsep}{2pt}
+%        \renewcommand{\arraystretch}{1.15}
+%                \begin{tabular}{|l|c|c|c|c|c|} 
+%\multicolumn{6}{c}{Structural logit model} \\
+%\hline
+%Parameter & $\sigma$ & $\eta$  & $\beta_0$ &  $\beta_1$ & $\beta_2$ \\
+%                        \hline
+%Estimate &  .38  & 0 &  .05  & 2.38   &   1.86     \\
+%\hline
+%Standard error &  (.02) & (0)   &  (.05) &  (.28) &  (.19) \\
+%                 \hline
+%\multicolumn{6}{c}{Structural probit model} \\
+%\hline
+%Parameter & $\sigma$ & $\eta$  & $\beta_0$ &  $\beta_1$ & $\beta_2$ \\
+%                        \hline
+%Estimate &  0 & 1   &  .03  & 1.05   &   .97     \\
+%\hline
+%Standard error &  (0) & (0)   &  (.02) &  (.04) &  (.04) \\
+%\hline
+%                \end{tabular}%
+%\end{table}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Inferred subjective posteriors: EC vs Finite Mixture}
+%\centerline{\includegraphics[height=2in]{figs/inferred_subjective_posteriors_3type_ec.eps}\hskip -.3in
+%\includegraphics[height=2in]{figs/inferred_subjective_posteriors_3type_hs.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Predicted vs Actual CCPs: EC vs Finite Mixture}
+%\centerline{\includegraphics[height=2in]{figs/predicted_vs_actual_choices_3type_ec.eps}\hskip -.2in
+%\includegraphics[height=2in]{figs/predicted_vs_actual_choices_3type_hs.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Classification hyperplanes: EC vs Finite Mixture}
+%\centerline{\includegraphics[height=2in]{figs/decision_hyperplanes_3type_ec.eps}\hskip -.2in
+%\includegraphics[height=2in]{figs/decision_hyperplanes_3type_fm.eps}}
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Implied Loss Functions: EC vs Finite Mixture}
+%\centerline{\includegraphics[height=2in]{figs/loss_functions_3type_ec.eps}\hskip -.2in
+%\includegraphics[height=2in]{figs/loss_functions_3type_fm.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Subject-specific accuracy/efficiency: EC vs Finite Mixture}
+%\centerline{\includegraphics[height=2in]{figs/accuracy_efficiency_california_subjects_ec.eps}
+%\hskip -.2in
+%\includegraphics[height=2in]{figs/accuracy_efficiency_california_subjects_fm.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Model estimates for Wisconsin 6 ball experiments}
+%\begin{table}
+%\label{tab:sl_wisconsin_ml_estimates}
+%\fontsize{11pt}{11}\selectfont
+%\setlength{\tabcolsep}{4pt}
+%        \renewcommand{\arraystretch}{.8}
+%                \begin{tabular}{|l|c|c|c|} 
+%\hline
+%Parameter & Type 1 & Type 2&Type 3  \\
+%   & $\hat\lambda_1=.32$ & $\hat\lambda_2=.24$  & $\hat\lambda_3=.44$ \\
+%\hline
+%$\sigma$  & .07         & .22   & .32 \\
+%(noise parameter)      &       (.08) & (.06) & (.05) \\
+%\hline
+%$\beta_0$  & .14        & .06  & -.11 \\
+%(bias/intercept)           & (.18)       & (.11) & (.08) \\
+%\hline
+%$\beta_1$ & 1.48 & 1.25 & 2.48 \\
+%$\hbox{LLR}$ coefficient  & (1.91)& (.36) & (.67) \\
+%\hline
+%$\beta_2$                 & 1.40 & 2.27 & 1.39 \\
+%$\hbox{LPR}$ coefficient    & (1.81)& (.70) & (.36) \\
+%\hline
+%$P$-value for $H_o:$ & \multirow{2}{*}{.74} & \multirow{2}{*}{.02} & \multirow{2}{*}{.01} \\
+%$\beta_0=0,\beta_1=\beta_2$ &  &  & \\
+%\hline
+%$P$-value for $H_o$ & \multirow{2}{*}{.015} & \multirow{2}{*}{.003} & \multirow{2}{*}{.015} \\
+%$\beta_0=0,\beta_1=\beta_1=1$ & & & \\
+%\hline
+%\end{tabular}%
+%\end{table}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Subjective vs Bayesian Posteriors for the 3 Types}
+%\centerline{\includegraphics[width=2in]{figs/type1_subjective_posterior_vs_bayes_posterior.eps}\hskip -.3in
+%\includegraphics[width=2in]{figs/type2_subjective_posterior_vs_bayes_posterior.eps}\hskip -.3in
+%\includegraphics[width=2in]{figs/type3_subjective_posterior_vs_bayes_posterior.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Classification hyperplanes and Loss functions}
+%\centerline{\includegraphics[height=2in]{figs/fm_classification_threshold_hyperplanes.eps}\hskip -.2in
+%\includegraphics[height=2in]{figs/fm_expected_loss_functions_wisconsin_6_ball.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Subject accuracy/efficiency: Wisconsin 6 ball experiments}
+%\centerline{\includegraphics[height=3.0in]{figs/fraction_of_correct_responses.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Out-of-sample predictive accuracy of structural logit model}
+%\centerline{\includegraphics[height=1.8in]{figs/expected_vs_predicted_ccps_6ball_trials.eps}\hskip -.2in
+%\includegraphics[height=1.8in]{figs/expected_vs_predicted_ccps_7ball_trials.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Reanalysis of Holt and Smith experiments}
+%\bi
+%\item These experiments directly elicted subjective posterior probabilities using the {\it Becker-Degroot-Marshak\/} (BDM) mechanism.
+%\item It involves a second stage gamble to incentivize truthful reporting of the subjective posterior $p$.
+%\item If subject reports a probability $p_r$ that cage A is the correct cage, this leads to a gamble $\tilde G_R(p_r)$ that
+%      pays off amount $R$ based on a random draw $\tilde p \sim U(0,1)$.
+%\begin{enumerate}
+%\item if $\tilde p \le p_r$, then the subject receives payment $R$ if the true cage is cage A 
+%\item if $\tilde p > p_r$, then the subject receives $R$ with probability $\tilde p$
+%\end{enumerate}
+%\item The subject's expected payoff from reporting $p_r$ is
+%\begin{equation}
+%                 E\{\tilde G_R|p_r,d,\pi,p_A,p_B,D\}=R\left[\frac{1-p_r^2}{2} + p_r \Pi_s(A|d,\pi,p_A,p_B,D,\nu)\right],
+%\nonumber
+%\end{equation}
+%\item  The optimal report is the subject's true posterior probability $p^*_r=\Pi_s(A|d,\pi,p_A,p_B,D,\nu)$.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Beliefs and loss functions: Holt and Smith experiment 1}
+%\centerline{\includegraphics[height=2in]{figs/hs_exp1_full_sample_actual_vs_model_fm.eps}\hskip -.4in
+%\includegraphics[height=2in]{figs/hs_exp1_full_sample_estimated_loss_functions_fm.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Stability of Beliefs: Holt and Smith experiment 1}
+%\centerline{\includegraphics[height=2in]{figs/hs_exp1_12_ball_training_sample_actual_vs_model_fm.eps}\hskip -.4in
+%\includegraphics[height=2in]{figs/hs_exp1_34_ball_evaluation_sample_actual_vs_model_fm.eps}}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Conclusions from reanalysis of human subject data}
+%\bi 
+%\item We reject the hypothesis that all subjects are Bayesians or even noisy Bayesians
+%\item However we do find significant subsets of subjects who are noisy Bayesians 
+%\begin{enumerate}
+%\item 49 to 79\% in El-Gamal and Grether's California experiments
+%\item 32\% in their Wisconsin 6 ball experiments
+%\item 77\% in their Wisconsin 7 ball experiments
+%\item 45\% in Holt and Smith's experiment 1
+%\item but none in their web-based experiment 2
+%\end{enumerate}
+%\item Decision efficiency is high overall
+%\begin{enumerate}
+%\item 93\% in El-Gamal and Grether's California experiments
+%\item 97\% in their Wisconsin 6 ball experiments
+%\item 96\% in their Wisconsin 7 ball experiments
+%\item 96\% in Holt and Smith's experiment 1
+%\item 91\% in their web-based experiment 2
+%\end{enumerate}
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Results for ChatGPT in 6 ball design}
+%\bi
+%\item We created a matching set of trials for GPT subjects  using the actual trial outcomes for the 6 ball design
+%of El-Gamal and Grether (1995 and 1999)
+%\item We intentionally introduced subject-specific heterogeneity in the GPT subjects by randomly choosing different
+%{\it temperature\/} settings.
+%\item Higher temperature implies more randomness in the GPT response so it is akin to adding heterogeneity
+%in the $\sigma$ or $\eta$ noise parameters of the structural logit model.
+%\item Unlike human subjects, this is {\it observed heterogeneity.\/}
+%\item However we analyzed the results using the same methods we used to handle unobserved heterogeneity
+%in human subjects, i.e. the EC algorithm and finite mixture methods for unobserved heterogeneity.
+%\ei
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Estimated classification hyperplanes}
+%\centerline{Classification hyperplanes for GPT 3.5, 4 and 4o}
+%\begin{figure}
+%\centerline{\includegraphics[width=1.7in]{ChatGPT_figs/GPT_3dot5_turbo/classification_hyperplanes_by_type_6_ball_chatgpt_35.eps} \hskip -.1in
+%      \includegraphics[width=1.7in] {ChatGPT_figs/GPT_4/classification_hyperplanes_by_type_6_ball_chatgpt_4.eps} \hskip -.1in
+%     \includegraphics[width=1.7in] {ChatGPT_figs/GPT_4o/classification_hyperplanes_by_type_6_ball_chatgpt_4o.eps}}
+%\end{figure}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Loss Funtions}
+%\centerline{Estimated loss functions for  GPT 3.5, 4 and 4o}
+%\begin{figure}
+%\centerline{\includegraphics[width=1.7in]{ChatGPT_figs/GPT_3dot5_turbo/loss_functions_6_ball_by_types_gpt35.eps} \hskip -.1in
+%      \includegraphics[width=1.7in] {ChatGPT_figs/GPT_4/loss_functions_6_ball_by_types_gpt4.eps}\hskip -.1in
+%     \includegraphics[width=1.7in] {ChatGPT_figs/GPT_4o/loss_functions_6_ball_by_types_gpt4o.eps}}
+%\end{figure}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Accuracy and Efficiency}
+%\centerline{Subject-specific accuracy and efficiency for  GPT 3.5, 4 and 4o}
+%\begin{figure}
+%\centerline{\includegraphics[width=1.7in]{ChatGPT_figs/GPT_3dot5_turbo/percent_correct_predicted_gpt_35.eps}\hskip -.07in
+%      \includegraphics[width=1.7in] {ChatGPT_figs/GPT_4/percent_correct_predicted_gpt_4.eps} \hskip -.07in
+%     \includegraphics[width=1.7in] {ChatGPT_figs/GPT_4o/percent_correct_predicted_gpt_4o.eps}}
+%\end{figure}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Comparison of Human and GPT performance}
+%\begin{table}
+%\begin{tabular}{lcccc}
+%\toprule
+%                            & GPT 3.5       & GPT-4         & GPT-4o            & Humans \\
+%\midrule
+%Efficiency            & 84.9          & 96.0          & 97.5              & 96.5 \\
+%                            & (0.6\%)       & (0.3\%)       & (0.2\%)           & (0.5\%) \\
+%Accuracy         & 59.4          & 77.7          & 85.5              & 81.9 \\
+%                            & (8.4\%)       & (7.4\%)       & (6.3\%)           & (9.1\%) \\
+%No. of Types             & 2             & 1             & 1                 & 3 \\
+%\bottomrule
+%\end{tabular}
+%\end{table}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Results for ChatGPT in Holt and Smith design}
+%\bi
+%\item Recall that Holt and Smith directly elicited subjective posterior values using BDM mechanism
+%\item Probably they gave human subjects some coaching: ``trust us, it is in your best interest (to maximize
+%your payout) to report your best estimate of the probability the sample was from cup A''
+%\item But we did not give ChatGPT this sort of coaching. It had to be able to do the calculus to
+%figure out the optimal report $p_r$ in the second stage gamble $\tilde G_R(p_r)$.
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Elicited Subjective Posteriors}
+%\centerline{Estimated vs actual elicited posteriors for  GPT 3.5, 4 and 4o}
+%\begin{figure}
+%\centerline{\includegraphics[width=1.7in]{ChatGPT_hs_figs/GPT_3dot5_turbo/model_fit_cpp.eps} \hskip -.07in
+%      \includegraphics[width=1.7in]{ChatGPT_hs_figs/GPT_4/model_fit_cpp.eps} \hskip -.07in
+%      \includegraphics[width=1.7in]{ChatGPT_hs_figs/GPT_4o/model_fit_cpp.eps}}
+%\end{figure}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Implied Loss Functions}
+%\centerline{Implied loss functions for  GPT 3.5, 4 and 4o}
+%\begin{figure}
+%\centerline{\includegraphics[width=1.7in]{ChatGPT_hs_figs/GPT_3dot5_turbo/loss_funcs_by_types.eps}\hskip -.07in
+%      \includegraphics[width=1.7in]{ChatGPT_hs_figs/GPT_4/loss_funcs_by_types.eps} \hskip -.07in
+%      \includegraphics[width=1.7in]{ChatGPT_hs_figs/GPT_4o/loss_funcs_by_types.eps}}
+%\end{figure}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Comparison of Human and GPT performance}
+%\begin{table}
+%\begin{tabular}{lcccc}
+%\toprule
+%                            & GPT 3.5       & GPT-4         & GPT-4o            & Humans \\
+%\midrule
+%Efficiency             &  75.0              & 93.0     & 99.4 & 96.0 \\
+%                       & (1.0\%)       & (0.4\%)       & (0.3\%)  & (0.7\%)   \\
+%Accuracy              &   58.1        &  84.0          &   98.2    &  87.4      \\
+%                      & (0.1)       & (0.1)        &    (0.02)       &  (0.1) \\
+%$R^2$                 & 0.7          & 41.8              & 88.0  &  63.5 \\
+% 
+%No. of Types             & 2             & 2             & 2                 & 2 \\
+%\bottomrule
+%\end{tabular}
+%\end{table}
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Testing for context effects in GPT responses}
+%\begin{table}
+%    \begin{tabular}{lccccc}
+%        \toprule
+%        Model & Accuracy (Bingo) & Accuracy (Pond) & t-stat & p-value \\
+%        \midrule
+%        GPT-4o            & 0.94 & 0.92 & 0.63  & 0.53 \\
+%        GPT-4             & 0.85 & 0.83 & 0.45  & 0.66 \\
+%        GPT-3.5           & 0.63 & 0.69 & -0.84 & 0.40  \\
+%        \bottomrule
+%    \end{tabular}
+%\end{table}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Conclusions from comparison of human and GPT}
+%\bi
+%\item We find a rapid improvement in the accuracy and decision efficiency in successive versions of GPT, from sub-human performance for GPT 3.5, to approximately human for GPT-4, and super-human performance for GPT-4o. 
+%\item Three key aspects are behind this improvement: (i) decreasing bias, (ii) increasingly equal weight on the data and the prior,  and (iii) lower levels of idiosyncratic calculational and decision noise. 
+%\item We find less unobserved heterogeneity for GPTs than humans in the Wisconsin experiments, especially for GPT-4 and 4o, where we find only one type of subject,  noisy Bayesians. 
+%\item In the Holt and Smith experiment,  40\% of subjects are classified as perfectly Bayesian, while the remaining 60\% are best described as noisy Bayesians.
+%\item The structural logit model provides an increasingly good approximation to the behavior of successive generations of GPT.      
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Error analysis of GPT responses}
+%\bi
+%\item Most econometric models treat humans as black-boxes and apart from some research from neuroscience, we do not know exactly how humans process information. 
+%\item However, with GPTs we have the unique advantage of knowing both how their neural ``brains" compute information and the textual response which contains their reasoning behind their answers. 
+%\item Therefore, it makes logical sense to try to parse this text to understand how and why GPTs made mistakes, create a taxonomy of errors and obtain error distributions across models. 
+%\item There are some complications. There is more than one way to answer the question correctly and even more ways to make mistakes. The approach we adopted was twofold: (1) create a process for automated grading using a superior GPT model, o1, and (2) manual (human) grading of a smaller sample of GPT4o's responses. 
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Automated grading of GPTs by GPTo1}
+%\begin{enumerate}
+%\item Start with original prompt and student GPT's response.
+%\item Compute the correct answer.
+%\item Combine original prompt and answer vs correct answer for grader.
+%\item Send this to the grader GPT to obtain a grading response.
+%\item Extract the evaluation from grading response and store results.
+%\end{enumerate}
+%\end{frame}
+%
+%%\begin{frame} \frametitle{Grading flags returned by GPTo1 grader}
+%%\begin{table}
+%%\setlength{\tabcolsep}{4pt}
+%%\renewcommand{\arraystretch}{.8}
+%%\begin{tabular}{p{1cm} p{3cm} p{8cm}}
+%%\toprule
+%%\textbf{Index} & \textbf{Flag (Yes/No)} & \textbf{Description} \\
+%%\midrule
+%%1 & Cage Composition & Are N vs.\ G compositions correct? \\
+%%2 & Draw Count & Are total draws  correct? \\
+%%3 & Observed Data & Is the observed outcome recognized? \\
+%%4 & Ignoring Prior & Is the prior probability omitted? \\
+%%5 & Conceptual Bayes & Is Bayes Rule applied correctly? \\
+%%6 & Prior Computed & Is the prior correct? \\
+%%7 & Likelihood & Is the likelihood correct? \\
+%%8 & Posterior Computed & Is posterior computed? \\
+%%9 & Inconsistency & Was cage with higher posterior chosen? \\
+%%\bottomrule
+%%\end{tabular}
+%%\end{table}
+%%\end{frame}
+%%
+%%\begin{frame} \frametitle{Reading and writing errors}
+%%\includegraphics[width=1.0\linewidth]{figs/text1.png}
+%%\end{frame}
+%%
+%%\begin{frame} \frametitle{Conceptual and knowledge errors}
+%%    \includegraphics[width=1.0\linewidth]{figs/text2.png}
+%%\end{frame}
+%%
+%%\begin{frame} \frametitle{Calculational and numerical errors}
+%%    \includegraphics[width=1.0\linewidth]{figs/text3.png}
+%%\end{frame}
+%%
+%%\begin{frame} \frametitle{Cage choice inconsistent with posterior}
+%%    \includegraphics[scale=0.6]{figs/text4.png}
+%%\end{frame}
+%
+%\begin{frame}{Summary of errors in GPT responses}
+%    \includegraphics[scale=0.35]{figs/error_analysis.png}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Human grading of answers yields similar conclusions}
+%\bi
+%\item Automated and manual grading are complementary with each other. 
+%\item Manual grading was not able to detect reading errors or errors where Bayes rule was not applied. That is because these are rare and so the automated grader was able to detect them in a large sample. 
+%\item Manual grading is able to distinguish between (1) calculation mistakes and (2) calculation interruptions and the relative shares between them, but this was not picked up by the automated grader.
+%\item  Manual grading was also able to pick up one instance of decision noise, and this was also confirmed by the automated grading. 
+%\item Manual grading was also able to pick up finer details about GPT4o that the automated grading could not
+%\item The overall conclusions from both approaches are broadly similar.  
+%\ei
+%\end{frame}
+%
+%\begin{frame} \frametitle{Self-correction in ChatGPT-o1}
+%\begin{block}{GPT-o1 calculates posterior correctly}
+%\noindent To determine the optimal value of P that maximizes your expected payout, we'll break down the problem step by step.
+%\smallskip
+%
+%\noindent {\bf Step 1: Determine Posterior Probabilities}
+%Given the sample  (D,D,D), we update our beliefs about whether the balls were drawn from Urn A or Urn B using Bayes Theorem:
+%\smallskip
+%
+%\begin{equation}
+%P(\text{Urn A} | \text{D,D,D}) = \frac{\frac{1}{27} \times 0.5}{\frac{1}{27} \times 0.5 + \frac{8}{27} \times 0.5} = \frac{1}{9} \approx 0.1111
+%\end{equation}
+%\end{block}
+%\begin{block}{and correctly calculates BDM payoff}
+%\noindent {\bf Step 2: Calculate Expected Payout}
+%Your expected payout depends on the value of $P$ you choose and the randomly drawn number $U$.
+%\smallskip
+%\begin{itemize}
+%\item{Case 1:} $U \le P$. Expected payout: $\frac{1}{9} \times 1000 = 111.11$.
+%\item{Case 2:} $U > P$. Expected payout: $1000 \times \frac{P + 1}{2} = 500 \times (P + 1)$
+%\end{itemize}
+%\end{block}
+%\end{frame}
+%
+%
+%\begin{frame} \frametitle{Self-correction in ChatGPT-o1}
+%\begin{block}{but transcribes the formula incorrectly to calculate optimal report}
+%\noindent  Overall expected payout
+%\begin{equation} E(P) = P \times 111.11 + (1 - P) \times 500 \times \frac{P + 1}{2}.
+%\end{equation}
+%\noindent To maximize $E(P)$, take the derivative with respect to $P$ and set it to zero:
+%\begin{equation}
+%    \frac{dE}{dP} = -500P + 111.11 = 0.
+%\end{equation}
+%\noindent Solving, we get
+%\begin{equation}
+%P = \frac{111.11}{500} = 0.2222.
+%\end{equation}
+%\end{block}
+%\begin{block}{ but at the last instant it recognizes its error and self-corrects}
+%\noindent 
+%However, upon closer inspection and recalculating, the optimal $ P$ that maximizes the expected payout is: $P=\frac{1}{9} \approx .1111$.
+%\end{block}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Conclusion: The Singularity is Near (Kurzweil 2024)}
+%    \includegraphics[scale=0.45]{figures/singularity_semilog1.png}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Geoffrey Hinton on AI}
+%\begin{block}{from CBS News Interview, June 2024}
+%{\bf Pelley:} You think these AI systems are better at learning than the human mind?
+%\\
+%{\bf Hinton:} I think they may be, yes. And at present, they're quite a lot smaller. So even the biggest chatbots only have about a trillion connections in them.  The human brain has about 100 trillion. And yet, in the trillion connections in a chatbot, it knows far more than you do in your hundred trillion connections, which suggests it's got a much better way of getting knowledge into those connections.
+%\\
+%{\bf Pelley:} Does humanity know what it's doing?
+%\\
+%{\bf Hinton:} No. I think we're moving into a period when for the first time ever we may have things more intelligent than us.  
+%\end{block}
+%\end{frame}
+%
+%\begin{frame} \frametitle{Geoffrey Hinton on AI}
+%\begin{block}{from CBS News Interview, June 2024}
+%{\bf Scott Pelley:} What are the risks posed by AI?
+%\\
+%{\bf Hinton:} Well, the risks are having a whole class of people who are unemployed and not valued much because what they-- what they used to do is now done by machines. [Other immediate risks he worries about include fake news, unintended bias in employment and policing and autonomous battlefield robots.]
+%\\ 
+%{\bf Pelley:} What is a path forward that ensures safety?
+%\\
+%{\bf Hinton:} I don't know. I-- I can't see a path that guarantees safety. We're entering a period of great uncertainty where we're dealing with things we've never dealt with before. And normally, the first time you deal with something totally novel, you get it wrong. And we can't afford to get it wrong with these things. 
+%\end{block}
+%\end{frame}
+%
+%
+%
+%
+%\begin{frame} \frametitle{Stephen Hawking on AI}
+%\begin{block}{from {\it Brief Answers to the Big Questions\/} (2018)}
+%``Whereas the short-term impact of AI depends on who controls it, the long-term impact depends on whether it can be controlled at all.  I fear that AI may replace humans altogether. If people design computer viruses, someone will design AI that improves and replicates itself. This will be a new form of life that outperforms humans.  
+%It would take off on its own, and re-design itself at an ever-increasing rate.  It will either be the best thing that ever happened to us, or it will be the worst thing. If we're not careful, it very well may be the last thing.''
+%\end{block}
+%\end{frame}
+
+\end{document}

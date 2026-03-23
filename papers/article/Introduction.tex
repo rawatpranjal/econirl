@@ -1,0 +1,161 @@
+
+
+\section{Introduction\label{sec:introduction}}
+
+This article compares and contrasts  methods developed in two different
+literatures for inferring preferences (and sometimes also beliefs) of human decision makers 
+from observations on their behavior over time: one developed by economists
+that can be called ``structural econometrics'' (SE) and another developed by computer scientists 
+in machine learning (ML) and artificial intelligence (AI) that is broadly under the general 
+rubric called ``reinforcement learning'' (RL). Both SE and RL are huge literatures
+and we will not attempt to survey them in any breadth. Instead, we will focus on a particular
+subarea of SE known as {\it dynamic discrete choice\/} (DDC) which is most clearly
+parallel to a subareas of RL called ``inverse reinforcement learning'' (IRL).\footnote{\footnotesize To space we will rely heavily
+on abbreviations throughout this article, but refer readers to table \ref{tab:abbrevs} for a summary
+of the various abbreviations and acronyms used throughout this article.}
+Both literatures rely on the presumption that the agents whose preferences we are interested in recovering
+are {\it rational\/} i.e. they take a sequence
+of actions over time to maximize an internally perceived reward (or ``utility'') given their subjective beliefs of how
+their current actions cause or at least influence potentially uncertain future outcomes that affect their rewards. The 
+goals of DDC and IRL are identical:  to invert or infer the underlying objective or reward function (and sometimes also their beliefs) that is presumed to govern the behavior of agents 
+from observations of the sequence of  states and actions of a sample of decision makers (DMs) over time.
+The DMs could be  individuals, firms, or other intelligent agents (e.g. animals).
+Beyond the intellectual interest in whether this type of inversion and inference is possible
+what are the practical motivations for DDC and  IRL modeling?   
+
+In economics, structural models are used to test and evaluate economic theories, and to make {\it counterfactual predictions\/} 
+of the effect of changes in
+economic policies or other changes in the environment on behavior and welfare 
+(i.e. who is hurt and who is helped by the policy change?). Structural models are distinguished
+from reduced-form models that provide statistical summaries of agents' behavior, but do not attempt to
+infer their preferences and beliefs. Reduced-form models can make counterfactual predictions of a policy change when there
+has been sufficient historical variation in policy to allow it to be included as an explanatory variable in 
+an econometric model that predicts economic behavior. However reduced form models are unable to predict their impact on behavior for policies that have not changed in the past whereas 
+structural models can produce accurate ``out-of-sample''
+predictions of policy changes on behavior and welfare in the absence of past variation in the policy. 
+
+For example, 
+for decades Denmark has had one of the highest tax rates on new cars of any 
+country in the world. Though there have been changes in the new car registration tax rate,
+it has been to encourage more purchases of a relatively small share
+of low emissions vehicles. \citet{GIMRS:2022} used a structural model of equilibrium ownership and trading of cars in Denmark
+to predict the impact of reducing this ``registration tax''. The model predicts that by reducing the registration
+tax and increasing the gas tax, it would be possible of Denmark to 1) improve the welfare of its citizens,
+2) increase total tax revenue from cars (registration plus gas tax), and 3) reduce total $\mbox{CO}_2$ pollution.
+It can be substantially faster and cheaper to use structural models to predict and evaluate the effects of 
+various changes in economic policies than to actually carry them out and learning over time by trial and error. 
+Auto producers learned this lesson decades ago when they developed finite element simulations
+of car crashes that were sufficiently realistic that they were adopted as a faster and cheaper way to evaluate new car designs.
+Structural models can be used to ``crash test'' new policy ideas in a similar way.
+
+The practical motivation for inferring the DM's reward function in IRL  stems from the desire to produce
+intelligent agents that can perform well in situations
+with complex, poorly-defined, or hard to specify goals. They do this by inferring rewards
+that motivate humans to perform  these same tasks,  using limited human {\it demonstration data.\/} 
+ML and RL have had astounding success in training
+machines to understand, predict, and generate text, artwork, video, spoken language, in addition to impressive strides in robotics.
+This success depends not only on advances in computer power and
+algorithms such as deep neural networks (DNN) that have the flexibility to make good predictions from a variety
+of unstructured inputs, but also on the existence of large amounts of training data, {\it and\/} a well defined objective
+function that the  algorithm  is trained to optimize. 
+
+As \citet{RussellNorvig:2022} note, most of the existing ML methods use {\it supervised learning\/} where the algorithm
+``learns by passively observing example input/output pairs provided by a `teacher'.'' (p. 840). Here the reward function is known:
+to predict the choices of the teacher as well as possible according to some metric. However the labelled data provided a by teacher
+is often quite limited, and this is where RL has proven so successful. When a reward function is known
+RL algorithms can produce behavior that approximately maximizes the reward function 
+without an explicit teacher. A good example is chess, where  the reward function is known (1 for a win, -1 for a loss
+and 0 for a draw).  \citet{RussellNorvig:2022} note that supervised learning of chess is limited by the 
+``relatively few examples (about $10^8$) compared to the space of all possible
+chess positions (about $10^{40}$)'' whereas RL has been able to learn superhuman peformance 
+via  {\it self-play,\/} i.e. repeatedly playing the algorithm against computerized opponents in
+``offline training'' resulting in performance that exceeds the best human and computerized chess players 
+in ``online'' real-time play, see e.g. \citet{Silver:2018}.   
+
+Still, there are many challenging tasks in AI and robotics where it is unclear what reward function should be 
+used by RL to train intelligent behavior.  \citet{christiano:2017} provide a concrete example:  
+``suppose that we wanted to use reinforcement learning to train a robot to clean a table or scramble an egg. It's not clear how to construct a suitable reward function, which will need to be a function of the robot's sensors'' and the option of ``manually programming their behavior has become increasingly challenging and expensive.'' \citet{Osa:2018}. 
+The IRL literature circumvents this by inferring a reward function from limited observations of human choices 
+for a task we would like to automate. If it is possible to estimate 
+a reward function that ``rationalizes'' human choices,  RL can use it 
+to train the algorithm to optimize it much more rapidly and cheaply under a wider range of scenarios
+that were encountered in the demonstration data set. The result is intelligent  behavior 
+consistent with human preferences, including situations that are outside 
+the limited set in the data it was trained on.\footnote{\footnotesize There is also a literature
+on ``inverse optimal control'' (IOC) originated by \citet{kalman:1964} that is also related to structural estimation and IRL.  One of the early
+practical successes in this literature, \citet{locomotion:2010}, was in robotics where IOC was used to ``generate natural overall locomotion trajectories from an initial rest position an orientation to a given target rest position and orientation.''
+\citet{guidedcostlearning:2016} extend the IOC approach to use DNNs to provide more flexible approximations to the
+underlying reward or cost function  that ``can learn complex, nonlinear cost representations $\ldots$ and can be applied to high-dimensional systems with unknown dynamics'' resulting in a method that ``outperforms prior IOC algorithms on a set of simulated benchmarks, and achieves good results on several real-world tasks.'' See \citet{azar:2020} for further connections between IOC and IRL.}
+
+For example \citet{barnes:2024} used data on trips from Google Maps to ``provide routes that best reflect
+travelers' latent preferences'' which can only be inferred from their ``physical behavior, which implicitly
+trade-off factors including traffic conditions, distance, hills, safety, scenery, road conditions, etc.'' They showed
+how to massively scale IRL to estimate a ``route preference function'' with 360 million parameters using  
+a training dataset of 110 million trips sampled from Google Maps.  Using this reward function, they 
+used  RL to train Google Maps to provide  route recommendations more consistent with
+human preferences resulting ``in a policy that achieves a 16-24\% improvement
+in route quality at a global scale, and to the best of our knowledge, represents the largest published study or IRL
+algorithms in a real-world setting to date.''\footnote{\footnotesize While 110 million observations may not seem
+``limited'', it is a tiny fraction of all trips navigated using Google Maps. \citet{Jeon:2021} cites
+additional examples where ``defining a reward function beforehand is particularly challenging and IRL is simply
+more pragmatic.'' These examples include robotic maniuplation, autonomous driving, and clinical motion analysis.
+See \citet{zhao:2023} who used Adversarial IRL (AIRL) to estimate context-dependent
+route preferencs using data on trips by taxi drivers in Shanghai.} 
+
+The remainder of this article is organized as follows. Section \ref{sec:mdp} provides background on dynamic programming
+(DP) and Markovian decision processes (MDP) which is the common ancestor of both the SE and RL literatures. We introduce
+the key concepts of value and policy function and the Bellman equation which characterizes the solution for an
+optimal dynamic policy, and introduce RL as a class of iterative stochastic algorithms for solving the MDP problem. 
+Section \ref{sec:ddc} describes how the DP framework is adapted to inference of the
+reward function in the DDC literature which the method of maximum likelihood. We also discuss the
+{\it identification problem\/} that puts inherent limits on our ability to uniquely recover the true preferences
+ and beliefs of a decision maker in the absences of strong additional assumptions on their functional form.
+Section \ref{sec:irl} summarizes the literature on IRL and its relation to the DDC and section \ref{sec:conclusion} 
+contrast the DDC and IRL literatures and discusses several unsolved problems.
+
+
+\begin{table}[h!]
+\centering
+\caption{List of abbreviations and acronyms}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Abbreviation} & \textbf{Full Name} \\
+\hline
+AI & Artificial Intelligence \\
+AIRL & Adversarial Inverse Reinforcement Learning\\
+AGI & Artificial General Intelligence \\
+AL & Apprenticeship Learning \\
+BC & Behavioral Cloning \\
+BIRL & Bayesian Inverse Reinforcement Learning\\
+CCP & Conditional Choice Probability \\
+CCS & Conditional Choice Simulator \\
+DDC & Dynamic Discrete Choice \\
+DM  & Decision Maker (Agent) \\
+DNN & Deep Neural Network \\
+DP  & Dynamic Programming \\
+DSE & Dynamic Structural Estimation \\
+DU & Discounted Utility \\
+EU   & Expected Utility\\
+IOC & Inverse Optimal Control \\
+IL & Imitation Learning  \\
+IRL & Inverse Reinforcement Learning\\
+MCMC & Markov Chain Monte Carlo \\
+MDP & Markovian Decision Process \\
+ML & Machine Learning \\
+MPE & Markov Perfect Equilibrium \\
+MPEC & Mathematical Programming with Equilibrium Constraints\\
+NFXP & Nested Fixed Point \\
+%PG & Policy Gradient \\
+PI  & Policy Iteration \\
+%PPO & Proximal Policy Optimization \\
+RFE & Reduced Form Estimation \\
+RL & Reinforcement Learning  \\
+RTDP & Real Time Dynamic Programming \\
+SA  & Successive Approximations \\
+TD  & Temporal Difference\\
+%TRPO & Trust Region Polcy Optimization \\
+%XAI, XRL & Explainable AI, RL \\
+\hline
+\end{tabular}
+\label{tab:abbrevs}
+\end{table}

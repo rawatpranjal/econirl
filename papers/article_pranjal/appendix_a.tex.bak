@@ -1,0 +1,118 @@
+
+\appendix
+\section*{Appendix A: One Soft-Control Framework, Three Estimators}
+
+Throughout this appendix we maintain the following standing assumptions: finite action space $\mathcal A$, measurable state space $\mathcal S$, discount factor $\gamma\in(0,1)$, bounded reward $|r_\theta(s,a)|\le R_{\max}$, full-support base policy $\mu(a\mid s)>0$, and temperature parameter $\sigma>0$. We allow a parametric reward $r_\theta$ that is linear in $\theta$ in the examples that follow. The extreme value type 1 shocks used below are mean-centered. We use the same symbol $\sigma$ to denote both the EV1 shock scale in the DDC micro-foundation and the KL regularization weight in the soft-control framework. This identification is intentional and ensures that the three estimation approaches operate on a common scale.
+
+\subsection*{A.1 Variational identity}
+For $f:\mathcal A\to\mathbb R$ and $\mu>0$ on $\mathcal A$ define
+\[
+\Psi(f;\mu,\sigma)=\max_{\pi\in\Delta(\mathcal A)}\Big\{\sum_a \pi(a)f(a)-\sigma\,\mathrm{KL}(\pi\|\mu)\Big\}.
+\]
+\begin{lemma}[Fenchel--Moreau / Donsker--Varadhan]
+\label{lem:var}
+For all $f$ and $\sigma>0$,
+\[
+\Psi(f;\mu,\sigma)=\sigma\log\sum_{a}\mu(a)\exp(f(a)/\sigma),
+\quad
+\pi^\star(a)=\frac{\mu(a)\exp(f(a)/\sigma)}{\sum_b \mu(b)\exp(f(b)/\sigma)}.
+\]
+\end{lemma}
+
+\subsection*{A.2 Soft-control framework}
+For any bounded $V$, define
+\[
+Q_V(s,a)=r_\theta(s,a)+\gamma\,\mathbb E[V(s')\mid s,a],\qquad
+(\mathcal T V)(s)=\max_{\pi(\cdot\mid s)}\Big\{\sum_a \pi(a\mid s)Q_V(s,a)-\sigma\,\mathrm{KL}(\pi(\cdot\mid s)\|\mu(\cdot\mid s))\Big\}.
+\]
+By Lemma~\ref{lem:var}, pointwise in $s$,
+\[
+(\mathcal T V)(s)=\sigma\log\!\sum_a \mu(a\mid s)\exp(Q_V(s,a)/\sigma),
+\quad
+\pi_V(a\mid s)=\frac{\mu(a\mid s)\exp(Q_V(s,a)/\sigma)}{\sum_b \mu(b\mid s)\exp(Q_V(s,b)/\sigma)}.
+\]
+\begin{lemma}[Contraction]
+\label{lem:contraction}
+$\mathcal T$ is a $\gamma$-contraction on $(\mathbb B(\mathcal S),\|\cdot\|_\infty)$; hence there is a unique fixed point $V^{\ast}$.
+\end{lemma}
+The fixed point defines the optimal value function and policy:
+\[
+Q^{\ast}_\theta(s,a)=r_\theta(s,a)+\gamma\,\mathbb E[V^{\ast}_\theta(s')\mid s,a],\quad
+V^{\ast}_\theta(s)=\sigma\log\sum_a \mu(a\mid s)\exp(Q^{\ast}_\theta(s,a)/\sigma),\quad
+\pi^{\ast}_\theta(a\mid s)=\frac{\mu(a\mid s)\exp(Q^{\ast}_\theta(s,a)/\sigma)}{\sum_b \mu(b\mid s)\exp(Q^{\ast}_\theta(s,b)/\sigma)}.
+\]
+We call this soft Bellman system with base $\mu$ the \emph{soft-control framework}. This framework serves as a unified control problem that all three estimation methods---NFXP, MaxEnt-IRL, and RLHF---solve after estimating their respective reward parameters.\footnote{\footnotesize The term \emph{soft} refers to the entropy regularization that smooths the optimal policy away from deterministic behavior. The machine learning literature also refers to this as maximum-entropy RL with reference measure $\mu$ \citep{softqlearning:2017}. We adopt the term ``framework'' to emphasize that this serves as the common mathematical structure unifying the three estimation approaches analyzed in this appendix.}
+
+\subsection*{A.3 DDC micro-foundation}
+The soft-control framework in A.2 has a natural micro-foundation in the DDC literature via random-utility discrete choice. Following the seminal work of \citet{mcfadden:1973} and \citet{rust:1988}, suppose the agent observes idiosyncratic taste shocks $\varepsilon_a$ for each action $a$ before choosing. The agent maximizes total utility by combining the choice-specific value $Q^{\ast}_\theta(s,a)$, a deterministic utility shift $\sigma\log\mu(a\mid s)$, and the realized taste shock $\varepsilon_a$. Assume the taste shocks are mean-centered independent draws from an extreme value type 1 distribution with scale parameter $\sigma$.\footnote{\footnotesize The extreme value type 1 distribution has cumulative distribution function $F(\varepsilon)=\exp(-\exp(-\varepsilon))$ and is characterized by its convenient aggregation properties. The scale parameter $\sigma$ controls the dispersion of the shocks. When the shocks are mean-centered, the agent's decision rule coincides with the entropy-regularized optimal policy from A.2.} The agent's decision rule is
+\[
+a^{\ast}(s)\in\arg\max_a\{Q^{\ast}_\theta(s,a)+\sigma\log\mu(a\mid s)+\varepsilon_a\}.
+\]
+The ex-ante value before observing the taste shocks is
+\[
+V^{\ast}_\theta(s)=\mathbb E_\varepsilon[\max_a\{Q^{\ast}_\theta(s,a)+\sigma\log\mu(a\mid s)+\varepsilon_a\}].
+\]
+\begin{lemma}[EV1 implies soft framework]
+\label{lem:ddc}
+Under the random-utility specification above, the ex-ante value satisfies $V^{\ast}_\theta(s)=\sigma\log\sum_a \mu(a\mid s)\exp(Q^{\ast}_\theta(s,a)/\sigma)$ and the choice probability is $P(a\mid s)=\mu(a\mid s)\exp(Q^{\ast}_\theta(s,a)/\sigma)\Big/\sum_b \mu(b\mid s)\exp(Q^{\ast}_\theta(s,b)/\sigma)$.
+\end{lemma}
+Lemma~\ref{lem:ddc} establishes that DDC models with EV1 taste shocks are equivalent to the soft-control framework in A.2, providing the structural interpretation underlying the $\mu$-tilted softmax policy.
+
+\subsection*{A.4 Three estimation methods}
+
+Sections A.2 and A.3 established the soft-control framework and its DDC micro-foundation. We now describe how three estimation approaches---NFXP, MaxEnt-IRL, and RLHF---use this framework.\footnote{\footnotesize Throughout this appendix, we use $\theta$ to index reward parameters in the parametric family $\{r_\theta\}$. The temperature $\sigma$ denotes both the EV1 shock scale in the DDC micro-foundation and the KL regularization weight in the soft-control framework. As shown in A.3, these interpretations coincide. In RLHF estimation, we use the distinct symbol $\tau$ for the Bradley-Terry preference temperature to avoid confusion.} Fix a reward class $\{r_\theta\}$ indexed by $\theta$ and denote by $\pi^{\ast}_\theta$ the optimal policy from A.2 for a given reward $r_\theta$. The three methods differ in their observed data and estimation objective, but all solve the same soft-control problem once $\theta$ is estimated.
+
+Nested fixed point (NFXP) estimates DDC models from observed choices via maximum likelihood. Given state-action pairs $\mathcal D=\{(s,a)\}$,
+\[
+\hat\theta_{\text{NFXP}}
+\in\arg\max_\theta \sum_{(s,a)\in\mathcal D} \log \pi^{\ast}_\theta(a\mid s),
+\]
+where each candidate $\theta$ requires solving the soft Bellman system from A.2 for $\pi^{\ast}_\theta$ \citep{rust:1987,rust:1988}.
+
+Maximum entropy IRL (MaxEnt-IRL) estimates $\theta$ from expert demonstrations $\mathcal D$ by maximizing likelihood under $\pi^{\ast}_\theta$ or, for linear $r_\theta$, by matching discounted feature expectations. Planning then uses the soft-control framework with reward $r_{\hat\theta}$.
+
+Reinforcement learning from human feedback (RLHF) learns from pairwise preferences $\mathcal P=\{(o^+,o^-)\}$ over sequences with cumulative rewards $R_\theta(o)=\sum_t \gamma^t r_\theta(s_t,a_t)$, minimizing Bradley-Terry loss
+\[
+\hat\theta_{\text{RLHF}}\in\arg\min_\theta \sum_{(o^+,o^-)\in\mathcal P} \log\!\Big(1+\exp(-(R_\theta(o^+)-R_\theta(o^-))/\tau)\Big),
+\]
+where $\tau>0$ is the temperature. Planning uses the soft-control framework with $r_{\hat\theta}$.
+
+\subsection*{A.5 Identifiability and gauges}
+As discussed in Section 3.3, rewards suffer from state-potential and scale non-identification \citep{nhr:1999,ng:2000}. We adopt two normalizations. First, a state-potential gauge:
+\[
+\text{(Gauge)}\quad \mathbb E_{a\sim\mu(\cdot\mid s)}[r_\theta(s,a)]=0\quad \text{for all }s\in\mathcal S.
+\]
+Second, a scale normalization fixing a reference Q-gap:
+\[
+\text{(Scale)}\quad Q^{\ast}_\theta(\bar s,a^+)-Q^{\ast}_\theta(\bar s,a^-)=\Delta^{\ast},
+\]
+for chosen reference state $\bar s$ and actions $a^+,a^-$, where $\Delta^{\ast}$ is known (simulation) or calibrated (data). Together these pin $\theta$.
+
+\begin{proposition}[Reference-gap scale identification]
+\label{prop:qgap}
+Let $r_{\lambda\theta}=\lambda\,r_\theta$ and $\Delta(\lambda)=Q^{\ast}_{\lambda\theta}(\bar s,a^+)-Q^{\ast}_{\lambda\theta}(\bar s,a^-)$.
+If $(\bar s,a^+,a^-)$ has nonzero reward or continuation-value difference under $r_\theta$, then $\lambda\mapsto \Delta(\lambda)$ is continuous and strictly increasing, so there exists unique $\lambda^{\ast}>0$ with $\Delta(\lambda^{\ast})=\Delta^{\ast}$.
+\end{proposition}
+
+\subsection*{A.6 Alignment theorem}
+We now state the main result establishing that NFXP, MaxEnt-IRL, and RLHF produce equivalent policies when all three use the soft-control framework with appropriate gauges. Suppose the observed data are generated by agents following the soft-control framework under some true reward function $r_{\theta^\star}$ that lies in the parametric class $\{r_\theta\}$ up to an additive state potential. Assume the gauge normalization and reference Q-gap from Section A.5 are enforced, and that standard regularity and coverage conditions hold to ensure consistency of M-estimators.
+\begin{thm}[Equivalence of estimation methods]
+\label{thm:alignment}
+Let $\hat\theta_{\text{NFXP}}$, $\hat\theta_{\text{IRL}}$, and $\hat\theta_{\text{RLHF}}$ be any consistent estimators solving the respective objectives in Section A.4 under the conditions stated above.
+Then, as sample size $\to\infty$, the three reward estimates coincide up to state potentials,
+\[
+r_{\hat\theta_{\text{NFXP}}}\sim r_{\hat\theta_{\text{IRL}}}\sim r_{\hat\theta_{\text{RLHF}}}\sim r_{\theta^\star},
+\]
+and the corresponding soft-optimal planners converge to the same policy for all states,
+\[
+\pi^{\ast}_{\hat\theta_{\text{NFXP}}}=\pi^{\ast}_{\hat\theta_{\text{IRL}}}=\pi^{\ast}_{\hat\theta_{\text{RLHF}}}\ \ \xrightarrow{\ \ }\ \ \pi^{\ast}_{\theta^\star}.
+\]
+\end{thm}
+The theorem confirms that the choice of estimation method---direct choice data, expert demonstrations, or pairwise preferences---does not affect the limiting policy, provided all three methods use the same soft-control framework and apply consistent identification restrictions.
+
+\subsection*{A.7 Contextual bandits}
+In the contextual bandit setting (Section 5.1), there are no state transitions. Each context $c$ leads to outcome $o$ with reward $R_\theta(c,o)$, giving
+\[
+\pi^{\ast}_\theta(o\mid c)=\frac{\mu(o\mid c)\exp(R_\theta(c,o)/\sigma)}{\sum_{o'}\mu(o'\mid c)\exp(R_\theta(c,o')/\sigma)}.
+\]
+All three methods reduce to single-step likelihoods (NFXP, MaxEnt-IRL) or preference fitting (RLHF). The gauge simplifies to $\mathbb E_{o\sim\mu(\cdot\mid c)}[R_\theta(c,o)]=0$ and scale is fixed by one reference log-odds ratio. Theorem~\ref{thm:alignment} implies all three recover the same policy. Appendix B provides a worked $3\times 2$ MDP example verifying Proposition~\ref{prop:qgap}.

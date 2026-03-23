@@ -1,0 +1,94 @@
+
+At first glance, reinforcement learning (RL) and structural econometrics (SE) seem to address very different problems. However, on closer examination, these two fields are closely linked. One key connection is that SE tackles the backward or inverse problem—recovering deep structural parameters from observed behavior—while RL solves the forward problem of finding optimal decisions given rules and objectives. Another important link is that RL can be seen as a solution method within SE. Once SE has estimated stable parameters (e.g., demand curves), RL can be used to optimize policies based on these parameters.
+
+To flesh this out, consider how SE recovers policy-invariant parameters such as price elasticities or consumer demand. With these stable estimates, RL can take over to optimize pricing strategies in dynamic environments or to fine-tune marketing campaigns. For example, SE might estimate a dynamic structural model of consumer demand, which RL could then use to determine optimal marketing policies. The same logic applies in other applications like dynamic pricing or revenue management.
+
+Similarly, RL can be incorporated into SE frameworks. In situations where SE needs to find optimal decision rules but struggles with the high dimensionality or complexity of the problem, RL can step in. RL’s ability to explore large state spaces and incrementally improve decision-making makes it an ideal tool for solving dynamic, high-agent models that traditional SE techniques may find intractable. SE can also borrow RL’s exploration-exploitation paradigm, allowing it to model decision-making processes more closely aligned with how humans learn.
+
+One clear difference between RL and dynamic programming (DP), often considered a part of optimal control, is in how they handle information. RL is asynchronous forward DP, which means it "learns" by making incremental updates based on sampled rewards and state transitions without needing a complete model of the environment. In contrast, DP requires more information upfront, often in the form of a known model or transition probabilities, making it an optimization tool rather than a learning method.
+
+\subsection{Synergies in Practice}
+
+One of the main synergies between RL and SE is that SE can help RL by estimating parameters that RL can then optimize against. For instance, SE can estimate Nash equilibria or demand curves, which RL can use to explore dynamic strategies, such as dynamic pricing or adaptive experimentation. RL can also enhance SE by finding decision rules for complex problems. This has been demonstrated in solving discrete choice models or infinite-agent macroeconomic models.
+
+Inverse reinforcement learning (IRL) also benefits from SE. IRL can learn from SE how to approach the identification problem by using equilibrium selection or functional form assumptions. This could help IRL to better identify reward functions in settings with multiple equilibria. Similarly, SE can adopt RL’s approximation techniques for behavioral modeling, which may lead to advances in behavioral SE work.
+
+The success of RL in applications such as games (Go, Chess, Poker) demonstrates its capacity to solve large-scale problems with many agents and high-dimensional state spaces. This exploration-exploitation paradigm could inspire SE to model human decision-making processes, particularly in situations where agents face novel challenges and have limited information.
+
+\subsection{Internal Structures of RL and SE}
+
+To understand the distinctions and similarities between RL and SE, it’s useful to break them down by certain structural elements: static vs. dynamic problems, the number of agents involved, and whether the problem focuses on pattern recognition or decision making.
+
+\begin{table}[h!]
+\centering
+\caption{Comparison by Problem Type (Static vs. Dynamic, Single vs. Multi-Agent)}
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Field} & \textbf{Static Problems} & \textbf{Dynamic Problems} \\
+\hline
+RL & UCB Bandit (Single Agent) & Q-Learning (Single Agent), \\
+   & Minimax Q-Learning (Multi-Agent) & AlphaGo (Multi-Agent), Mean Field RL (Infinite Agents) \\
+\hline
+SE & Discrete Choice (Single Agent) & Dynamic Discrete Choice (Single Agent), \\
+   & Auction Models (Multi-Agent) & Entry-Exit Games (Multi-Agent), \\
+   & & Optimal Growth Model (Infinite Agents) \\
+\hline
+\end{tabular}
+\end{table}
+
+This table illustrates how both RL and SE can handle static and dynamic problems, as well as single- and multi-agent scenarios. RL is more commonly used in dynamic contexts, where agents need to learn over time, while SE has traditionally excelled in recovering structural parameters in both static and dynamic settings. Infinite-agent problems, such as those encountered in macroeconomic modeling or mean-field RL, are a challenging frontier for both fields.
+
+\subsection{Pattern Recognition vs. Decision Making}
+
+Another way to compare RL and SE is by distinguishing between pattern recognition and decision making. SE is often contrasted with reduced-form econometrics, which aims to uncover stable statistical relationships from the data using exogenous variation. Similarly, in computer science, RL is distinguished from supervised learning, where the goal is to recognize patterns in static data. RL and SE both focus on decision making—choosing actions based on feedback rather than just recognizing patterns.
+
+\begin{table}[h!]
+\centering
+\caption{Pattern Recognition vs. Decision Making}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Field} & \textbf{Focus} \\
+\hline
+Machine Learning / Supervised Learning & Pattern Recognition \\
+Reduced Form Econometrics & Pattern Recognition \\
+Reinforcement Learning / Multi-Armed Bandits & Decision Making \\
+Structural Econometrics & Decision Making \\
+\hline
+\end{tabular}
+\end{table}
+
+In this context, RL and SE are closely aligned. Both focus on how agents make decisions based on changing environments, but RL does so by learning from trial and error, while SE relies on estimating parameters that guide these decisions. These two approaches, while distinct, can benefit from each other through the synergies discussed earlier.
+
+In summary, while RL and SE may approach problems differently, they share much in common, especially when it comes to decision making and optimizing agent behavior. The synergies between these fields offer exciting opportunities for cross-fertilization and improvement in areas such as dynamic pricing, marketing, and game theory.
+
+\section{Reinforcement Learning \label{sec:results}}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin egestas metus a odio pellentesque, id sollicitudin sem congue. Interdum et malesuada fames ac ante ipsum primis in faucibus. Vivamus ac venenatis nisi. Pellentesque venenatis placerat ante quis rhoncus. Sed non pharetra dui. Fusce interdum nisl turpis, in malesuada metus condimentum eu. Proin ullamcorper, ligula vitae dapibus porta, ex nisl vulputate lectus, quis mattis lorem risus vel neque. Duis tincidunt sagittis lacus. Etiam ut diam tellus. Pellentesque tempor tortor elit, ut volutpat nisi imperdiet ut. Ut vel euismod justo, tincidunt sodales odio. In ac vestibulum urna. Nunc quis dolor sem. Cras nunc orci, vestibulum eget vulputate nec, faucibus eu metus. Etiam a diam eget urna accumsan elementum. Curabitur et sem in lacus ornare vehicula ut eget urna.
+
+
+%\input{tab_tex/summary_stats.tex}
+
+\subsection{Early Papers}
+
+Shannon (1950) is an early paper written at Bell Labs by Claude Shannon that framed the problem of building a computer to solve chess. The paper handcrafts an evaluation function that measures the strength of the board position, based on material differences and structural weaknesses,  for the player making the move. The algorithm then compares moves by how they lead to positions with higher evaluations, assuming the opponent is trying to minimize it on their move. The paper discusses strategies to ``prune” the search tree— playing the opening and ending through rote memorization, not searching widely when a series of obviously forcing moves are being played, and eliminating obviously silly moves.
+
+At this stage, the value function was not improved over time. Only one paragraph anticipates reinforcement learning and value function learning:
+
+“The chief weakness is that the machine will not learn by mistakes. The only way to improve its play is by improving the program. Some thought has been given to designing a program which is self-improving but, although it appears to be possible, the methods thought of so far do not seem to be very practical. One possibility is to have a higher level program which changes the terms and coefficients involved in the evaluation function depending on the results of games the machine has played. Some variations might be introduced in these terms and the values selected to give the greatest percentage of "wins".”
+
+The problem was framed in terms of value functions and not policy functions—possibly because it is easier and more intuitive to talk about the position of the board rather than the set of legal moves in any position (as they might change dramatically). There was no "exploration" or improving the value function---the focus was on looking ahead and searching for the best move that would improve the position only a few moves ahead. 
+
+Minsky (1954) is a PhD thesis that tackled the problem of training randomized neural networks through “reinforcement”. The definition of reinforcement comes from Skinner’s behavioral theories of operant conditioning, which claimed that animal/human behaviors that are rewarded are likely to be repeated. A network was initialized to make decisions, and the probability of making similar choices was increased if the decision was successful. The network used was a precursor to Rosenblatt’s Perceptron (1965). This machine would be put into a rat maze and would receive positive reinforcement if they found their way out. Inadvertently, they put in multiple such ‘rats’ and found the others following the leader who knew his way out. The notion of a value function or memory was also very natural:
+
+“The next idea I had, which I worked on for my doctoral thesis, was to give the network a second memory, which remembered after a response what the stimulus had been. This enabled one to bring in the idea of prediction. If the machine or animal is confronted with a new situation, it can search its memory to see what would happen if it reacted in certain ways. If, say, there was an unpleasant association with a certain stimulus, then the machine could choose a different response.”
+
+At this stage, reinforcement learning was not separated from supervised learning, and gradient descent would be deemed as a kind of learning by reinforcement. And it was easier to define policy networks for the rat-in-a-maze problem, rather than a value function on the grid, because there are only a few moves (up, down, left, right) to consider.  
+
+Samuel (1957, 1967) applies Shannon's methods to Checkers and provides ways to improve the value function. Checkers is considerably simpler than Chess, and this provides some unique advantages. The first way to improve the value function is simple memorization or rote learning, where previous evaluations of commonly arrived-at positions are noted down. This helps the algorithm look deeper if it finds itself where it has been before. Small discounting was applied to memorized position scores to help the algorithm find the shortest path to victory while taking a longer route if defeated. 
+
+The second way is to modify the parameters of the evaluation function itself. Two copies of the value function were maintained, Alpha and Beta. The former was updated against human opponents at each move, while Beta was updated only if Alpha defeated Beta; otherwise, Alpha would be reset. In this sense, Beta was just a stabilizing copy. The critical idea used to update Alpha was this: while Alpha was quite imperfect for a single move, its imperfections would be smoothened over a sequence of moves. So at each move, the difference between the one-move-ahead evaluation and a many-move-ahead evaluation was called Delta. The correlation between Delta and various attributes of the board position (piece advantage, etc.) was maintained, and parameters of the evaluation function were updated based on it. This method was similar to Temporal Difference learning but without rewards and discounting, and so theoretically, it could converge to a constant function. 
+
+Rote learning improved opening and endgame (where precision is critical) while updating the evaluation function led to good middle gameplay (where judgment matters). The end result was an amateur checkers player who could play the game to win. The 1967 paper highlighted further enhancements: alpha-beta pruning, the use of opening books, and a manually crafted linear neural network for the evaluation function. It is clear that at this stage, the main challenges were (1) a flexible evaluation function and (2) a framing of the problem in Bellman equations (which guaranteed convergence of value learning). 
+
+Minsky (1961) is a highly abstract note that breaks the problem of AI into search heuristics, pattern recognition, [reinforcement] learning, and induction (world representations). Search heuristics like gradient descent with the problem of local optima and plateaus being discussed. The notion of learning begins with simple policy networks that are directly improved by reinforcement. A secondary module (value function) that associates external signals with rewards is developed. Reference is made to Shannon and Samuel’s evaluation functions. The purpose of the value function is to plan ahead and then use the success of those plans to improve the value function itself. The credit assignment problem is discussed - where rewards obtained from a sequence of decisions must be assigned to the decisions that were critical in obtaining them.
+

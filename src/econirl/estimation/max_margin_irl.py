@@ -98,6 +98,7 @@ class MaxMarginIRLEstimator(BaseEstimator):
         qp_method: Literal["SLSQP", "trust-constr"] = "SLSQP",
         compute_hessian: bool = True,
         verbose: bool = False,
+        anchor_idx: int | None = None,
     ):
         """Initialize the Max Margin IRL estimator.
 
@@ -110,6 +111,10 @@ class MaxMarginIRLEstimator(BaseEstimator):
             qp_method: Scipy optimizer for QP ('SLSQP' or 'trust-constr')
             compute_hessian: Whether to compute Hessian for inference
             verbose: Whether to print progress messages
+            anchor_idx: Index of parameter to fix to 1.0 for identification.
+                If None, uses unit norm constraint ||theta||_2 <= 1.
+                Anchor normalization identifies parameter magnitudes relative
+                to the anchor, preserving ratios between parameters.
         """
         super().__init__(
             se_method=se_method,
@@ -121,6 +126,7 @@ class MaxMarginIRLEstimator(BaseEstimator):
         self._value_tol = value_tol
         self._value_max_iter = value_max_iter
         self._qp_method = qp_method
+        self._anchor_idx = anchor_idx
 
     @property
     def name(self) -> str:
@@ -297,22 +303,29 @@ class MaxMarginIRLEstimator(BaseEstimator):
         self,
         expert_features: torch.Tensor,
         violating_features: list[torch.Tensor],
+        anchor_idx: int | None = None,
     ) -> tuple[torch.Tensor, float]:
         """Solve QP to find reward weights maximizing margin.
 
-        Solves:
+        With unit norm constraint (anchor_idx=None):
             max_{theta, t} t
             s.t. theta' * (mu_E - mu_i) >= t  for all i
                  ||theta||_2 <= 1
 
-        This is equivalent to:
-            min_{theta, t} -t
+        With anchor normalization (anchor_idx specified):
+            max_{theta, t} t
             s.t. theta' * (mu_E - mu_i) >= t  for all i
-                 theta' * theta <= 1
+                 theta[anchor_idx] = 1.0
+                 ||theta||_2 <= bound  (for numerical stability)
+
+        Anchor normalization identifies parameter magnitudes relative to the
+        anchor, preserving ratios between parameters. This is the standard
+        econometric identification approach.
 
         Args:
             expert_features: Expert feature expectations
             violating_features: List of violating policy feature expectations
+            anchor_idx: Index of parameter to fix to 1.0. If None, uses unit norm.
 
         Returns:
             Tuple of (optimal theta, margin)
@@ -321,8 +334,11 @@ class MaxMarginIRLEstimator(BaseEstimator):
         num_constraints = len(violating_features)
 
         if num_constraints == 0:
-            # No constraints yet, return uniform weights
-            theta = torch.ones(num_features) / np.sqrt(num_features)
+            # No constraints yet, return initial weights
+            if anchor_idx is not None:
+                theta = torch.ones(num_features)
+            else:
+                theta = torch.ones(num_features) / np.sqrt(num_features)
             return theta, 0.0
 
         # Convert to numpy for scipy
@@ -363,22 +379,55 @@ class MaxMarginIRLEstimator(BaseEstimator):
 
             constraints.append(make_constraint(diff))
 
-        # Constraint: ||theta||_2 <= 1
-        def norm_constraint(x):
-            theta = x[:-1]
-            return 1.0 - np.dot(theta, theta)
+        # Variable bounds
+        bounds = None
 
-        def norm_jac(x):
-            jac = np.zeros(len(x))
-            jac[:-1] = -2.0 * x[:-1]
-            return jac
+        if anchor_idx is not None:
+            # Anchor normalization: theta[anchor_idx] = 1.0
+            def anchor_constraint(x):
+                return x[anchor_idx] - 1.0
 
-        constraints.append({"type": "ineq", "fun": norm_constraint, "jac": norm_jac})
+            def anchor_jac(x):
+                jac = np.zeros(len(x))
+                jac[anchor_idx] = 1.0
+                return jac
 
-        # Initial guess
-        x0 = np.zeros(num_features + 1)
-        x0[:-1] = np.ones(num_features) / np.sqrt(num_features)
-        x0[-1] = 0.0
+            constraints.append(
+                {"type": "eq", "fun": anchor_constraint, "jac": anchor_jac}
+            )
+
+            # Add bounds to prevent numerical instability
+            # Non-anchored params bounded to reasonable range
+            bound_val = 100.0  # Allow ratios up to 100x the anchor
+            bounds = []
+            for i in range(num_features):
+                if i == anchor_idx:
+                    bounds.append((1.0, 1.0))  # Fix anchor to 1.0
+                else:
+                    bounds.append((-bound_val, bound_val))
+            bounds.append((None, None))  # No bound on margin t
+
+            # Initial guess with anchor = 1.0
+            x0 = np.zeros(num_features + 1)
+            x0[anchor_idx] = 1.0
+            x0[-1] = 0.0
+        else:
+            # Unit norm constraint: ||theta||_2 <= 1
+            def norm_constraint(x):
+                theta = x[:-1]
+                return 1.0 - np.dot(theta, theta)
+
+            def norm_jac(x):
+                jac = np.zeros(len(x))
+                jac[:-1] = -2.0 * x[:-1]
+                return jac
+
+            constraints.append({"type": "ineq", "fun": norm_constraint, "jac": norm_jac})
+
+            # Initial guess
+            x0 = np.zeros(num_features + 1)
+            x0[:-1] = np.ones(num_features) / np.sqrt(num_features)
+            x0[-1] = 0.0
 
         # Solve
         result = optimize.minimize(
@@ -387,16 +436,18 @@ class MaxMarginIRLEstimator(BaseEstimator):
             method=self._qp_method,
             jac=gradient,
             constraints=constraints,
+            bounds=bounds,
             options={"maxiter": 1000, "disp": False},
         )
 
         theta = torch.tensor(result.x[:-1], dtype=torch.float32)
         margin = result.x[-1]
 
-        # Normalize theta to unit norm
-        theta_norm = torch.norm(theta)
-        if theta_norm > 0:
-            theta = theta / theta_norm
+        # Only normalize for unit norm constraint (not anchor normalization)
+        if anchor_idx is None:
+            theta_norm = torch.norm(theta)
+            if theta_norm > 0:
+                theta = theta / theta_norm
 
         return theta, margin
 
@@ -435,11 +486,17 @@ class MaxMarginIRLEstimator(BaseEstimator):
 
         # Initialize
         if initial_params is None:
-            theta = torch.ones(num_features) / np.sqrt(num_features)
+            if self._anchor_idx is not None:
+                # Anchor normalization: set anchor param to 1.0
+                theta = torch.ones(num_features)
+            else:
+                # Unit norm constraint
+                theta = torch.ones(num_features) / np.sqrt(num_features)
         else:
             theta = initial_params.clone()
-            # Normalize
-            theta = theta / torch.norm(theta)
+            if self._anchor_idx is None:
+                # Only normalize for unit norm constraint
+                theta = theta / torch.norm(theta)
 
         # Compute expert feature expectations
         expert_features = self._compute_feature_expectations(panel, reward_fn)
@@ -467,7 +524,9 @@ class MaxMarginIRLEstimator(BaseEstimator):
             violating_features.append(policy_features)
 
             # Solve QP for new theta
-            theta, margin = self._solve_qp(expert_features, violating_features)
+            theta, margin = self._solve_qp(
+                expert_features, violating_features, anchor_idx=self._anchor_idx
+            )
 
             self._log(
                 f"Iteration {iteration + 1}: margin = {margin:.6f}, "
@@ -519,6 +578,7 @@ class MaxMarginIRLEstimator(BaseEstimator):
                 "num_violating_policies": len(violating_policies),
                 "expert_features": expert_features,
                 "qp_method": self._qp_method,
+                "anchor_idx": self._anchor_idx,
             },
         )
 

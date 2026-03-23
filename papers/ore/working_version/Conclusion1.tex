@@ -1,0 +1,96 @@
+\section{Discussion\label{sec:conclusion}}
+
+Our survey reveals the broad similarity between the DDC literature which arose in the 1980s followed by IRL over a decade later.
+Despite their different origins, they have a common goal: inferring a reward function $r$ presumed to govern the observed behavior of rational ``experts.''
+Both fields use the same mathematical framework to model optimal dynamic decision making (e.g. MDPs based on ``soft Q'' and ``softmax'' formulas of section~\ref{sec:ddc}),
+and both infer rewards using the same {\it bilevel optimization problem\/}: an ``outer'' maximization that searches over reward functions to maximize ``model fit''
+(e.g. likelihood), and an ``inner'' minimization that solves the MDP for the optimal policy $\pi_r$.
+However, the literatures differ on the method used to solve MDPs (DDC using deterministic algorithms
+such as value and policy iteration, IRL using the stochastic iterative methods developed in RL), 
+the interpretation of apparent randomness in individual behavior
+ (DDC explaining randomness via unobserved state variables versus IRL's use of mixed strategies and entropy) and
+on their primary motivation. DDC focuses on accurate inference for counterfactual policy evaluation, while IRL prioritizes automating complex behaviors 
+like driving without explicit programming.
+
+We discussed two key challenges facing both literatures: 1) the identification problem, and 2) the curse of dimensionality. 
+The latter is problematic for DDC and IRL due to the need to repeatedly solve an MDP in the inside loop of the bilevel optimization problem. We discussed
+the use of neural networks and randomization as two  ways to  circumvent the curse of dimensionality. While
+there is no formal proof that they actually ``break'' this curse, the
+astounding successes of deep reinforcement learning in RL applications such as Alpha-Zero's ability to beat any human player in chess or Go suggest  that these 
+methods combined with sufficient computer power will enable us to use RL, DDC and IRL to tackle an increasing number of large scale, realistic problems. 
+At the same time, these RL success stories call into question the assumption of human rationality: if Alpha-Zero beats all humans, 
+we evidently cannot be perfectly rational optimizers. Instead humans may be better modeled as {\it boundedly rational\/} \citep{Simon:1957}, but 
+there is relatively little work on how to adapt DDC and IRL to infer rewards of boundedly rational agents and understand whether suboptimal ``satisficing'' behavior
+is due to inability to optimize or irrational beliefs.\footnote{\footnotesize \citet{tennis:2025} argue that
+suboptimal play of professional tennis players is due to distorted subjective beliefs, and \citet{whoismorebayesian:2025} show that suboptimal behavior of
+human subjects in lab experiments is due to subjective beliefs that differ from rational beliefs implied by Bayes Rule.}
+
+To overcome the identification problem, we have to be willing
+to impose strong {\it a priori\/} assumptions about rewards and beliefs, otherwise it is not possible to uniquely invert (identify) rewards and beliefs
+consistent with observed behavior and make valid counterfactual predictions. But this means that counterfactual predictions are 
+dependent on hard-to-verify assumptions. This is not just a problem for the credibility of counterfactual forecasts of economic
+policies from DDC models: it also can limit the ability of IRL-trained agents to perform intelligently in 
+environments that differ from the one they were trained in.
+For example, if we identify rewards for an autonomous vehicle (AV) using data in an urban environment with transition probability $p(s'|s,a)$, but fail to disentangle preferences from dynamics,
+the AV may perform well in the city but fail in a rural environment where traffic is  governed by a different transition probability $\lambda(s'|s,a)$.
+Thus, mis-identified structural models may be subject to the same
+problems  for counterfactual prediction that we noted for reduced-form models in the DDC literature
+or for imitation learning methods such as {\it behavioral cloning\/} in the machine learning literature: they can fail to correctly predict
+how humans change their behavior and rapidly adapt to new environments. 
+
+Despite these challenges, when correct (or at least approximately correct) identifying assumptions are 
+imposed, DDC and IRL models can make accurate counterfactual/out-of-sample predictions. For example, \citet{toddwolpin:2006} and \citet{lee:2026} demonstrated that a
+structural model estimated using data on a control group accurately predicts the change in behavior
+of a treatment group in field experiments, and \citet{zhuang:2024} showed that  AVs governed by reward functions trained by IRL
+``can guide the direction of the policy network well in driving scenarios it had not encountered during training, thus validating the 
+generalization capabilities of the reward functions across different drivers.'' (p. 8100).
+
+We distinguished between  model-free vs model-based approaches to DDC, RL and IRL.
+Most of the work in DDC is model-based, i.e. it requires the researcher to specify and estimate a model for the
+transition probability $p(s'|s,a)$ which is estimated along with the reward function. While it is possible to estimate $p$ non-parametrically
+in a first stage estimation before estimating $\{\beta,r\}$, this 
+still entails the strong assumption of rational expectations and entails the burden of numerical integration with respect
+to $p$ to solve the associated MDP for the optimal policy $\pi_r$. Model-free IRL methods have been developed that mimic the model-free
+approaches developed in the RL literature such as Q-learning discussed in section~\ref{section:rl}, but instead of being done
+in real-time in {\it online training\/} using the ``environment'' to simulate draws $s' \sim p(s'|s,a)$, model-free IRL can be done {\it offline\/} 
+using historical data on transitions to fit parametric approximations (e.g. deep Q networks) $Q_\phi$, bypassing the need to estimate
+$p$ or do explicit numerical integration.
+
+Thus, model-free IRL has computational advantages and avoids the need to specify and explicitly estimate $p$. Yet,
+model-free IRL is not assumption-free: it requires
+the strong implicit assumption that individuals have rational expectations, which may be dubious as we noted above.
+Confidence in model-free estimates of rewards requires sufficient data on $(s',s,a)$ transitions. Limited/sparse 
+data can lead to poor estimates of $Q$ and noisy, unreliable estimates of the reward function, resulting in poor performance
+similar to what one observes in RL after only a limited amount of initial training. Good performance from RL usually
+requires substantial level of training, and this is why most of the successful applications of RL to solve complex
+large scale problems are model-based. Even  in cases where we have sufficient data, such as the case of AVs
+where  ``easily captured large-scale datasets of human driving to be used to train deep learning approaches to near human standard'' 
+\citep{mero:2022}, substantial additional offline training is often required to provide sufficient evidence that the  AV can be trusted
+to operate safely in an online environment in real-time.
+The success of offline training using computer simulations presumes we have an accurate model that covers a wide range of driving environments.
+It should be obvious that even with an accurately estimated reward function,
+extensive RL training with a poor model of the environment will not necessarily result in good performance. This leads to the conundrum: how
+to develop an accurate model of the environment using limited data? 
+
+This is a deep, unresolved question, and an example of where methods developed in RL have inspired new insights into human intelligence
+in neuroscience and psychology, particularly with respect to the puzzle of how humans are able to adapt and learn to perform reasonably well on 
+a wide range of novel tasks with only limited prior training and experience. \citet{theorybasedRL:2023} introduced {\it theory based reinforcement learning\/}
+which ``posits that the agent learns the theory from experience using probabilistic inference and uses it together with an internal simulator 
+to predict and evaluate the outcomes of different action sequences generated by an internal planner. It has captured patterns of human learning, exploration,
+ and generalization in complex domains where model-free and simpler model-based RL approaches fail or learn rather differently.'' (p. 1331)
+
+%to try to explain this aspect of human intelligence, based on the hypothesis that humans can spontaneously create ``mental models'' of different
+%environments based on limited data  and use them to conduct model-based RL to improve our performance, perhaps subconsciously and in our dreams. 
+
+%\begin{quote}
+%In the fields of psychology and neuroscience, RL has offered a compelling account of behavioral and brain data across a number of species and experimental paradigms. 
+%Most of this work has focused on model-free RL, a kind of RL in which the agent directly learns a mapping from different states in the environment to actions and/or values. Model-based RL, on the other hand, posits that the agent learns an internal model of the environment, which is used to simulate the outcomes of different actions. Behavioral and neural studies have found evidence for both kinds of RL, yet model-based RL has received relatively less attention and is often studied using simple 
+%toy environments with small state spaces. This is largely owing to the relative scarcity of powerful model-based RL algorithms capable of matching human learning in 
+%complex domains, leaving open the question of what the ``model’’ in model-based RL is and how it is learned and represented by the brain.
+%One possible answer from cognitive science is theory-based RL, a strong form of model-based RL in which the model is an intuitive theory—an abstract causal model of 
+%world dynamics rooted in core cognitive concepts such as physical objects, intentional agents, relations, and goals. 
+%``theory-based RL 
+% This has provided strong support for theory-based RL as a concrete realization of human model-based RL.'' (p. 1331)
+%\end{quote}
+
+

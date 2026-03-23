@@ -1,0 +1,78 @@
+\appendix
+\section*{Appendix B: Worked Example and Scale Identification}
+
+To illustrate the theoretical results in Appendix A, we work through a minimal example that can be solved by hand. We instantiate the soft-control framework from Appendix A on a three-state, two-action MDP and validate Proposition~\ref{prop:qgap} on reference-gap scale identification. This concrete example demonstrates how a single Q-value difference anchors the reward scale and ensures that all three estimation methods---NFXP, MaxEnt-IRL, and RLHF---yield identical policies.
+
+\subsection*{B.1 Model}
+
+We consider an MDP with states $\mathcal S=\{s_0,s_1,s_2\}$ where $s_2$ is absorbing with $V(s_2)=0$. Actions $\mathcal A=\{a^-,a^+\}$ yield deterministic transitions:
+\[
+s_0\!\xrightarrow{a^-}\! s_0,\qquad s_0\!\xrightarrow{a^+}\! s_1,\qquad
+s_1\!\xrightarrow{a^-}\! s_1,\qquad s_1\!\xrightarrow{a^+}\! s_2,\qquad
+s_2\text{ terminal.}
+\]
+We take a uniform base policy $\mu(a\mid s)=1/2$ for both actions in each state, and fix a temperature $\sigma>0$ and discount factor $\beta\in(0,1)$.
+
+The reward structure is parameterized by a single scalar $\lambda>0$ that scales a fixed base reward $r_{\text{base}}$. Define
+\[
+r_{\text{base}}(s_0,a^-) = 0,\quad r_{\text{base}}(s_0,a^+) = 0.5,\qquad
+r_{\text{base}}(s_1,a^-) = 0.2,\quad r_{\text{base}}(s_1,a^+) = 0.8,
+\]
+with all rewards zero at the terminal state $s_2$.
+The one-parameter family of rewards is then $r_\lambda(s,a)=\lambda\,r_{\text{base}}(s,a)$, and the goal is to identify $\lambda$ from choice data or preferences.
+
+\subsection*{B.2 Soft Bellman system}
+
+For $s\in\{s_0,s_1\}$,
+\[
+\begin{aligned}
+Q_\lambda(s_0,a^+) &= \tfrac{1}{2}\lambda + \beta V_\lambda(s_1),&
+Q_\lambda(s_0,a^-) &= 0 + \beta V_\lambda(s_0),\\
+Q_\lambda(s_1,a^+) &= 0.8\,\lambda + \beta V_\lambda(s_2)=0.8\,\lambda,&
+Q_\lambda(s_1,a^-) &= 0.2\,\lambda + \beta V_\lambda(s_1),\\
+V_\lambda(s) &= \sigma\log\!\Big(\tfrac12 e^{Q_\lambda(s,a^+)/\sigma}+\tfrac12 e^{Q_\lambda(s,a^-)/\sigma}\Big),&
+V_\lambda(s_2)&=0.
+\end{aligned}
+\]
+The optimal policy is the $\mu$-tilted softmax:
+\[
+\pi^{\ast}_\lambda(a\mid s)=\frac{\mu(a\mid s)\exp(Q_\lambda(s,a)/\sigma)}{\sum_b \mu(b\mid s)\exp(Q_\lambda(s,b)/\sigma)}.
+\]
+
+\subsection*{B.3 Reference Q-gap}
+
+To pin the scale of rewards, we follow the procedure from Appendix A.5 and anchor a reference Q-value difference. We choose state $s_0$ and the two actions $a^+$ and $a^-$ to define the reference gap
+\[
+\Delta(\lambda)\;:=\;Q_\lambda(s_0,a^+)\,-\,Q_\lambda(s_0,a^-)
+\;=\;\tfrac{1}{2}\lambda\;+\;\beta V_\lambda(s_1)\;-\;\beta V_\lambda(s_0).
+\]
+This choice of $s_0$ is natural as the initial state, though any non-terminal state with distinct actions would suffice. Given a target gap $\Delta^{\ast}>0$, Proposition~\ref{prop:qgap} guarantees a unique scale $\lambda^{\ast}>0$ satisfying $\Delta(\lambda^{\ast})=\Delta^{\ast}$.\footnote{\footnotesize The target gap $\Delta^{\ast}$ is either known from ground truth in simulation experiments or calibrated from a small subset of choice data in empirical applications.}
+
+\subsection*{B.4 Monotonicity of the Q-gap}
+
+The soft Bellman operator is monotone in rewards. Since $r_\lambda=\lambda r_{\text{base}}$ with nonnegative rewards for actions $a^+$, increasing $\lambda$ strictly increases $Q_\lambda(s_1,a^+)$ and by the contraction property strictly increases $V_\lambda(s_1)$ and $V_\lambda(s_0)$. The direct effect of $\lambda$ on $Q_\lambda(s_0,a^+)$ outweighs the indirect effect through $V_\lambda(s_0)$, yielding
+\[
+\frac{d}{d\lambda}\Delta(\lambda)
+=\tfrac12+\beta\frac{dV_\lambda(s_1)}{d\lambda}-\beta\frac{dV_\lambda(s_0)}{d\lambda}
+\;=\;\frac{1-\beta}{\,1-\beta+\beta p_0(\lambda)\,}\;>\;0,
+\]
+for some $p_0(\lambda)\in(0,1)$ (obtained by implicit differentiation of the two-state fixed point). Hence $\Delta(\lambda)$ is continuous and strictly increasing, so the equation $\Delta(\lambda)=\Delta^{\ast}$ has a unique solution.
+
+\subsection*{B.5 Iterative rescaling}
+Proposition~\ref{prop:qgap} guarantees that the scale can be pinned by solving $\Delta(\lambda)=\Delta^{\ast}$ for $\lambda$. In practice, this can be done via a simple iterative rescaling procedure. Take any preliminary estimate $\hat\lambda>0$ obtained from RLHF, IRL, or an arbitrary initial guess. Define the Q-gap rescaling update
+\[
+\lambda\ \leftarrow\ \lambda\cdot \frac{\Delta^{\ast}}{\Delta(\lambda)}.
+\]
+Evaluating $\Delta(\lambda)$ requires only solving the two-state soft Bellman system from B.2. By the strict monotonicity established in B.4, iterating this update drives $\Delta(\lambda)$ toward $\Delta^{\ast}$ and pins the scale.
+
+To see how fast this converges, consider a specific numerical example. Setting $\beta=0.9$, $\sigma=1$, and $\lambda^{\ast}=1.4$, we compute the ground-truth gap $\Delta^{\ast}=\Delta(\lambda^{\ast})\approx 0.6306$.
+Starting from an initial guess $\hat\lambda=0.25$, just two rescaling iterations bring $\lambda$ within numerical precision of $\lambda^{\ast}=1.4$ and achieve $\Delta(\lambda)=\Delta^{\ast}$. The optimal policy at the reference state $s_0$ then satisfies
+\[
+\pi^{\ast}_{\lambda}(a^+\!\mid s_0)
+=\frac{1}{1+\exp\!\big(-\Delta(\lambda)/\sigma\big)}
+=\frac{1}{1+\exp(-\Delta^{\ast})},
+\]
+so the anchored model exactly recovers the ground-truth policy at the reference state. In this small example, the policy also matches at $s_1$, confirming the full alignment predicted by Theorem~\ref{thm:alignment}.
+
+\subsection*{B.6 Summary}
+A single reference Q-gap removes the scale ambiguity that RLHF and MaxEnt-IRL cannot fix on their own. Combined with the state-potential gauge from Appendix~A.5, all three estimation methods---NFXP (choice MLE), MaxEnt-IRL (demo likelihood), and RLHF (preference likelihood)---feed the same soft-control planner. This yields identical $\mu$-tilted soft policies, illustrating Theorem~\ref{thm:alignment}.

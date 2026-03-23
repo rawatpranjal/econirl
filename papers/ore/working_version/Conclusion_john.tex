@@ -1,0 +1,82 @@
+\section{Discussion\label{sec:conclusion}}
+
+Our survey reveals the broad similarity between the DDC literature which arose in the 1980s and IRL which over a decade later.
+Their common goal is to infer a reward function $r$ presumed to govern the observed
+behavior of a sample of human decision makers (``demonstrations'' in IRL).  Both assume that humans are rational/optimizing ``experts''
+and both use the same mathematical framework to model optimal dynamic decision making (e.g. MDPs based on ``soft Q'' and ``softmax'' formulas
+of section~\ref{sec:ddc}). However the literatures differ on the derivation and interpretation of these equations.
+DDC assumes that agents use pure strategies and explains apparent randomness in their behavior as due the presence of state variables they
+observe but outside observers don't. IRL explains randomness by assuming agents use  mixed strategies
+which can be shown to be optimal when they care about the entropy of their strategy in addition to the rewards it generates.
+
+The literatures also differ on the algorithms/estimation methods to infer rewards.
+The predominant framework in DDC is maximum likelihood, with careful attention to the identification problem and statistical properties
+of estimators (e.g. consistency and asymptotic distribution) for accurate inference/understanding of human behavior. This includes hypothesis tests of
+whether human behavior really is rational, and if so, to use these models for counterfactual prediction and policy evaluation (i.e. ``crash testing''
+proposed new policies using computer simulations rather than real world implementation and trial and error).
+IRL is less interested in understanding
+human behavior and more interested in using humans as experts to train algorithms to automate complex tasks without explicit programming --- such as driving a car.
+This likely explains the myriad of different IRL algorithms that minimize different mathematical loss functions to measure the goodness of
+fit between observed behavior and the predictions of the model. Nevertheless, maximum likelihood (and Bayesian inference) is
+predominant and closely related to two other commonly used methods in IRL: 1) maximum entropy
+and  2) adversarial inverse reinforcement learning.
+Despite differences, DDC and IRL infer rewards using the same overall approach, as a  {\it bilevel optimization problem\/}
+with an ``outer'' maximization problem that searches over reward functions to maximize a measure of ``model fit'' (e.g. likelihood
+function) between observed behavior and behavior implied
+by an optimal policy $\pi_r$, and an ``inner'' minimization
+(or fixed point problem) that solves the MDP for the optimal policy $\pi_r$ for each trial $r$.
+
+We discussed two key challenges facing both literatures: 1) the identification problem, and 2) the curse of dimensionality.
+The latter is problematic for DDC and IRL due to the need to repeatedly solve an MDP in the inside loop of the bilevel optimization problem. We discussed
+the use of neural networks and randomization as two  ways to  circumvent the curse of dimensionality. While
+there is no formal proof that they actually ``break'' this curse, the
+astounding successes of deep Q-learning in RL applications such as Alpha-Zero's ability to beat any human player in chess or Go suggest  that these
+methods combined with sufficient computer power will enable us to use RL, DDC and IRL to tackle an increasing number of large scale, realistic problems.
+At the same time, these RL success stories call into question the assumption of human rationality: if Alpha-Zero beats all humans,
+we evidently cannot be perfectly rational optimizers. Instead humans may be better modeled as {\it boundedly rational\/} \citep{Simon:1957}, but
+there is relatively little work on how to adapt DDC and IRL to infer rewards of boundedly rational agents and understand whether suboptimal ``satisficing'' behavior
+is due to inability to optimize or irrational beliefs.\footnote{\footnotesize \citet{tennis:2025} argue that
+suboptimal play of professional tennis players is due to distorted subjective beliefs, and \citet{whoismorebayesian:2025} show that suboptimal behavior of
+human subjects in lab experiments is due to subjective beliefs that differ from rational beliefs implied by Bayes Rule.}
+
+To overcome the identification problem, we have to be willing
+to impose strong {\it a priori\/} assumptions about rewards and beliefs, otherwise it is not possible to uniquely invert (identity) rewards and beliefs
+consistent with observed behavior and make valid counterfactual predictions. But this means that counterfactual predictions are
+dependent on hard-to-verify assumptions. This is not just a problem for the credibility of counterfactual forecasts of economic
+policies from DDC models: it also limits the capability of IRL to do {\it transfer learning,\/} i.e. to use rewards inferred from data gathered in
+one environment re-train an agent using RL to behave intelligently in a different environment with different dynamics encoded by the transition
+probability $p$. For example, an important use of IRL is to infer the reward
+function $r$ for human drivers to train autonomous vehicles (AV). If we identify rewards using data in an urban environment where traffic patterns are captured by a
+transition probability $p(s'|s,a)$ and we make incorrect assumptions, IRL can mis-identify the reward function. Then even though an IRL-trained AV may perform
+well (e.g. human-like) in the urban environment it was trained in, the AV may perform poorly in a rural environment where
+traffic evolves according to a different transition probability $\lambda(s'|s,a)$. Thus, mis-identified structural models may be subject to the same
+problems  for counterfactual prediction that we noted for reduced-form models (e.g. {\it behavioral cloning\/}): they can fail to correctly predict
+how behavior changes in a new environment.
+Despite these challenges, we know that when correct (or at least approximately correct) identifying assumptions are
+imposed, DDC and IRL model can make accurate counterfactual/out-of-sample predictions. For example, \citet{toddwolpin:2006} showed that a
+structural model estimated using data on a control group accurately predicts the change in behavior
+of a treatment group in a randomized experiment, and \citet{zhuang:2024} showed that  AVs governed by reward functions trained by IRL
+``can guide the direction of the policy network well in driving scenarios it had not encountered during training, thus validating the
+generalization capabilities of the reward functions across different drivers.'' (p. 8100).
+
+Our survey also touched on the pros and cons of model-free vs model-based approaches to RL and IRL.
+Most of the work in DDC is model-based, i.e. it requires the researcher to specify and estimate a model for the
+transition probability $p(s'|s,a)$ which is estimated along with the reward function. While $p$ be estimated non-parametrically
+in a first stage estimation before estimating $\{\beta,r\}$, this
+assumes agents have rational expectations and entails the burden of numerical integration with respect
+to $p$ to solve the associated MDP for the optimal policy $\pi_r$. Model-free IRL methods have been developed that mimic the model-free
+approaches developed in the RL literature such as Q-learning discussed in section~\ref{section:rl}, but instead of being done
+in real-time in {\it online training\/} using the ``environment'' to simulate draws $s' \sim p(s'|s,a)$, model-free IRL can be done {\it offline\/}
+using historical data on transitions to fit parametric approximations (e.g. deep Q networks) $Q_\phi$, bypassing the need to estimate
+$p$ or do explicit numerical integration. Instead, the estimation problem is transformed into a bilevel optimization where network
+parameters $\phi$ are repeatedly chosen to approximate $Q$ by minimizing  mean square Bellman errors in the inside loop.
+Thus, model-free IRL has computational advantages and avoids the need to specify and explicitly estimate $p$, but it also depends
+on the strong assumption that individuals have rational expectations, which can be a dubious assumption as we noted above.
+
+Model-free methods also depend on sufficient data on $(s',s,a)$ transitions. Limited/sparse
+data can lead to poor estimates of $Q$ and poor implied estimates of the reward function, and model-based approaches
+may better leverage prior knowledge to produced better results. Even with sufficient data, such as the case of AVs
+where  ``easily captured large-scale datasets of human driving to be used to train deep learning approaches to near human standard''
+\citep{mero:2022}, for these safety-critical applications such as developing AVs, substantial additional online training is required
+over a wide range of environments before there is sufficient evidence that AVs can be trusted to operate safely online in real time.  (cite rand study on simulations necessary)
+But offline training via computer simulations requires a sufficiently accurate model of a wide range of driving environments.

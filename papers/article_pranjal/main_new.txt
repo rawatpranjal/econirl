@@ -1,0 +1,547 @@
+Structural Econometrics and Inverse Reinforcement Learning:
+Inferring preferences and beliefs from human behavior∗
+John Rust†
+
+Pranjal Rawat‡
+
+June 30, 2025
+
+PRELIMINARY DRAFT: NOT FOR CIRCULATION
+
+Abstract
+This article, for Oxford Research Encyclopedia of Economics and Finance, summarizes the
+literature on structural estimation of dynamic discrete choice models and points out close parallels to the rapidly growing literature on inverse reinforcement learning. Both literatures are
+focused on inferring underlying preferences (and sometimes beliefs) of human decision makers
+from observations of their states and actions.
+
+∗
+
+John Rust is grateful for support from his Georgetown University Professorship fund.
+Professor, Georgetown University jf693@georgetown.edu
+‡
+PhD Candidate Georgetown University. pp712@georgetown.edu
+†
+
+1
+
+Introduction
+
+This article surveys methods for inferring preferences from observed behavior over time, focusing
+on two parallel literatures: dynamic discrete choice (DDC) in structural econometrics (SE) and
+“inverse reinforcement learning” (IRL) in machine learning (ML).1 Both literatures rely on the
+presumption that the agents whose preferences we are interested in recovering are rational i.e. they
+take a sequence of actions over time to maximize an internally perceived reward (or “utility”) given
+their subjective beliefs of how their current actions cause or at least influence potentially uncertain
+future outcomes that affect their rewards. SE labels this assumption rationality, while RL papers
+typically describe optimal versus sub-optimal behavior and allow for noisy demonstrations (for
+example, Ermon et al. (2015)). The goals of DDC and IRL are identical: to invert or infer the
+underlying objective or reward function (and sometimes also their beliefs) that is presumed to
+govern the behavior of agents from observations of the sequence of states and actions of a sample
+of decision makers (DMs) over time.
+In economics, structural models are used to test and evaluate economic theories, and to make
+counterfactual predictions of the effect of changes in economic policies2 or other changes in the
+environment (i.e. the “rules of the game”) on behavior and welfare (i.e. who is hurt and who
+is helped by the change?). Structural models are distinguished from reduced-form models that
+summarize behavior without inferring preferences. Reduced-form models require historical policy
+variation for counterfactual predictions and cannot predict effects of novel policies. Structural
+models, by internalizing the motivations of DMs, can produce plausible “out-of-sample” predictions
+of the effect of economic policy changes on behavior and welfare even in the absence of past variation.
+For example, Denmark has long had one of the world’s highest new car tax rates, with changes
+only to encourage low-emissions vehicles. Gillingham et al. (2022) used a structural model of
+equilibrium ownership and trading of cars in Denmark to predict the impact of reducing this
+“registration tax”. The model predicts that by reducing the registration tax and increasing the
+gas tax, it would be possible of Denmark to 1) improve the welfare of its citizens, 2) increase total
+tax revenue from cars (registration plus gas tax), and 3) reduce total CO2 pollution. Structural
+models provide a faster, cheaper way to evaluate policy changes than trial and error, serving as a
+simulator to “crash test” new policy ideas.
+IRL stems from ML and RL advances enabling intelligent agents for complex robotics and autonomous systems tasks. Much of ML’s success has been in supervised learning where algorithms
+learn from labeled training data to predict outcomes. However supervised learning requires extensive labeled data and does not naturally handle sequential decision making where actions have
+long-term consequences. RL trains agents to maximize a reward through trial-and-error interaction
+with an environment. When a reward function is known RL algorithms can produce behavior that
+1
+
+To conserve space, we use many abbreviations throughout this article. Readers may consult table 1 for a summary
+of all abbreviations and acronyms.
+2
+In this article, “policy” in the economic sense refers to government interventions (tax rates, regulations, etc.),
+distinct from the RL/MDP usage where a “policy” is a decision rule mapping states to actions.
+
+1
+
+approximately maximizes the reward without requiring labeled examples. A good example is chess
+where the reward function is known (1 for a win, -1 for a loss and 0 for a draw). RL has been
+able to learn superhuman performance via self-play, i.e. repeatedly playing the algorithm against
+itself resulting in performance that exceeds the best human and computerized chess players, see
+e.g. Silver et al. (2018).3
+Still, there are many challenging tasks in AI and robotics where it is unclear what reward
+function should be used by RL to train intelligent behavior. Christiano et al. (2017) provide a
+concrete example: “suppose that we wanted to use reinforcement learning to train a robot to clean
+a table or scramble an egg. It’s not clear how to construct a suitable reward function, which
+will need to be a function of the robot’s sensors” and the option of “manually programming their
+behavior has become increasingly challenging and expensive.” Osa et al. (2018). IRL circumvents
+this by inferring a reward function from limited expert demonstrations. RL can then use the inferred
+reward to train behavior more rapidly and cheaply across scenarios beyond the demonstration data.
+The result is intelligent behavior consistent with human preferences, including situations outside
+the training set.
+An early practical success was inverse optimal control (IOC), a related approach originated by
+Kalman (1964). Mombaur et al. (2010) used IOC to transfer natural human locomotion patterns
+to humanoid robots. They collected motion capture data of humans walking to targets in five
+scenarios and inferred a cost function minimizing deviation between model and observed paths. This
+cost function generated natural robot locomotion to new targets, transferring human movement
+principles without manual specification. More recently, Barnes et al. (2024) used Google Maps trip
+data to infer travelers’ route preferences reflecting trade-offs between traffic, distance, hills, safety,
+and scenery. They massively scaled IRL to estimate a route preference function (360M parameters,
+110M trips) enabling RL to generate recommendations achieving 16-24% improvement in global
+route quality, and to the best of our knowledge, represents the largest published study or IRL
+algorithms in a real-world setting to date.4
+One limitation of classical IRL is that many real tasks are difficult for humans to demonstrate
+directly. For instance, training a conversational AI assistant requires demonstrating high-quality
+responses across thousands of diverse topics, an impractical data collection task. Reinforcement
+learning from human feedback (RLHF) sidesteps the need for full demonstrations by eliciting preference judgments over pairs of candidate responses, fitting a reward model to match those preferences,
+and then running RL against the learned reward (Christiano et al., 2017; Ouyang et al., 2022). The
+most impactful application has been aligning large language models like ChatGPT and GPT-4.
+3
+Russell and Norvig (2022) note that supervised learning of chess is limited by the “relatively few examples (about
+108 ) compared to the space of all possible chess positions (about 1040 )” whereas RL can learn through self-play without
+requiring labeled examples.
+4
+While 110 million observations may not seem “limited”, it is a tiny fraction of all trips navigated using Google
+Maps. Jeon et al. (2021) cites additional examples where “defining a reward function beforehand is particularly
+challenging and IRL is simply more pragmatic.” These examples include robotic manipulation, autonomous driving,
+and clinical motion analysis. See Zhao and Liang (2023) who used Adversarial IRL (AIRL) to estimate contextdependent route preferencs using data on trips by taxi drivers in Shanghai.
+
+2
+
+Ouyang et al. (2022) showed that a 1.3 billion parameter model fine-tuned with RLHF (InstructGPT) was strongly preferred by human evaluators over the much larger 175 billion parameter base
+model (GPT-3), demonstrating that alignment with human preferences matters more than raw
+scale.5
+We note this survey’s relation to other work on related topics. Kang et al. (2025) provided
+mathematical validation that DDC models are equivalent to maximum entropy IRL. Iskhakov
+et al. (2020) and Igami (2017) provides a conceptual discussion of AI and structural estimation
+focusing on model-based RL approaches such as AlphaGo. On the ML side, Arora and Doshi
+(2021) comprehensively survey IRL methods but without connection to econometrics. Extensions
+to IOC using deep learning are covered in Abbeel (2016) and connections between IOC and IRL are
+discussed in Azar et al. (2020). van Cranenburgh et al. (2022) survey machine learning for choice
+modeling, a related but distinct area from DDC structural estimation. Recent surveys on RLHF
+methods and applications include Kaufmann et al. (2023) and Abdelnabi et al. (2024). For broader
+context on machine learning in economics, see Athey and Imbens (2019) and Mullainathan and
+Spiess (2017), their focus is on supervised learning. Applications of RL in economics and finance
+are surveyed by Charpentier et al. (2021) and Atashbar and Zhao (2023), with emphasis on applied
+examples. For comprehensive treatments of DDC methods, see Aguirregabiria and Mira (2010)
+and Keane et al. (2011). The MDP foundations underlying both DDC and IRL are covered in
+Puterman (1994) and Rust (1994).
+The remainder of this article is organized as follows. Section 2 provides background on dynamic
+programming and Markovian decision processes, the common ancestor of both SE and RL, including
+value functions, the Bellman equation, and RL algorithms. Section 3 describes DDC estimation
+methods and the identification problem. Section 4 summarizes IRL methods and their relation
+to DDC. Section 5 develops the mathematical foundations of reinforcement learning from human
+feedback and proves its equivalence to DDC and maximum entropy IRL. Section 6 contrasts the
+two literatures and discusses unsolved problems.
+
+2
+
+Background on DP and MDPs
+
+The SE and RL literatures both build on a body of work that provides a recursive characterization of optimal sequential decision making under uncertainty, commonly referred to as dynamic
+programming the name coined by one of the prominent early contributors to this theory, Bellman
+(1957). We will briefly review a special class of DP problems known as stationary, infinite horizon
+Markovian Decision Problems (MDP) introduced by Bellman and Howard (1960) that is the predominant underpinning of SE and RL and we refer the reader to Bertsekas (2017) for a first rate
+5
+The RLHF process for InstructGPT followed three steps: (1) supervised fine-tuning on high-quality human
+demonstrations to create a better baseline, (2) training a reward model on human rankings of model outputs (using
+the Bradley-Terry preference model), and (3) optimizing the policy via Proximal Policy Optimization (PPO) with
+KL regularization to prevent the model from deviating too far from the supervised baseline. See Section 5 for the
+mathematical formulation.
+
+3
+
+Table 1. List of abbreviations and acronyms
+Abbreviation
+AI
+AIRL
+AGI
+AL
+BC
+BIRL
+CCP
+CCS
+DDC
+DM
+DNN
+DP
+DSE
+DU
+EU
+IOC
+IL
+IRL
+MCMC
+MDP
+ML
+MPE
+MPEC
+NFXP
+PI
+RFE
+RL
+RLHF
+RTDP
+SA
+TD
+
+Full Name
+Artificial Intelligence
+Adversarial Inverse Reinforcement Learning
+Artificial General Intelligence
+Apprenticeship Learning
+Behavioral Cloning
+Bayesian Inverse Reinforcement Learning
+Conditional Choice Probability
+Conditional Choice Simulator
+Dynamic Discrete Choice
+Decision Maker (Agent)
+Deep Neural Network
+Dynamic Programming
+Dynamic Structural Estimation
+Discounted Utility
+Expected Utility
+Inverse Optimal Control
+Imitation Learning
+Inverse Reinforcement Learning
+Markov Chain Monte Carlo
+Markovian Decision Process
+Machine Learning
+Markov perfect Equilibrium
+Mathematical Programming with Equilibrium Constraints
+Nested Fixed Point
+Policy Iteration
+Reduced Form Estimation
+Reinforcement Learning
+Reinforcement Learning from Human Feedback
+Real Time Dynamic Programming
+Successive Approximations
+Temporal Difference
+
+treatment of DP and MDPs.6
+MDPs are defined by 1) a state space S, 2) an action space A, and 3) the objects {r, p, β}, where
+6
+
+Note that DP and MDPs involve the optimization of discounted utility which was introduced by Samuelson
+(1937) combined with the expected utility concept introduced by von Neumann and Morgenstern (1944) for problems
+involving uncertainty. Though Samuelson “had concerns about its its descriptive realism, and it was never empirically validated as the appropriate model for intertemporal choice” (Frederick et al. (2002)), and laboratory tests
+including the famous Allais Paradox (see Machina (1987)) constitute evidence against the hypothesis of expected
+utility maximization, the MDP framework remains highly relevant for modern work in economics and AI and other
+areas because MDPs are sufficiently flexible to provide good approximations to a huge range of sequential decision
+problems. Though there is research on “recursive utility” that relaxes the discounted utility and expected utility assumptions, there are unsolved challenges in applying recursive methods to characterize and numerically approximate
+optimal strategies for “non-separable” problems.
+
+4
+
+r(s, a) is the reward or utility function providing the payoff to a decision maker (DM), p(s′ |s, a) is
+a transition density for next period’s state when the state is s and action is a and β ∈ (0, 1) is a
+discount factor. To simplify exposition we assume that both S and A are finite sets, with |S| and
+|A| elements, respectively.7 The DM is presumed to choose a policy π where π(a|s) specifies the
+probability of taking action a in state s.8 For any s ∈ S the support of π(·|s) is restricted to a
+subset A(s) ⊂ A of choices that are feasible for the DM to take in state s. When a policy is pure
+(deterministic) we write δ(s) ∈ A(s) for the action it selects in state s. The DM’s objective is to
+choose a policy π to maximize the expected discounted stream of rewards given by
+V (s) = max Vπ (s),
+π
+
+where Vπ (s) = Eπ
+
+(∞
+X
+
+)
+β t r(st , at )|s0 = s ,
+
+(1)
+
+t=0
+
+where Eπ denotes the expectation operator over the Markov process {st , at } implied by the transition probability p and policy π. Bellman (1957), Howard (1960) and others proved that an optimal
+value function can be defined recursively in terms of what is now known as Bellman’s equation
+"
+V (s) = max
+
+#
+r(s, a) + β
+
+a∈A(s)
+
+X
+
+V (s′ )p(s′ |s, a) ≡ Γ(V )(s),
+
+(2)
+
+s′ ∈S
+
+so V is the fixed point V = Γ(V ) where the operator Γ(V ), known as the “Bellman operator”, is
+the function of s implicitly defined by the right hand side of (2). The Bellman operator can also
+be shown to be a contraction mapping (so for any vectors V, W ∈ R|S| we have ∥Γ(V ) − Γ(W )∥ ≤
+β∥V − W ∥ where β is less than 1 and ∥ · ∥ is the Euclidean norm). This implies a unique solution
+V to the Bellman equation exists. The optimal deterministic decision rule can be recovered from
+V as the choice a∗ ∈ A(s) that attains the maximum in Bellman’s equation
+"
+
+#
+
+δ ∗ (s) = argmax r(s, a) + β
+a∈A(s)
+
+X
+
+V (s′ )p(s′ |s, a) .
+
+(3)
+
+s′ ∈S
+
+Note that equation (3) implies that the optimal policy is generically a pure strategy, i.e. except for
+rare cases of ties, for each state s there is a unique a∗ ∈ A(s) that maximizes the right hand side of
+(3). The associated stochastic policy assigns probability one to δ ∗ (s), i.e. π ∗ (a|s) = 1{a = δ ∗ (s)}.
+An MDP can be considered as a “game against nature” where “nature’s move” is encoded in
+the transition probability p(s′ |s, a) and the optimal deterministic strategy δ ∗ can be considered as a
+“best reply” to nature. This framework can be extended to dynamic games where there are multiple
+rational players in addition to nature. In this setting the reward and transition probabilities for
+7
+
+The general theory carries over essentially unchanged if S or A have an infinite number or even a continuum
+of elements provided certain boundedness and continuity conditions hold. However we will see that very different
+methods are used to solve MDPs with large state spaces.
+8
+The term “policy” is commonly used for the decision rule π in the RL literature, but the term should be
+distinguished from the term “policy” used in the introduction, i.e. economic policies such as tax rates, regulations
+and so forth that can affect the decision rule π as we will discuss in section 3.
+
+5
+
+each player can depend on the actions of their opponents as well as nature. Maskin and Triole
+(2001) introduced the concept of Markov Perfect equilibrium (MPE) which is a generalization of
+the concept of Nash equilibrium in static games where each player’s strategy is a best reply to all
+of their opponents and nature. A MPE is defined by the solution to a system of Bellman equations,
+one for each player (except nature). Unlike the single Bellman equation in a single agent game
+against nature, this system of Bellman equations can have multiple solutions, corresponding to
+multiple MPE. Further, MPE strategies can be mixed whereas the optimal policy in a single agent
+MDP is generically pure. There are no known algorithms that are guaranteed to find even a single
+MPE, since unlike the single agent case, the system of Bellman equations is no longer a contraction
+mapping.9 We now summarize several standard algorithms for solving the Bellman equation in the
+single agent setting.
+2.1
+
+Successive Approximations
+
+As is well known, any contraction mapping on a Euclidean space has a unique fixed point, and the
+contraction property guarantees that the method of successive approximations i.e. the sequence
+{V (k) } given by V (k) = Γ(V (k−1) ), for k = 1, 2, . . . starting from any initial starting guess V (0) will
+converge to the fixed point V . Successive approximations converge to V at a geometric rate in β
+and can be very slow when β is close to 1.
+2.2
+
+Policy Iteration
+
+In many cases, the policy iteration (PI) algorithm (Howard, 1960) provides a much faster method
+for solving the MDP. This algorithm cycles between policy valuation and policy improvement steps.
+At iteration k of the PI algorithm there is a candidate deterministic decision rule δ (k) (s). The policy
+valuation step calculates the value implied by this decision rule as Vδ(k) ∈ R|S| as the solution to
+the linear system
+Vδ(k) = rδ(k) + βEδ(k) Vδ(k) ,
+
+(4)
+
+where rδ(k) ∈ R|S| is the vector whose sth element is r(s, δ (k) (s)) and Eδ(k) is the |S| × |S| matrix
+whose element in row s and column s′ is given by Eδ(k) (s, s′ ) = p(s′ |s, δ (k) (s)). It is easy to
+show that for any feasible deterministic rule δ the matrix Eδ is a Markov transition probability
+matrix with matrix norm ∥Eδ ∥ = 1, which implies that equation (4) has a unique solution given
+by Vδ(k) = [I − βEδ(k) ]−1 rδ(k) .10 Given the value Vδ(k) the policy improvement step calculates a new
+decision rule δ (k+1) given by the right hand side of equation (3) except with Vδ(k) substituted for
+V . If δ (k+1) = δ (k) then policy iteration has converged and it is not hard to show that Vδ(k) = V ,
+the unique solution to Bellman’s equation (2). Puterman and Brumelle (1979) showed that PI
+9
+Iskhakov et al. (2015) introduced the recursive lexicopgraphical search (RLS) that can provably find all MPE in
+the subclass of dynamic directional games.
+10
+Alternatively we can show that the policy-specific Bellman operator Γδ(k) (V )(s) = r(s, δ (k) (s)) + βEδ(k) V (s) in
+equation (4) is a contraction.
+
+6
+
+is mathematically equivalent to using Newton’s method to find a zero of the function F (V ) =
+V − Γ(V ). It is well known that Newton’s method is quadratically convergent, and in fact for
+discrete MDPs, PI converges in a finite number of iterations and typically the number of iterations
+is quite small, regardless of how close β is to 1. The main downside of PI is that for problems
+where the state space is large, the work required to solve the linear system (4) for Vδ(k) at each
+policy valuation step involves O(|S|3 ) operations. Thus, in the absence of sparsity or other “special
+structure” for the matrices Eδ(k) , alternative algorithms must be relied on for problems where the
+number of states |S| exceeds several hundred thousand.
+2.3
+
+Avoiding the Curse of Dimensionality with function approximation
+
+The computational burden of solving an MDP when the state space is large was recognized early on:
+Bellman referred to the problem as the curse of dimensionality. For example, in problems where
+s is a continuous vector in Rd , if we approximate Bellman’s equation using interpolation with a
+finite grid N points in each dimension, then |S| = N d and the total work to solve the MDP is
+O(N 3d ), which increases exponentially fast in d. Even when the state space S is naturally discrete
+and finite, |S| can be very large: for example in classic board games such as chess, the number
+of possible states (board positions) is estimated to be approximately 1044 . Thus it is infeasible to
+use PI or SA to try to solve finite state approximations to MDPs when the true state space S is
+sufficiently large.
+Bellman and Dreyfus (1959) were among the first to recognize that one way to deal with the
+curse of dimensionality is to approximate the value function parametrically. For example, we could
+represent it using a linear combination of fixed basis functions or approximate it with a neural
+network. Let ϕ denote the vector of parameters defining a parametric approximation to V with Vϕ
+denoting the value function evaluated at parameter ϕ (e.g. following Benitez-Silva et al. (2000),
+P
+take ϕ ∈ Rm+1 and write Vϕ (s) = ϕ0 + m
+ℓ=1 ϕℓ ψℓ (s) for chosen basis functions ψℓ ). Then an
+alternative way to approximate the solution to Bellman’s equation is to convert it into a nonlinear
+least squares problem where ϕ̂ is chosen to minimize the squared “Bellman residuals” over a grid
+of points (s1 , . . . , sJ ) in S
+ϕ̂ = argmin
+ϕ
+
+J
+X
+
+[Vϕ (sj ) − Γ(Vϕ )(sj )]2 .
+
+(5)
+
+j=1
+
+The implied value function Vϕ̂ is an approximate solution to Bellman’s equation, (2). We can
+also consider a modification of PI that we call parametric policy iteration (PPI), Benitez-Silva
+et al. (2000), which uses a parametric approximation Vϕ̂(k) and finds ϕ̂(k) that mimimizes a least
+squares criterion similar to (5) to approximate the solution Vδ(k) = rδ(k) + βEδ(k) Vδ(k) to each policy
+valuation step k, (4). When Vϕ is approximated as a linear combination of “basis functions”, ϕ̂(k)
+can be computed by linear regression rather than a nonlinear regression as in (5) when we replace
+the nonlinear Bellman operator Γ with the linear operator Eδ(k) . Most of the modern methods
+for solving high dimensional MDPs involve the use of function approximation, either for the value
+7
+
+function or the policy function, or sometimes both simultaneously.
+2.4
+
+Reinforcement Learning
+
+This is a class of stochastic iterative algorithms for solving for the value function V and the
+optimal policy π. A prominent example is Q-learning introduced by Watkins (1989) as a “general
+formal model of an animal’s behavioural choices in its environment” and how it improves over
+time in response to feedback. In this sense Q-learning embodies a type of “learning” though for
+our purposes it can be viewed as a stochastic algorithm for solving MDPs since “Q” is just the
+choice-specific value function in an alternative way of expressing the Bellman equation
+Q(s, a) = r(s, a) + β
+
+X
+
+V (s′ )p(s′ |s, a),
+
+(6)
+
+s′
+
+V (s) =
+
+max Q(s, a).
+
+(7)
+
+a∈A(s)
+
+Note that by substituting equation (7) into equation (6) we can represent Q as a fixed point
+Q = Λ(Q) to a mapping Λ that can also be shown to be a contraction mapping. Q(s, a) is the
+value of taking action a in state s and the optimal policy is to choose the action with the highest
+Q(s, a), so V (s) is the largest Q value in state s. Watkins proposed a stochastic iterative algorithm
+for updating Q given by
+
+Qt+1 (st , at ) = Qt (st , at ) + αt
+
+
+r(st , at ) + β max [Qt (s̃t+1 , a)] − Qt (st , at ) ,
+
+(8)
+
+a∈A(st )
+
+where (st , at ) is the state and action taken by the DM at time step t, and s̃t+1 is a random draw from
+the transition probability p(s′ |st , at ). Q-learning is a form of stochastic approximation (Robbins and
+Munro, 1951). For convergence, the step size sequence {αt } must converge to 0, but at a sufficiently
+slow rate to ensure the stochastic sequence {Qt } converges with probability 1 to Q = Λ(Q). As
+shown by Watkins and Dayan (1992) and Tsitsiklis (1994), this Q is the unique solution to the
+modified Bellman equations (6) and (7).11
+Equation (8) does not specify how at is chosen: a typical choice is the greedy policy at =
+argmax a∈A(st ) Qt (st , a). However a key condition for the convergence of Q-learning is that every
+state-action pair (s, a) must be sampled an infinite number of times. This implies the usual exploration/exploitation tradeoff since suboptimal actions must be taken infinitely often for order for Q
+learning to converge, but this need not happen under a greedy policy. One solution to this problem is to use a ε-greedy policy 12 that takes the optimal action at with probability 1 − ε, and with
+11
+
+P
+P
+The conditions on the step size are 1) t αt = ∞ and 2) t αt2 < ∞. Note αt = 1/t satisfies these conditions.
+12
+Greedy improvement steps (pure exploitation) go back to Bellman (1957) and Howard (1960). Watkins (1989)
+introduced ε-greedy exploration, and Chapter 2 of Sutton and Barto (1998) formalized both notions for a broad
+RL audience. The ε-greedy rule picks the greedy action with probability 1 − ε and otherwise samples uniformly
+at random; although it does not minimize regret, it remains extremely popular because it is simple and provides
+sufficient exploration in practice.
+
+8
+
+probability ε a randomly selected suboptimal action (i.e. an action a with Qt (st , a) < Qt (st , at )).
+However unless ε converges to 0 with t, Qt will converge to a Q that does not satisfy the Bellman
+equation (7) since an ε-greedy policy is suboptimal.
+Haarnoja et al. (2017) introduced soft-Q learning building on the work of Ziebart et al. (2008) on
+maximum entropy reinforcement learning that provides an alternative way to generate continuous
+exploration, ensuring that all actions are explored infinitely often. These result in policies that
+converge to mixed strategies that are self-consistent in the sense that the corresponding Q satisfy
+a modified version of the Bellman equation (2) they refer to as the soft Bellman equation. The
+term “maximum entropy” refers to the inclusion of an “entropy regularization” term in the agent’s
+objective function to result in optimal policies that are generically mixed. Specifically, suppose
+instead of the original objective in equation (1), we assume the agent’s objective includes an entropy
+P
+term, H(π(s)) = − a∈A(s) π(a|s) log(π(a|s)), so the agent maximizes
+V (s) = max Vπ (s),
+π
+
+where Vπ (s) = Eπ
+
+(∞
+X
+
+)
+β t [r(st , at ) + σH(π(st ))]|s0 = s ,
+
+(9)
+
+t=0
+
+where σ is the weight on entropy. Note that when σ = 0 we obtain the original MDP objective (1)
+and the optimal π is generically pure and has 0 entropy, but as σ → ∞ the agent’s optimal policy
+is simply to choose each feasible action with equal probability, resulting in a π with maximum
+entropy. The solution V to the modified DP problem (9) turns out to satisfy a “soft Bellman
+equation” which turns out to be identical to a version of the “smoothed Bellman equation” derived
+by Rust (1988), see equations (16) and (15) of section 3.
+Q-learning is described as model-free since, unlike SA or PI, it does not require explicit calculation of expectations using the transition probability p(s′ |s, a): instead all that is needed is be able
+to simulate new states using p. In Watkins’ example of how an animal learns to adapt and thrive
+in its environment, it would be the environment that “draws” the successor state st+1 needed to
+implement the update in Qt in equation (8). When trained in this manner Q-learning is indeed
+“model-free” and so are other RL algorithms that interact directly with the environment.13
+In many situations Q-learning and related RL methods produce policies that are too noisy and
+converge too slowly to be useful in practical real time applications, especially when the number of
+states is large. As Jiang and Xie (2024) note, their “decisions can lead to undesirable outcomes,
+especially at the early stages of learning when the algorithm has little knowledge of the environment.
+This is not a problem when the environment is a simulator, but can lead to serious consequences
+when people are part of the environment.” As a result RL training is increasingly done in simulation
+environments with sufficient computer power to rapidly conduct many thousands or millions of
+training iterations to produce a much better solution than could be achieved from limited realworld experience. However when models are trained using historical data, the distinction between
+13
+
+See Barto et al. (1995) for other examples of model-free algorithms for solving DP problems they refer to as real
+time dynamic programming (RTDP).
+
+9
+
+

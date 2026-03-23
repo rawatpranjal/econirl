@@ -1,0 +1,633 @@
+\ifx\undefined\bysame
+\newcommand{\bysame}{\leavevmode\hbox to\leftmargin{\hrulefill\,\,}}
+\fi
+\begin{thebibliography}{xx}
+
+\harvarditem[Abbeel]{Abbeel}{2016}{guidedcostlearning:2016}
+{\bf Abbeel, Chelsea Finn Sergey Levine~Pieter}, ``Guided Cost Learning: Deep
+  Inverse Optimal Control via Policy Optimization,'' {\it arXiv}, 2016, {\it
+  arXiv:1603.00448v3.}
+
+\harvarditem[Abbeel and Ng]{Abbeel and Ng}{2004}{abbeel:2004}
+{\bf Abbeel, Pieter and Andrew~Y. Ng}, ``Apprenticeship Learning via Inverse
+  Reinforcement Learning,'' in ``Proceedings of the Twenty-First International
+  Conference on Machine Learning'' ACM 2004, pp.~1--8.
+
+\harvarditem[Abbring and Daljord]{Abbring and
+  Daljord}{2020}{abbringdaljord:2020}
+{\bf Abbring, Jaap and {\O}ystein Daljord}, ``Identifying the discount factor
+  in dynamic discrete choice models,'' {\it Quantitative Economics}, 2020, {\it
+  11} (2), 471--501.
+
+\harvarditem[Adams et al.]{Adams, Cody and Beling}{2022}{adams:2022}
+{\bf Adams, Stephen, Tyler Cody, and Peter~A. Beling}, ``A survey of inverse
+  reinforcement learning,'' {\it Artificial Intelligence Review}, 2022, {\it
+  55}, 4307--4436.
+
+\harvarditem[Adusumilli and Eckardt]{Adusumilli and Eckardt}{2025}{AE:2022}
+{\bf Adusumilli, Karun and Dita Eckardt}, ``Temporal Difference Estimation of
+  Dynamic Discrete Choice Models,'' {\it Review of Economic Studies}, 2025,
+  {\it forthcoming.}
+
+\harvarditem[Aguirregabiria and Mira]{Aguirregabiria and
+  Mira}{2002}{AguirregabiriaMira:2002}
+{\bf Aguirregabiria, Victor and Pedro Mira}, ``Swapping the nested fixed point
+  algorithm: A class of estimators for discrete Markov decision models,'' {\it
+  Econometrica}, 2002, {\it 70}, 1519–1543.
+
+\harvarditem[Aguirregabiria and Mira]{Aguirregabiria and
+  Mira}{2010}{AguirregabiriaMira:2010}
+{\bf \bysame{} and \bysame{}}, ``Dynamic discrete choice structural models: A
+  survey,'' {\it Journal of Econometrics}, 2010, {\it 156}, 38--67.
+
+\harvarditem[Anderson et al.]{Anderson, Rosen, Rust and
+  Wong}{2025}{tennis:2025}
+{\bf Anderson, Axel, Jeremy Rosen, John Rust, and Kin-Ping Wong},
+  ``Disequilibrium Play in Tennis,'' {\it Journal of Political Economy}, 2025,
+  {\it 133} (1), 190--251.
+
+\harvarditem[Antos et al.]{Antos, Szepesv{\'a}ri and Munos}{2008}{antos:2008}
+{\bf Antos, Andras, Csaba Szepesv{\'a}ri, and R{\'e}mi Munos}, ``Learning
+  near-optimal policies with Bellman-residual minimization based fitted policy
+  iteration and a single sample path,'' {\it Conference On Learning Theory},
+  2008, {\it inria-00117130}, 574--587.
+
+\harvarditem[Arora and Doshi]{Arora and Doshi}{2021}{arora:2021}
+{\bf Arora, Saurabh and Prashant Doshi}, ``A survey of inverse reinforcement
+  learning: Challenges, methods and progress,'' {\it Artificial Intelligence},
+  2021, {\it 297} (103500).
+
+\harvarditem[Azar et al.]{Azar, Shahmansoorian and Davoudi}{2020}{azar:2020}
+{\bf Azar, Nematollah~Ab, Aref Shahmansoorian, and Mohsen Davoudi}, ``From
+  inverse optimal control to inverse reinforcement learning: A historical
+  review,'' {\it Annual Reviews in Control}, 2020, {\it 50}, 119--138.
+
+\harvarditem[Babes-Vroman et al.]{Babes-Vroman, Marivate, Subramanian and
+  Littman}{2011}{mlirl:2011}
+{\bf Babes-Vroman, Monica, Vukosi Marivate, Kaushik Subramanian, and Michael
+  Littman}, ``Apprenticeship Learning About Multiple Intentions,'' {\it
+  Proceedings of the 28th International Conference on Machine Learning}, 2011.
+
+\harvarditem[Baird]{Baird}{1995}{Baird:1995}
+{\bf Baird, F.}, ``Residual algorithms: Reinforcement learning with function
+  approximation,'' in ``Proceedings of the $12^{\mbox{th}}$ International
+  Conference on Machine Learning'' 1995, pp.~30--37.
+
+\harvarditem[Bajari et al.]{Bajari, Benkard and Levin}{2007}{bbl:2007}
+{\bf Bajari, Patrick, C.~Lanier Benkard, and John Levin}, ``Estimating Dynamic
+  Models of Imperfect Competition,'' {\it Econometrica}, 2007, {\it 75} (5),
+  1331--1370.
+
+\harvarditem[Baker et al.]{Baker, Jara-Ettinger, Saxe and
+  Tenenbaum}{2017}{baker:2017}
+{\bf Baker, Chris~L., Julian Jara-Ettinger, Rebecca Saxe, and Joshua~B.
+  Tenenbaum}, ``Rational Quantitative Attribution of Beliefs, Desires and
+  Percepts in Human Mentalizing,'' {\it Nature Human Behaviour}, 2017, {\it 1}
+  (4), 0064.
+
+\harvarditem[Baker et al.]{Baker, Saxe and Tenenbaum}{2009}{baker:2009}
+{\bf \bysame{}, Rebecca Saxe, and Joshua~B. Tenenbaum}, ``Action Understanding
+  as Inverse Planning,'' {\it Cognition}, 2009, {\it 113} (3), 329--349.
+
+\harvarditem[Barnes et al.]{Barnes, M.Abueg, Lange, Deeds, Trader, Molitor,
+  Wulfmeier and O'Banion}{2024}{Barnes:2024}
+{\bf Barnes, M., M.Abueg, O.~F. Lange, M.~Deeds, J.~Trader, D.~Molitor,
+  M.~Wulfmeier, and S.~O'Banion}, ``Massively Scalable Inverse Reinforcement
+  Learning in Google Maps,'' {\it OpenReview.net}, 2024, pp.~1--22.
+
+\harvarditem[Barron]{Barron}{1993}{Barron1993}
+{\bf Barron, Andrew}, ``Universal Approximation Bounds for Superpositions of a
+  Sigmoidal Function,'' {\it IEEE Transactions on Information Theory}, 1993,
+  {\it 39}, 930--945.
+
+\harvarditem[Bellman]{Bellman}{1957}{Bellman:1957}
+{\bf Bellman, Richard}, {\it Dynamic Programming}, 4th ed., Princeton
+  University Press, 1957.
+
+\harvarditem[Berger et al.]{Berger, Pietra and Pietra}{1996}{berger:1996}
+{\bf Berger, Adam~L., Vincent J.~Della Pietra, and Stephen A.~Della Pietra},
+  ``A Maximum Entropy Approach to Natural Language Processing,'' {\it
+  Computational Linguistics}, 1996, {\it 22} (1), 39--71.
+
+\harvarditem[Berret et al.]{Berret, Chiovetto, Nori and
+  Pozzo}{2011}{berret:2011}
+{\bf Berret, Bastien, Enrico Chiovetto, Francesco Nori, and Thierry Pozzo},
+  ``Evidence for Composite Cost Functions in Arm Movement Planning: An Inverse
+  Optimal Control Approach,'' {\it PLOS Computational Biology}, 2011, {\it 7}
+  (10), e1002183.
+
+\harvarditem[Bertsekas]{Bertsekas}{2017}{bertsekas:2017}
+{\bf Bertsekas, Dimitri~P.}, {\it Dynamic Programming and Optimal Control
+  (volumes 1 and 2)}, 4th ed., Athena Scientific, Belmont Massachusetts, 2017.
+
+\harvarditem[Bertsekas]{Bertsekas}{2025}{bertsekas:2025}
+{\bf \bysame{}}, {\it A Course in Reinforcement Learning}, 2nd ed., Athena
+  Scientific, Belmont Massachusetts, 2025.
+
+\harvarditem[Bray]{Bray}{2022}{bray:2022}
+{\bf Bray, Robert~L.}, ``A Comment on `Using Randomization to Break the Curse
+  of Dimensionality','' {\it Econometrica}, 2022, {\it 90} (4), 1915--1929.
+
+\harvarditem[Cao et al.]{Cao, Cohen and Szpruch}{2021}{cao_irl:2021}
+{\bf Cao, Haoyang, Samuel~N. Cohen, and Lukasz Szpruch}, ``Identifiability in
+  inverse reinforcement learning,'' {\it arXiv preprint arXiv:2106.03498},
+  2021.
+
+\harvarditem[Chernozhukov et al.]{Chernozhukov, Escanciano, Ichimura, Newey and
+  Robins}{2022}{lrspe:2022}
+{\bf Chernozhukov, Victor, Juan~Carlos Escanciano, Hidehiko Ichimura,
+  Whitney~K. Newey, and James~M. Robins}, ``Locally Robust Semiparametric
+  Estimation,'' {\it Econometrica}, 2022, {\it 90} (4), 1051--1535.
+
+\harvarditem[Chow and Tsitsiklis]{Chow and Tsitsiklis}{1989}{CT:1989}
+{\bf Chow, C.~S. and J.~N. Tsitsiklis}, ``The Complexity of Dynamic
+  Programming,'' {\it Journal of Complexity}, 1989, {\it 5}, 466--488.
+
+\harvarditem[Christiano et al.]{Christiano, Leike, Brown, Martic, Legg and
+  Amodei}{2017}{christiano:2017}
+{\bf Christiano, Paul~F, Jan Leike, Tom~B Brown, Miljan Martic, Shane Legg, and
+  Dario Amodei}, ``Deep reinforcement learning from human preferences,'' in
+  ``Advances in Neural Information Processing Systems,'' Vol.~30 2017.
+
+\harvarditem[Dearing and Blevins]{Dearing and
+  Blevins}{2025}{dearingblevins:2025}
+{\bf Dearing, Adam and Jason Blevins}, ``Efficient and Convergent Sequential
+  Pseudo-Likelihood Estimation of Dynamic Discrete Choice Games,'' {\it Review
+  of Economic Studies}, 2025, {\it 92}, 981–1021.
+
+\harvarditem[Fu et al.]{Fu, Kumar, Soh and Levine}{2019}{fu2019diagnosing}
+{\bf Fu, Justin, Aviral Kumar, Matthew Soh, and Sergey Levine}, ``Diagnosing
+  Bottlenecks in Deep Q-learning Algorithms,'' in ``Proceedings of the 36th
+  International Conference on Machine Learning'' PMLR 2019, pp.~2021--2030.
+
+\harvarditem[Fu et al.]{Fu, Luo and Levine}{2018}{fu:2018}
+{\bf \bysame{}, Katie Luo, and Sergey Levine}, ``Learning Robust Rewards with
+  Adversarial Inverse Reinforcement Learning,'' in ``International Conference
+  on Learning Representations (ICLR)'' 2018.
+
+\harvarditem[Fujimoto et al.]{Fujimoto, Meger, Precup, Nachum and
+  Gu}{2022}{fujimoto22a}
+{\bf Fujimoto, Scott, David Meger, Doina Precup, Ofir Nachum, and
+  Shixiang~Shane Gu}, ``Why Should I Trust You, Bellman? The Bellman Error is a
+  Poor Replacement for Value Error,'' in ``Proceedings of the 39th
+  International Conference on Machine Learning'' PMLR 2022, pp.~6907--6935.
+
+\harvarditem[Gillingham et al.]{Gillingham, Iskhakov, Munk-Nielsen, Rust and
+  Schjerning}{2022}{GIMRS:2022}
+{\bf Gillingham, Kenneth, Fedor Iskhakov, Anders Munk-Nielsen, John Rust, and
+  Bertel Schjerning}, ``Equilibrium Trade in Automobiles,'' {\it Journal of
+  Political Economy}, 2022, {\it 130} (10), 2534--2593.
+
+\harvarditem[Gittins and Jones]{Gittins and Jones}{1974}{gittins:1974}
+{\bf Gittins, J.~C. and D.~M. Jones}, ``A dynamic allocation index for the
+  sequential design of experiments,'' in J.~Gani, ed., {\it Progress in
+  Statistics}, North-Holland, Amsterdam, 1974, pp.~241--266.
+
+\harvarditem[Gleave and Toyer]{Gleave and Toyer}{2022}{gleave:2022}
+{\bf Gleave, Adam and Sam Toyer}, ``A Primer on Maximum Causal Entropy Inverse
+  Reinforcement Learning,'' {\it arXiv}, 2022, {\it arXiv:2203.11409v1.}
+
+\harvarditem[Gourieroux et al.]{Gourieroux, Monfort and Renault}{1993}{ii:1993}
+{\bf Gourieroux, C., A.~Monfort, and E.~Renault}, ``Indirect Inference,'' {\it
+  Journal of Applied Econometrics}, 1993, {\it 8}, S85--S118.
+
+\harvarditem[Haarnoja et al.]{Haarnoja, Tang, Abbeel and
+  Levine}{2017}{softqlearning:2017}
+{\bf Haarnoja, Tuomas, Haoran Tang, Pieter Abbeel, and Sergey Levine},
+  ``Reinforcement Learning with Deep Energy-Based Policies,'' {\it Proceedings
+  of the 34th International Conference on Machine Learning}, 2017.
+
+\harvarditem[Ho and Ermon]{Ho and Ermon}{2016}{ho:2016}
+{\bf Ho, Jonathan and Stefano Ermon}, ``Generative Adversarial Imitation
+  Learning,'' in ``Advances in Neural Information Processing Systems,'' Vol.~29
+  2016, pp.~4565--4573.
+
+\harvarditem[Hoiles et al.]{Hoiles, Krishnamurthy and
+  Pattanayak}{2020}{hoiles:2020}
+{\bf Hoiles, William, Vikram Krishnamurthy, and Kunal Pattanayak}, ``Rationally
+  Inattentive Inverse Reinforcement Learning Explains {YouTube} Commenting
+  Behavior,'' {\it Journal of Machine Learning Research}, 2020, {\it 21} (170),
+  1--39.
+
+\harvarditem[Hotz and Miller]{Hotz and Miller}{1993}{hotzmiller:1993}
+{\bf Hotz, Joseph~V. and Robert~A. Miller}, ``Conditional choice probabilities
+  and the estimation of dynamic models,'' {\it Review of Economic Studies},
+  1993, {\it 60}, 497--529.
+
+\harvarditem[Hotz et al.]{Hotz, Miller, Sanders and Smith}{1994}{hmss:1994}
+{\bf \bysame{}, \bysame{}, Seth Sanders, and Jeffrey Smith}, ``A simulation
+  estimator for dynamic models of discrete choice,'' {\it Review of Economic
+  Studies}, 1994, {\it 61}, 265--289.
+
+\harvarditem[Howard]{Howard}{1960}{Howard:1960}
+{\bf Howard, Ronald~A.}, {\it Dynamic Programming and Markov Processes},
+  Technology Press, Cambridge, MA, 1960.
+
+\harvarditem[Hussein et al.]{Hussein, Gaber, Elyan and
+  Jayne}{2018}{hussein:2018}
+{\bf Hussein, Ahmed, Mohammed~Medhat Gaber, Eyad Elyan, and Chrisina Jayne},
+  ``Imitation Learning: A Survey of Learning Methods,'' {\it ACM Computing
+  Surveys}, 2018, {\it 50} (2), 21:1--21:35.
+
+\harvarditem[Imai et al.]{Imai, Jain and Ching}{2009}{ijc:2009}
+{\bf Imai, Susumu, Neelam Jain, and Andrew Ching}, ``Bayesian Estimation of
+  Dynamic Discrete Choice Models,'' {\it Econometrica}, 2009, {\it 77} (6),
+  1865--1899.
+
+\harvarditem[Iskhakov et al.]{Iskhakov, Lee, Rust, Schjerning and
+  Seo}{2016}{sujuddcomment:2016}
+{\bf Iskhakov, Fedor, Jinhyuk Lee, John Rust, Bertel Schjerning, and Kyoungwon
+  Seo}, ``Constrained Optimization Approaches to Estimation of Structural
+  Models: Comment,'' {\it Econometrica}, 2016, {\it 84} (1), 365--370.
+
+\harvarditem[Jain et al.]{Jain, Doshi and Banerjee}{2019}{jain:2019}
+{\bf Jain, Ayush, Prashant Doshi, and Bikramjit Banerjee}, ``Model-Free {IRL}
+  Using Maximum Likelihood Estimation,'' in ``Proceedings of the AAAI
+  Conference on Artificial Intelligence,'' Vol.~33 2019, pp.~3951--3958.
+
+\harvarditem[Jara-Ettinger]{Jara-Ettinger}{2019}{jaraettinger:2019}
+{\bf Jara-Ettinger, Julian}, ``Theory of Mind as Inverse Reinforcement
+  Learning,'' {\it Current Opinion in Behavioral Sciences}, 2019, {\it 29},
+  105--110.
+
+\harvarditem[Jara-Ettinger et al.]{Jara-Ettinger, Gweon, Schulz and
+  Tenenbaum}{2016}{jaraettinger:2016}
+{\bf \bysame{}, Hyowon Gweon, Laura~E. Schulz, and Joshua~B. Tenenbaum}, ``The
+  Na\"ive Utility Calculus: Computational Principles Underlying Commonsense
+  Psychology,'' {\it Trends in Cognitive Sciences}, 2016, {\it 20} (10),
+  589--604.
+
+\harvarditem[Jaynes]{Jaynes}{1957}{jaynes:1957}
+{\bf Jaynes, Edwin~T.}, ``Information Theory and Statistical Mechanics,'' {\it
+  Physical Review}, 1957, {\it 106} (4), 620--630.
+
+\harvarditem[Jiang and Xie]{Jiang and Xie}{2024}{JiangXie:2024}
+{\bf Jiang, Nan and Tengyang Xie}, ``Offline Reinforcement Learning in Large
+  State Spaces: Algorithms and Guarantees,'' {\it manuscript, University of
+  Illinois}, 2024.
+
+\harvarditem[Kaji et al.]{Kaji, Manresa and Pouliot}{2023}{kaji:2023}
+{\bf Kaji, Tetsuya, Elena Manresa, and Guillaume Pouliot}, ``An Adversarial
+  Approach to Structural Estimation,'' {\it Econometrica}, 2023, {\it 91} (6),
+  2041--2063.
+
+\harvarditem[Kalman]{Kalman}{1964}{kalman:1964}
+{\bf Kalman, R.~E.}, ``When is a linear control system optimal?,'' {\it Journal
+  of Basic Engineering}, 1964, {\it 86}, 119--138.
+
+\harvarditem[Kalouptsidi et al.]{Kalouptsidi, Scott and
+  Souza‐Rodrigues}{2021}{souza:2021}
+{\bf Kalouptsidi, Myrto, Paul~T. Scott, and Eduardo Souza‐Rodrigues},
+  ``Identification of counterfactuals in dynamic discrete choice models,'' {\it
+  Quantitative Economics}, 2021, {\it 12} (2), 351--403.
+
+\harvarditem[Kang et al.]{Kang, Yoganarasimhan and Jain}{2025}{kang:2025}
+{\bf Kang, Enoch~H., Hema Yoganarasimhan, and Lalit Jain}, ``An Empirical Risk
+  Minimization Approach for Offline Inverse RL and Dynamic Discrete Choice
+  Model,'' {\it arXiv}, 2025, {\it arXiv:2502.14131.}
+
+\harvarditem[Khwaja and Srivastava]{Khwaja and Srivastava}{2025}{khwaja:2025}
+{\bf Khwaja, Ahmed and Sonal Srivastava}, ``Reinforcement Learning Based
+  Computationally Faster Conditional Choice Simulation Estimation of Dynamic
+  Discrete Choice Models,'' {\it manuscript, Judge Business School, University
+  of Cambridge}, 2025.
+
+\harvarditem[Kim et al.]{Kim, Garg, Shiragur and Ermon}{2021}{kim:2021}
+{\bf Kim, Kuno, Shivam Garg, Kirankumar Shiragur, and Stefano Ermon}, ``Reward
+  Identification in Inverse Reinforcement Learning,'' in ``Proceedings of the
+  38th International Conference on Machine Learning'' PMLR 2021,
+  pp.~5496--5505.
+
+\harvarditem[Lee et al.]{Lee, Sudhir and Wang}{2026}{lee:2026}
+{\bf Lee, Peter~S., K.~Sudhir, and Tong Wang}, ``Consumer Engagement with
+  Sequential Content: A Content-Aware Dynamic Choice Model,'' 2026.
+\newblock Yale School of Management.
+
+\harvarditem[Levine and Koltun]{Levine and Koltun}{2012}{levine:2012}
+{\bf Levine, Sergey and Vladlen Koltun}, ``Continuous Inverse Optimal Control
+  with Locally Optimal Examples,'' in ``Proceedings of the 29th International
+  Conference on Machine Learning (ICML)'' 2012.
+
+\harvarditem[Liang et al.]{Liang, Wang, Yu, Zhao, Zhao and
+  Pentland}{2025}{liang:2025}
+{\bf Liang, Yuebing, Shenhao Wang, Jiangbo Yu, Zhan Zhao, Jinhua Zhao, and
+  Sandy Pentland}, ``Analyzing sequential activity and travel decisions with
+  interpretable deep inverse reinforcement learning,'' {\it Travel Behaviour
+  and Society}, 2025, {\it 43}, 101171.
+
+\harvarditem[Lu et al.]{Lu, Fu, Tucker, Pan, Bronstein, Roelofs, Sapp, Faust,
+  White, Whiteson, Anguelov and Levine}{2023}{waymo_bcsac:2023}
+{\bf Lu, Yiren, Justin Fu, George Tucker, Xinlei Pan, Eli Bronstein, Becca
+  Roelofs, Benjamin Sapp, Aleksandra Faust, Brandyn White, Shimon Whiteson,
+  Dragomir Anguelov, and Sergey Levine}, ``Imitation Is Not Enough:
+  Robustifying Imitation with Reinforcement Learning for Challenging Driving
+  Scenarios,'' in ``IEEE/RSJ International Conference on Intelligent Robots and
+  Systems (IROS)'' 2023.
+
+\harvarditem[Robert E.~Lucas]{Robert E.~Lucas}{1976}{lucas:1976}
+{\bf Lucas, Jr. Robert~E.}, ``Econometric Policy Evaluation: A Critique,'' in
+  Alan Meltzer, ed., {\it The Phillips Curve and Labor Markets.
+  Carnegie-Rochester Conference Series on Public Policy. Vol. 1}, Elsevier,
+  1976, pp.~19--46.
+
+\harvarditem[Luo and Sang]{Luo and Sang}{2024}{LuoSang:2024}
+{\bf Luo, Yao and Peijun Sang}, ``Efficient Estimation of Structural Models via
+  Sieves,'' {\it arXiv}, 2024, {\it arXiv:2204.13488v2.}
+
+\harvarditem[Magnac and Thesmar]{Magnac and Thesmar}{2002}{magnacthesmar:2002}
+{\bf Magnac, Thierry and David Thesmar}, ``Identifying Dynamic Discrete
+  Decision Processes,'' {\it Econometrica}, 2002, {\it 70}, 801–816.
+
+\harvarditem[Matejka and McKay]{Matejka and McKay}{2015}{matejka:2015}
+{\bf Matejka, Filip and Alisdair McKay}, ``Rational Inattention to Discrete
+  Choices: A New Foundation for the Multinomial Logit Model,'' {\it American
+  Economic Review}, 2015, {\it 105} (1), 272--298.
+
+\harvarditem[McFadden]{McFadden}{1989}{msm:1989}
+{\bf McFadden, D.}, ``A Method of Simulated Moments for Estimation of Discrete
+  Response Models Without Numerical Integration,'' {\it Econometrica}, 1989,
+  {\it 57}, 995--1026.
+
+\harvarditem[McFadden]{McFadden}{1973}{mcfadden:1973}
+{\bf McFadden, Daniel~L.}, ``Conditional Logit Analysis of Qualitative Choice
+  Behavior,'' in P.~Zarembka, ed., {\it Frontiers in Econometrics}, Academic
+  Press, 1973, pp.~105--142.
+
+\harvarditem[Melo et al.]{Melo, Meyn and Ribeiro}{2008}{melo:2008}
+{\bf Melo, Francisco~S., Sean~P. Meyn, and M.~Isabel Ribeiro}, ``An Analysis of
+  Reinforcement Learning with Function Approximation,'' in ``Proceedings of the
+  $25^{\mbox{th}}$ International Conference on Machine Learning'' 2008,
+  pp.~665--671.
+
+\harvarditem[Mero et al.]{Mero, Yi, Dianati and Mouzakitis}{2022}{mero:2022}
+{\bf Mero, L.~Le, D.~Yi, M.~Dianati, and A.~Mouzakitis}, ``A survey on
+  imitation learning techniques for end-to-end autonomous vehicles,'' {\it IEEE
+  Transactions on Intelligent Transportation Systems}, 2022, {\it 23} (9),
+  14128--14147.
+
+\harvarditem[Mnih et al.]{Mnih, Kavukcuoglu, Silver, Rusu, Veness, Bellemare,
+  Graves, Riedmiller, Fidjeland, Ostrovski, Petersen, Beattie, Sadik,
+  Antonoglou, King, Kumaran, Wierstra, Legg and Hassabis}{2015}{mnih:2015}
+{\bf Mnih, V., K.~Kavukcuoglu, D.~Silver, A.~A. Rusu, J.~Veness, M.~G.
+  Bellemare, A.~Graves, M.~Riedmiller, A.~K. Fidjeland, G.~Ostrovski,
+  S.~Petersen, C.~Beattie, A.~Sadik, I.~Antonoglou, H.~King, D.~Kumaran,
+  D.~Wierstra, S.~Legg, and D.~Hassabis}, ``Human-level control through deep
+  reinforcement learning,'' {\it Nature}, 2015, {\it 518}, 518--533.
+
+\harvarditem[Mombaur et al.]{Mombaur, Truong and
+  Laumond}{2010}{locomotion:2010}
+{\bf Mombaur, Katja, Anh Truong, and Jean-Paul Laumond}, ``From human to
+  humanoid locomotion: an inverse optimal control approach,'' {\it Autonomous
+  Robotics}, 2010, {\it 28}, 369--383.
+
+\harvarditem[Mu et al.]{Mu, Rawat, Rust, Zhang and
+  Zhong}{2025}{whoismorebayesian:2025}
+{\bf Mu, Tianshi, Pranjal Rawat, John Rust, Chengjun Zhang, and Qixuan Zhong},
+  ``Who is More Bayesian: Humans or ChatGPT?,'' 2025.
+\newblock arXiv:2504.10636v1.
+
+\harvarditem[Munos and Szepesv{\'a}ri]{Munos and
+  Szepesv{\'a}ri}{2008}{munos:2008}
+{\bf Munos, R{\'e}mi and Csaba Szepesv{\'a}ri}, ``Finite-Time Bounds for Fitted
+  Value Iteration,'' {\it Journal of Machine Learning Research}, 2008, {\it 1},
+  815--857.
+
+\harvarditem[Ng and Russell]{Ng and Russell}{2000}{ng:2000}
+{\bf Ng, Andrew~Y. and Stuart Russell}, ``Algorithms for Inverse Reinforcement
+  Learning,'' {\it Proceedings of the Seventeenth International Conference on
+  Machine Learning}, 2000, p.~663–670.
+
+\harvarditem[Ng et al.]{Ng, Harada and Russell}{1999}{nhr:1999}
+{\bf \bysame{}, Daishi Harada, and Stuart Russell}, ``Policy Invariance Under
+  Reward Transformations: Theory and Application to Reward Shaping,'' in
+  ``Proceedings of the Sixteenth International Conference on Machine Learning''
+  1999, pp.~278--287.
+
+\harvarditem[Nguyen]{Nguyen}{2025}{Nguyen:2025}
+{\bf Nguyen, Hoang}, ``Neural Networks for Efficient Estimation of
+  High-Dimensional Dynamic Discrete Choice Models,'' {\it manuscript,
+  Georgetown University}, 2025.
+
+\harvarditem[Ni et al.]{Ni, Sikchi, Wang, Gupta, Lee and
+  Eysenbach}{2022}{ni:2022}
+{\bf Ni, Tianwei, Harshit Sikchi, Yufei Wang, Tejus Gupta, Lisa Lee, and Ben
+  Eysenbach}, ``f-IRL: Inverse Reinforcement Learning via State Marginal
+  Matching,'' {\it arXiv preprint arXiv:2011.04709}, 2022.
+
+\harvarditem[Norets]{Norets}{2009}{norets:2009}
+{\bf Norets, Andriy}, ``Inference in Dynamic Discrete Choice Models With
+  Serially Correlated Unobserved State Variables,'' {\it Econometrica}, 2009,
+  {\it 77} (5), 1665--1682.
+
+\harvarditem[Pitombeira-Neto et al.]{Pitombeira-Neto, Santos, da~Silva and
+  de~Macedo}{2024}{pitombeira:2024}
+{\bf Pitombeira-Neto, Anselmo~R., Helano~P. Santos, Ticiana L.~Coelho da~Silva,
+  and Jos\'{e} Antonio~F. de~Macedo}, ``Trajectory Modeling via Random Utility
+  Inverse Reinforcement Learning,'' {\it Information Sciences}, 2024, {\it
+  660}, 120128.
+
+\harvarditem[Puterman]{Puterman}{2014}{puterman:1994}
+{\bf Puterman, Martin~L.}, {\it Markov Decision Processes: Discrete Stochastic
+  Dynamic Programming}, New York: John Wiley \& Sons, 2014.
+
+\harvarditem[Rabinowitz et al.]{Rabinowitz, Perbet, Song, Zhang, Eslami and
+  Botvinick}{2018}{rabinowitz:2018}
+{\bf Rabinowitz, Neil~C., Frank Perbet, H.~Francis Song, Chiyuan Zhang,
+  S.M.~Ali Eslami, and Matthew Botvinick}, ``Machine Theory of Mind,'' in
+  ``Proceedings of the 35th International Conference on Machine Learning'' ICML
+  2018, pp.~4218--4227.
+
+\harvarditem[Ramachandran and Amir]{Ramachandran and Amir}{2007}{birl:2007}
+{\bf Ramachandran, Deepak and Eyal Amir}, ``Bayesian Inverse Reinforcement
+  Learning,'' {\it Proceedings IJCAI}, 2007, p.~2586–2591.
+
+\harvarditem[Ratliff et al.]{Ratliff, Bagnell and
+  Zinkevich}{2006}{ratliff:2006}
+{\bf Ratliff, Nathan~D., J.~Andrew Bagnell, and Martin~A. Zinkevich}, ``Maximum
+  Margin Planning,'' in ``Proceedings of the 23rd International Conference on
+  Machine Learning'' ACM 2006, pp.~729--736.
+
+\harvarditem[Reich]{Reich}{2018}{reich:2018}
+{\bf Reich, Gregor}, ``Divide and Conquer: Recursive Likelihood Function
+  Integration for Hidden Markov Models with Continuous Latent Variables,'' {\it
+  Operations Research}, 2018, {\it 66} (6), 1457--1470.
+
+\harvarditem[Remonda et al.]{Remonda, Veas and Luzhnica}{2021}{remonda:2021}
+{\bf Remonda, Adrian, Eduardo Veas, and Granit Luzhnica}, ``Comparing driving
+  behavior of humans and autonomous driving in a professional racing
+  simulator,'' {\it PLOS ONE}, 2021, {\it 16} (2), e0245320.
+
+\harvarditem[Robbins and Munro]{Robbins and Munro}{1951}{robbinsmunro:1951}
+{\bf Robbins, H. and S.~Munro}, ``A Stochastic Approximation Method,'' {\it
+  Annals of Statistics}, 1951, {\it 22}, 400--407.
+
+\harvarditem[Rolland et al.]{Rolland, Cevher, Geist and
+  Neu}{2022}{rolland:2022}
+{\bf Rolland, Paul, Volkan Cevher, Matthieu Geist, and Gergely Neu},
+  ``Identifiability and Generalizability in Constrained Inverse Reinforcement
+  Learning,'' in ``Proceedings of the 39th International Conference on Machine
+  Learning'' PMLR 2022, pp.~18540--18562.
+
+\harvarditem[Rust]{Rust}{1987}{rust:1987}
+{\bf Rust, John}, ``Optimal Replacement of GMC Bus Engines: An Empirical Model
+  of Harold Zurcher,'' {\it Econometrica}, 1987, {\it 55} (5), 993--1033.
+
+\harvarditem[Rust]{Rust}{1988}{rust:1988}
+{\bf \bysame{}}, ``Maximum Likelihood Estimation of Discrete Control
+  Processes,'' {\it SIAM Journal on Control and Optimization}, 1988, {\it 26}
+  (5), 1006--1024.
+
+\harvarditem[Rust]{Rust}{1994}{rust:1994}
+{\bf \bysame{}}, ``Structural Estimation of Markov Decision Processes,'' in
+  R.~Engle and D.~McFadden, eds., {\it The Handbook of Econometrics, Volume 4},
+  Elsevier, 1994, pp.~3082--3139.
+
+\harvarditem[Rust]{Rust}{1997}{rust:1997}
+{\bf \bysame{}}, ``Using Randomization to Break the Curse of Dimensionality,''
+  {\it Econometrica}, 1997, {\it 65} (3), 487--516.
+
+\harvarditem[Rust]{Rust}{2014}{rust:2014}
+{\bf \bysame{}}, ``The Limits to Inference {\it with\/} Theory: A Review of
+  Wolpin (2013),'' {\it Journal of Economic Literature}, 2014, {\it 52} (3),
+  820--850.
+
+\harvarditem[Schlaginhaufen and Kamgarpour]{Schlaginhaufen and
+  Kamgarpour}{2024}{schlaginhaufen:2024}
+{\bf Schlaginhaufen, Andreas and Maryam Kamgarpour}, ``Identifiability and
+  Generalizability from Multiple Experts in Inverse Reinforcement Learning,''
+  in ``Advances in Neural Information Processing Systems,'' Vol.~37 2024.
+
+\harvarditem[Silver et al.]{Silver, Hubert, Schrittwieser, Antonoglou, Lai,
+  Guez, Lanctot, Sifre, Kumaran, Graepel, Lillicrap, Simonyan and
+  Hassabis}{2018}{Silver:2018}
+{\bf Silver, David, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou,
+  Matthew Lai, Arthur Guez, Marc Lanctot, Laurent Sifre, Dharshan Kumaran,
+  Thore Graepel, Timothy Lillicrap, Karen Simonyan, and Demis Hassabis}, ``A
+  general reinforcement learning algorithm that masters chess, shogi, and Go
+  through self-play,'' {\it Science}, 2018, {\it 362}, 1140--1144.
+
+\harvarditem[Simon]{Simon}{1957}{Simon:1957}
+{\bf Simon, Herbert~A.}, {\it Administrative Behavior: A Study of
+  Decision-Making Processes in Administrative Organization}, 2nd ed.,
+  Macmillan, New York, 1957.
+
+\harvarditem[Su and Judd]{Su and Judd}{2012}{sujudd:2012}
+{\bf Su, Che-Lin and Kenneth~L. Judd}, ``Constrained Optimization Approaches to
+  Estimation of Structural Models,'' {\it Econometrica}, 2012, {\it 80} (5),
+  2213--2230.
+
+\harvarditem[Sutton and Barto]{Sutton and Barto}{2020}{BartoSutton:2020}
+{\bf Sutton, Richard~J. and Andrew~G. Barto}, {\it Reinforcement Learning An
+  Introduction}, 2nd ed., MIT Press, 2020.
+
+\harvarditem[Sutton]{Sutton}{1988}{sutton:1988}
+{\bf Sutton, Richard~S.}, ``Learning to Predict by the Methods of Temporal
+  Differences,'' {\it Machine Learning}, 1988, {\it 3}, 9--44.
+
+\harvarditem[Sutton and Barto]{Sutton and Barto}{1998}{BartoSutton:1998}
+{\bf \bysame{} and Andrew~G. Barto}, {\it Reinforcement Learning An
+  Introduction}, 1st ed., MIT Press, 1998.
+
+\harvarditem[Todd and Wolpin]{Todd and Wolpin}{2006}{toddwolpin:2006}
+{\bf Todd, Petra and Kenneth~I. Wolpin}, ``Assessing the impact of a school
+  subsidy program in Mexico: Using a social experiment to validate a dynamic
+  behavioral model of child schooling and fertility,'' {\it American Economic
+  Review}, 2006, {\it 96} (5), 1384--1417.
+
+\harvarditem[Tomov et al.]{Tomov, Tsividis, Pouncy, Tenenbaum and
+  Gershman}{2023}{theorybasedRL:2023}
+{\bf Tomov, Momchil~S., Pedro~A. Tsividis, Thomas Pouncy, Joshua~B. Tenenbaum,
+  and Samuel~J. Gershman}, ``The neural architecture of theory-based
+  reinforcement learning,'' {\it Neuron}, 2023, {\it 111}, 1331--1334.
+
+\harvarditem[Tsitsiklis]{Tsitsiklis}{1994}{Tsitsiklis:1994}
+{\bf Tsitsiklis, John~N.}, ``Asynchronous Stochastic Approximation and
+  Q-Learning,'' {\it Machine Learning}, 1994, {\it 16}, 185--202.
+
+\harvarditem[Tsitsiklis and Roy]{Tsitsiklis and
+  Roy}{1997}{TsitsiklisVanRoy:1997}
+{\bf \bysame{} and Benjamin~Van Roy}, ``An analysis of temporal-difference
+  learning with function approximation,'' {\it IEEE transactions on automatic
+  control}, 1997, {\it 42}, 674--690.
+
+\harvarditem[van~der Laan et al.]{van~der Laan, Bibaut and
+  Kallus}{2026}{eerl:2026}
+{\bf van~der Laan, Lars, Aur{\'e}lien Bibaut, and Nathan Kallus}, ``Efficient
+  Inference for Inverse Reinforcement Learning and Dynamic Discrete Choice
+  Models,'' {\it arXiv}, 2026, {\it arXiv:2512.24407v1.}
+
+\harvarditem[Wang et al.]{Wang, Chen, Zhao, Mao, Zhou, He and
+  Hu}{2025}{av:2025}
+{\bf Wang, Siyue, Zhaorun Chen, Zhuokai Zhao, Chaoli Mao, Yiyang Zhou, Jiayu
+  He, and Albert~Sibo Hu}, ``ESCIRL: Evolving Self-Contrastive IRL for
+  Trajectory Prediction in Autonomous Driving,'' {\it 8th Conference on Robot
+  Learning (CoRL 2024)}, 2025, pp.~1--20.
+
+\harvarditem[Watkins]{Watkins}{1989}{Watkins:1989}
+{\bf Watkins, C.~J. C.~H.}, {\it Learning from Delayed Rewards}, PhD Thesis,
+  Kings College, Cambridge UK, 1989.
+
+\harvarditem[Wulfmeier et al.]{Wulfmeier, Ondr\'{u}\v{s}ka and
+  Posner}{2016}{maxentdeepirl:2016}
+{\bf Wulfmeier, Markus, Peter Ondr\'{u}\v{s}ka, and Ingmar Posner}, ``Maximum
+  Entropy Deep Inverse Reinforcement Learning,'' {\it arXiv}, 2016, {\it
+  arXiv:1507.04888v3.}
+
+\harvarditem[Yao et al.]{Yao, Lichtenstein, H{\"u}y{\"u}k and
+  Engelhardt}{2024}{yao:2024}
+{\bf Yao, Jiayu, Eli Lichtenstein, Alihan H{\"u}y{\"u}k, and Barbara~E.
+  Engelhardt}, ``Inverse Reinforcement Learning with Multiple Planning
+  Horizons,'' {\it arXiv preprint arXiv:2409.18051}, 2024.
+
+\harvarditem[Yudin and Nemirovsky]{Yudin and Nemirovsky}{1976}{yn:1976}
+{\bf Yudin, D.~B. and A.~B. Nemirovsky}, ``Estimating the Computational
+  Complexity of Mathematical Programming Problems,'' {\it Ekonomika i Matem.
+  Metody}, 1976, {\it 12}, 128--142.
+
+\harvarditem[Zeng et al.]{Zeng, Hong and Garcia}{2024}{zeng:2024}
+{\bf Zeng, Siliang, Mingyi Hong, and Alfredo Garcia}, ``Structural Estimation
+  of Markov Decision Processes in High-Dimensional State Space with Finite-Time
+  Guarantees,'' {\it Operations Research}, 2024, {\it 73} (2).
+
+\harvarditem[Zhang et al.]{Zhang, Yao and Whiteson}{2019}{zhang:2019}
+{\bf Zhang, Shangtong, Hengshuai Yao, and Shimon Whiteson}, ``Breaking the
+  Deadly Triad with a Target Network,'' in ``Proceedings of the
+  $38^{\mbox{th}}$ International Conference on Machine Learning'' 2019.
+
+\harvarditem[Zhang et al.]{Zhang, Li, Wang, Liu, Chen, Lu, Liu, Murugesan and
+  Chaudhury}{2023}{Zhang:2023}
+{\bf Zhang, Shuai, Hongkang Li, Meng Wang, Miao Liu, Pin-Yu Chen, Songtao Lu,
+  Sijia Liu, Keerthiram Murugesan, and Subhajit Chaudhury}, ``On the
+  Convergence and Sample Complexity Analysis of Deep Q-Networks with
+  $\varepsilon$-Greedy Exploration,'' {\it 37th Conference on Neural
+  Information Processing Systems}, 2023.
+
+\harvarditem[Zhao and Liang]{Zhao and Liang}{2023}{zhao:2023}
+{\bf Zhao, Zhan and Yuebing Liang}, ``A deep inverse reinforcement learning
+  approach to route choice modeling with context-dependent rewards,'' {\it
+  Transportation Research Part C}, 2023, {\it 149.}
+
+\harvarditem[Zhuang et al.]{Zhuang, Chu, Wang, Gao and Che}{2024}{zhuang:2024}
+{\bf Zhuang, Hejian, Hongqing Chu, Yafei Wang, Bingzhao Gao, and Hong Che},
+  ``HGRL: Human-Driving-Data Guided Reinforcement Learning for Autonomous
+  Driving,'' {\it IEEE Transactions on Intelligent Vehicles}, 2024, {\it 9}
+  (12), 8089--8103.
+
+\harvarditem[Ziebart et al.]{Ziebart, Maas, Bagnell and
+  Dey}{2008}{ziebart:2008}
+{\bf Ziebart, Brian~D., Andrew Maas, J.~Andrew Bagnell, and Anind~K. Dey},
+  ``Maximum Entropy Inverse Reinforcement Learning,'' {\it Proceedings of the
+  Twenty-Third AAAI Conference on Artificial Intelligence}, 2008, {\it 55} (5),
+  1433--1438.
+
+\harvarditem[Ziebart et al.]{Ziebart, Bagnell and Dey}{2010}{ziebart:2010}
+{\bf \bysame{}, J.~Andrew Bagnell, and Anind~K. Dey}, ``Modeling Interaction
+  via the Principle of Maximum Causal Entropy,'' {\it Proceedings of the 27th
+  International Conference on Machine Learning}, 2010.
+
+\harvarditem[Zucchet and Sacramento]{Zucchet and Sacramento}{2022}{ep:2022}
+{\bf Zucchet, Nicolas and Jo{\~a}o Sacramento}, ``Beyond Backpropagation:
+  Bilevel Optimization Through Implicit Differentiation and Equilibrium
+  Propagation,'' {\it Neural Computation}, 2022, {\it 34} (12), 2309--2346.
+
+\end{thebibliography}

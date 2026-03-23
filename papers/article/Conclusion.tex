@@ -1,0 +1,114 @@
+\section{Conclusion\label{sec:conclusion}}
+This selective survey has drawn connections between
+the literature on structural estimation of dynamic discrete choice (DDC) models and the literature on inverse reinforcement learning (IRL), 
+and their common ancestor:  Markovian Decision Processes (MDP).
+MDPs provide a recipe for how to model the behavior of an intelligent agent who makes sequential
+decisions to maximize the expected, discounted value of a stream
+of rewards.  Though MDPs can be viewed as specialized in some respects and some of their
+assumptions (expected utility, discounted utility) are inconsistent with empirical 
+evidence on human decision making, it is a powerful way to approximate 
+intelligent behavior that has opened up a huge range of empirical applications.
+
+Despite the common ancestry, there are clear differences in the practical reasons for doing DDC and IRL modeling.
+In economics, DDC and other types of structural models (i.e. dynamic, stochastic
+general equilibrium models in macroeconomics)  are used to provide counterfactual
+simulations to assess the impact of a wide variety of change in economic
+policies on both individual and colective outcomes, behavior, and welfare. 
+Structural models overcome a limitation 
+of reduced form models, which treat policy variables as a covariate and rely on historical variation in policies to make
+counterfactual predictions. Structural models are able to produce counterfactual predictions
+of the impact of novel policies that have never been enacted or even considered previously.
+This is why structural models are increasingly used for policymaking because it is cheaper and faster to ``crash test'' new policy ideas
+via counterfactual simulations in an ``offline'' environment rather
+than trying out new policies ``online'' and learning by trial and error.
+
+In the AI and ML literatures, IRL has proven useful as a way to supply 
+a reward function used by Reinforcement Learning (RL) algorithms for offline training of intelligent algorithms in robotics and AI. 
+There is a wide range of complex, hard to formalize tasks where the appropriate reward function
+is unclear {\it a priori.\/} IRL is able to infer this reward function from limited human ``demonstration data.'' 
+For example, \citet{christiano:2017} notes that
+``For sophisticated reinforcement learning (RL) systems to interact usefully with real-world environments, we need to communicate complex goals to these systems. In this work, we explore goals defined in terms of (non-expert) human preferences between pairs of trajectory segments. 
+We show that this approach can effectively solve complex RL tasks without access to the reward function, including Atari games and simulated robot locomotion, while providing feedback on less than 1\% of our agent's interactions with the environment. 
+This reduces the cost of human oversight far enough that it can be practically applied to state-of-the-art RL systems. 
+To demonstrate the flexibility of our approach, we show that we can successfully train complex novel behaviors with about an hour of human time. These behaviors and environments are considerably more complex than any which have been previously learned from human feedback.''
+
+Another important difference in the IRL and DDC literatures
+is that the latter is more focused on statistical inference of the 
+estimated reward function and deriving approximate distributions that reflect how
+estimates are affected by sampling errors. As a result, many  DDC applications involve estimation of 
+smaller, more parsimonious models with the goal of using them to gain new insights
+into human decision making and test behavioral hypotheses.  The IRL literature is more focused on 
+uncovering a reward function that can be used to train large scale applications using RL.  
+IRL has been used to uncover reward functions for concrete problems such as route choice
+that can require estimation of thousands and sometimes even millions of parameters. 
+The large number of parameters and complexity of such reward
+functions makes it challenging to evaluate them from the perspective of statistical inference and insight
+into human  behavior. However the  ``proof is in the pudding'' --- 
+the highly sophisticated and intelligent behavior in robotic and AI applications that have been learned
+after extensive RL training using the reward functions provided by IRL (which are in turn learned from more limited observations of human behavior).
+
+The DDC and IRL literatures have both greatly benefitted from the use of Deep Neural Networks (DNNs) to 
+approximate value functions in problems with large state spaces. Though it is still not
+formally established, the use of DNNs and other function
+approximation  methods do seem to break Bellman's ``curse of dimensionality'' (at least in a practical sense) 
+allowing us to formulate and estimate increasingly large and more realistic models.
+
+A challenging area for further work is to relax and test the strong rationality assumptions underlying
+DDC and IRL models. There are two key assumptions: 1) rational expectations (i.e. the subjective
+beliefs about the decision-dependent law of motion for state variables coincides with the true one), and 2) the 
+ability to perfectly optimize given one's beliefs. If these
+assumptions do not hold, rewards inferred from human behavior will be distorted by our attempt to ``rationalize'' 
+behavior that may not be fully rational. The notion that human behavior is more likely to be only ``boundedly rational''
+goes back to the work of \citet{Simon:1957}, and it is exemplified by the fact that chess algorithms trained using RL 
+such as Alpha-Zero consistently beat the best human Grand Masters. 
+RL was able to do this without any need for human data and IRL
+ because 1) the reward function is known {\it a priori\/} (i.e. 1 if win, 0 if lose), and 
+2) the algorithm as trained via self-play.
+
+The ``model-free'' approach to inferring rewards without explicitly
+specifying beliefs that is used in some recent work in IRL contrasts largely model-based 
+estimation approach in the DDC literature. Though estimation using fewer assumptions
+is generally an attribute, model-free estimation does entail the strong implicit assumption that
+agents we are modeling have rational expectations.  To the extent that humans are boundedly rational,
+we would like to understand whether suboptimal behavior is due to distorted or irrational
+beliefs or the inability to perfectly optimize.  In simpler environments that are less strategically complex than
+chess, humans may be more likely to perfectly optimize but if their beliefs are not rational, 
+the resulting behavior will  still be suboptimal from the standpoint of a rational observer.
+
+Fro example, \citet{tennis:2025} showed that elite tennis professionals use suboptimal serve strategies,
+and demonstrated how their behavior can be explained by distorted subjective beliefs 
+about their own strengths and weaknesses as servers as well as their opponents. 
+This opens a path for DDC and IRL models to improve human performance using data and
+model-free approaches that enables them to correct distorted subjective beliefs. However
+there are many high stake strategic situations (e.g. a wartime scenario)  where the
+relevant data may be too scarce, leaving any decision maker no choice but to rely on an implicit
+``mental model'' of the situation.  In such situations neither DDC nor IRL methods may
+prove useful because of their dependence on good models of beliefs. More work needs to be 
+done on how it might possible to construct relatively
+accurate mental models (i.e. beliefs about how different actions affect outcomes), 
+in unique situations where relevant data is extremely limited.
+
+
+
+We conclude that the limitations confronting DDC and IRL may not be computational
+but rather inherent limitations in our ability to infer underlying rewards and beliefs 
+from data on states and actions as we noted in our discussion of the identification problem in 
+section 2.4. The solution to the identification problem requires us to impose  strong 
+prior restrictions (assumptions) about rewards and
+beliefs. If these assumptions are wrong, counterfactual predictions from these
+models may not be accurate even though the models may provide a good fit to the demonstration data
+used to estimate them. However practical experience suggests that even if our assumptions
+may not be precisely correct and human decision makers may not be not fully rational,
+the assumptions used to identify DDC and IRL models appear to be sufficiently good approximations to 
+produce realistic counterfactual simulations and leverage limited human demonstration data to enable us to train 
+artificially intelligent agents to perform well in a variety of tasks in a variety
+of unfamiliar situations that previously were tasks only human beings could do well.
+The rapid growth in the DDC and IRL literatures suggests that despite the limitations
+and challenges we have noted, these methods have proved to have enormous practical value
+and so we are likely to see continued rapid progress  in the future that will enable these methods  
+to be even more widely used to transform economics, finance and  artificial intelligence.
+
+
+
+
+

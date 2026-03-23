@@ -1,0 +1,29 @@
+\section{Conclusion\label{sec:conclusion}}
+
+A challenging area for further work is to relax and test rationality assumptions. If decision makers are only ``boundedly rational,'' rewards inferred from observed behavior will be distorted by our attempt to rationalize behavior that may not be fully rational.
+
+The ``model-free'' approach to inferring rewards (e.g., \citet{AE:2022}; \citet{kang:2025}) avoids specifying transition dynamics $p$, but implicitly assumes rational expectations: substituting realized transitions for explicit integration effectively ties the agent's subjective beliefs to the data-generating process. When agents hold distorted beliefs (see the tennis example in Section~\ref{sec:ddc}), model-free estimators cannot distinguish misspecified rewards from misspecified beliefs. Model-based methods retain the flexibility to test for such distortions, though at the cost of requiring a correctly specified transition model.
+
+We conclude that the limitations confronting DDC and IRL are not computational
+but rather inherent to inferring rewards and beliefs
+from data on states and actions, as noted in our discussion of the identification problem in
+section 2.4. The solution to the identification problem requires us to impose strong
+prior restrictions (assumptions) about rewards and
+beliefs.
+
+If these assumptions are wrong, counterfactual predictions from these
+models may not be accurate even though the models may provide a good fit to the demonstration data
+used to estimate them. However practical experience suggests that even if our assumptions
+may not be precisely correct and human decision makers may not be fully rational,
+the assumptions used to identify DDC and IRL models appear to be sufficiently good approximations to
+produce realistic counterfactual simulations and leverage limited human demonstration data to train
+artificially intelligent agents to perform well in tasks previously requiring human expertise.
+The rapid growth in the DDC and IRL literatures suggests that despite the limitations
+and challenges we have noted, these methods have enormous practical value.
+We are likely to see continued rapid progress enabling these methods
+to be even more widely used to transform economics, finance and  artificial intelligence.
+
+
+
+
+

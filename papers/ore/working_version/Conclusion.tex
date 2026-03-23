@@ -1,0 +1,39 @@
+\section{Discussion\label{sec:conclusion}}
+
+Our survey reveals that a practitioner today has access to decades of research across two fields: DDC, which arose in the 1980s, and IRL, which followed over a decade later.
+Despite their different origins, they offer a common menu of solutions with a shared goal: inferring a reward function $r$ presumed to govern the observed behavior of rational ``experts.''
+Both fields use the same mathematical framework to model optimal dynamic decision making (e.g. MDPs based on ``soft Q'' and ``softmax'' formulas of section~\ref{sec:ddc}),
+and both infer rewards using the same {\it bilevel optimization problem\/}: an ``outer'' maximization that searches over reward functions to maximize ``model fit''
+(e.g. likelihood), and an ``inner'' minimization that solves the MDP for the optimal policy $\pi_r$.
+However, the literatures differ on interpretation (DDC explaining randomness via unobserved state variables versus IRL's use of mixed strategies and entropy) and
+on their primary motivation. DDC focuses on accurate inference for counterfactual policy evaluation, while IRL prioritizes automating complex tasks
+like driving without explicit programming.
+
+Navigating this menu requires clarifying the objective: is the goal {\it prediction\/} in the same environment, or {\it inference and generalization\/} to new ones?
+If the goal is merely prediction (imitation), strict identifying assumptions may be relaxed; matching feature expectations often suffices to replicate a policy even if the reward is not unique.
+However, to achieve {\it inference\/} (understanding what an agent truly cares about) or {\it transfer learning\/} (generalizing to environments with different dynamics),
+we must solve the identification problem. Without imposing strong {\it a priori\/} assumptions (e.g. anchor actions or specific discount factors), it is not possible to uniquely invert rewards
+to make valid counterfactual predictions.
+For example, if we identify rewards for an autonomous vehicle (AV) using data in an urban environment with transition probability $p(s'|s,a)$, but fail to disentangle preferences from dynamics,
+the AV may perform well in the city but fail in a rural environment where traffic is  governed by a different transition probability $\lambda(s'|s,a)$.
+Thus, mis-identified models suffer the same limitations as reduced-form {\it behavioral cloning\/}: they fail to predict how behavior changes in new environments.
+Conversely, when identifying assumptions are correct, these models excel: \citet{toddwolpin:2006} accurately predicted treatment effects in randomized experiments,
+and \citet{zhuang:2024} showed that IRL-trained AVs can generalize to driving scenarios not encountered during training.
+
+The choice of computational tools (specifically model-based versus model-free) also dictates which assumptions are required.
+Most DDC work is model-based, estimating $p(s'|s,a)$ explicitly. Model-free IRL mimics Q-learning (section~\ref{section:rl}) to bypass estimating $p$ or performing
+numerical integration, instead minimizing mean square Bellman errors using observed transitions.
+However, it is critical to note that ``model-free'' does not mean ``assumption-free.'' Because the inverse problem is ill-posed, model-free methods rely implicitly on the
+domain to provide identifying restrictions and on the strong assumption of rational expectations to substitute observed data distributions for the agent's subjective beliefs.
+While computationally advantageous for high-dimensional problems, model-free methods require massive data volumes to approximate $Q$ accurately.
+Even with large-scale datasets \citep{mero:2022}, safety-critical applications like AVs often require substantial additional online training via simulation,
+which paradoxically brings us back to the need for accurate models of the environment.
+
+Finally, we discussed the curse of dimensionality and the challenge of human rationality.
+While neural networks and randomization help circumvent the curse of dimensionality, enabling the solution of large-scale problems,
+the successes of Deep RL (e.g. Alpha-Zero) highlight a paradox: if AI can beat humans, humans cannot be perfectly rational optimizers.
+Adapting DDC and IRL to infer rewards of {\it boundedly rational\/} agents \citep{Simon:1957}, distinguishing whether suboptimal behavior stems from
+computational limits or distorted beliefs, remains a key challenge.\footnote{\footnotesize \citet{tennis:2025} argue that
+suboptimal play of professional tennis players is due to distorted subjective beliefs, and \citet{whoismorebayesian:2025} show that suboptimal behavior of
+human subjects in lab experiments is due to subjective beliefs that differ from rational beliefs implied by Bayes Rule.}
+Addressing this challenge head-on will require future extensions that can, for instance, relax the rational expectations assumption to explicitly model belief formation, distinguish subjective beliefs from objective states, and handle the partial observability that is characteristic of most real-world decisions.

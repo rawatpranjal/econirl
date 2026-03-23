@@ -1,0 +1,143 @@
+\documentclass[11pt]{article}
+\usepackage[right=1in,left=1in,top=1.1in,bottom=1.1in]{geometry}
+\usepackage{hyperref}
+\hypersetup{colorlinks, citecolor=blue, filecolor=blue, linkcolor=blue, urlcolor=blue}
+\usepackage{graphicx}
+\usepackage{url}
+\usepackage[round]{natbib}
+\usepackage{amsmath,amsthm} 
+\usepackage{engord}
+\usepackage{float}
+\usepackage{subfig}
+\usepackage{pdflscape}
+\usepackage{booktabs}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.14}
+\pgfplotsset{every axis label/.append style={font=\tiny}}
+\usepackage[labelsep=period]{caption} %% This switches "Table 1: Title" to "Table 1. Title"
+
+\def\argmin{\mathop{\it argmin}}
+\def\argmax{\mathop{\it argmax}}
+\newtheorem{assume}{Assumption}
+\newtheorem{define}{Definition}
+\newtheorem{thm}{Theorem}
+\newtheorem{proposition}{Proposition}
+\newtheorem{step}{Step}
+\newtheorem{lemma}{Lemma}
+
+\usepackage{amssymb} %% Necessary, just for the \checkmark command  in tables.
+\usepackage{multirow} %% Necessary if we are doing tables in LaTeX
+
+\usepackage{xr}
+
+\usepackage{setspace}
+\onehalfspacing
+
+\usepackage{sectsty}
+\sectionfont{\large}
+\subsectionfont{\normalsize}
+\subsubsectionfont{\normalsize}
+
+\newcommand{\specialcell}[2][c]{\begin{tabular}[#1]{@{}l@{}}#2\end{tabular}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\title{ \vspace*{1cm} \hspace*{-0.5cm}Dynamic Discrete Choice and Inverse Reinforcement Learning:\\
+Inferring preferences and beliefs from human behavior\footnote{John Rust is grateful for support
+from his Georgetown University Professorship.
+}}
+
+\author{
+Pranjal Rawat\thanks{Georgetown University  \href{mailto:pp712@georgetown.edu}{pp712@georgetown.edu}}
+\and
+John Rust\thanks{Professor, Georgetown University
+\href{mailto:jr1393@georgetown.edu}{jr1393@georgetown.edu}}}
+
+\date{\today } 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+\bgroup
+\let\footnoterule\relax
+
+\begin{singlespace}
+\maketitle
+
+
+\begin{abstract}
+%This article surveys two deeply connected literatures that approach the same fundamental problem from different disciplinary traditions: dynamic discrete choice (DDC) in structural econometrics and inverse reinforcement learning (IRL) in machine learning. Both seek to infer the preferences of decision makers from observed sequential behavior, assuming that individuals act to maximize an expected reward function within a dynamic, uncertain environment formalized as a Markov decision process (MDP). Despite independent origins, the two fields have converged on similar mathematical formulations. We show that the "soft Q-learning" framework now prevalent in IRL is closely related to DDC models under additive extreme value preference shocks, yielding the same softmax (multinomial logit) choice probabilities and smooth Bellman equations that underpin structural estimation in economics.
+%We compare the estimation and computational methods developed in each field. DDC has emphasized maximum likelihood estimation, conditional choice probability estimators, and policy iteration methods. IRL has developed scalable alternatives, including maximum entropy methods, adversarial approaches, and model-free temporal difference estimators that extend to high-dimensional state spaces using deep neural networks. Recent model-free IRL estimators that combine temporal difference learning with classical two-step methods from econometrics represent a promising direction for bridging the two literatures.
+%Both fields confront shared foundational challenges: the identification problem, whereby multiple reward functions can rationalize the same observed behavior, and the curse of dimensionality in solving the underlying MDP. Each literature addresses these challenges under different assumptions and with different objectives, DDC prioritizing counterfactual policy evaluation and IRL prioritizing the automation of complex behaviors. Cross-fertilization between these fields offers substantial opportunities for methodological progress in both.
+%
+This article surveys two deeply connected literatures that approach the same fundamental problem from different disciplinary traditions: dynamic discrete choice (DDC) in structural econometrics and inverse reinforcement learning (IRL) in machine learning. Both seek to infer the preferences of decision makers from observed sequential behavior, assuming that individuals act to maximize an expected reward function within a dynamic, uncertain environment formalized as a Markov decision process (MDP). Despite independent origins, the two fields have converged on similar mathematical formulations. We show that the "soft Q-learning" framework now prevalent in IRL is closely related to DDC models under additive extreme value preference shocks, yielding the same softmax (multinomial logit) choice probabilities and smooth Bellman equations that underpin structural estimation in economics. We compare the estimation and computational methods developed in each field. DDC has emphasized maximum likelihood estimation, conditional choice probability estimators, and policy iteration methods. IRL has developed scalable alternatives, including maximum entropy methods, adversarial approaches, and model-free temporal difference estimators that extend to high-dimensional state spaces using deep neural networks. Recent model-free IRL estimators that combine temporal difference learning with classical two-step methods from econometrics represent a promising direction for bridging the two literatures. Both fields confront shared foundational challenges: the identification problem, whereby multiple reward functions can rationalize the same observed behavior, and the curse of dimensionality in solving the underlying MDP. Each literature addresses these challenges under different assumptions and with different objectives, DDC prioritizing counterfactual policy evaluation and IRL prioritizing training agents from expert demonstrations. We believe that cross-fertilization offers substantial opportunities for methodological progress in both fields.
+
+
+
+\bigskip
+\noindent \textsc{\bf Keywords:}
+Dynamic discrete choice, Inverse reinforcement learning, Reinforcement Learning, Q learning,
+Markov decision processes, Structural estimation, Maximum entropy, Maximum likelihood,
+Reward identification, Conditional choice probabilities 
+\end{abstract}
+\end{singlespace}
+\thispagestyle{empty}
+\clearpage
+\egroup
+\setcounter{page}{1}
+
+%% Temporary tool to track how this paper is structured. Feel free to comment in or out. 
+% \tableofcontents
+% \bigskip
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\input{Introduction.tex}
+\input{MDPbackground.tex}
+\input{DDCestimation.tex}
+\input{IRL.tex}
+\input{Conclusion1.tex}
+
+
+
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\clearpage
+\begin{singlespace}
+%\bibliographystyle{plainnat}
+%\bibliographystyle{chicago}
+\bibliographystyle{aer}
+\bibliography{our-cites.bib}
+\end{singlespace}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%% APPENDICES DELINKED - Uncomment below to include appendices
+%%%%% These commands start the appendix and change the Table & Figure numbering
+% \newpage
+% \appendix
+% \setcounter{table}{0}
+% \renewcommand{\tablename}{Appendix Table}
+% \renewcommand{\figurename}{Appendix Figure}
+% \renewcommand{\thetable}{A\arabic{table}}
+% \setcounter{figure}{0}
+% \renewcommand{\thefigure}{A\arabic{figure}}
+% \setcounter{thm}{0}
+% \renewcommand{\thethm}{A.\arabic{thm}}
+% \setcounter{proposition}{0}
+% \renewcommand{\theproposition}{A.\arabic{proposition}}
+% \setcounter{lemma}{0}
+% \renewcommand{\thelemma}{A.\arabic{lemma}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% \input{appendix_a.tex}
+% \input{appendix_b.tex}
+
+
+
+\end{document}

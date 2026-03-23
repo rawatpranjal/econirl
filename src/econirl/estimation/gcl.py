@@ -87,6 +87,10 @@ class GCLConfig:
     inner_max_iter: int = 5000
     switch_tol: float = 1e-3
 
+    # Normalization
+    normalize_reward: bool = False  # Normalize reward to zero mean, unit std
+    normalize_features: bool = False  # Normalize state indices to [0, 1]
+
     # Verbosity
     verbose: bool = False
 
@@ -476,6 +480,13 @@ class GCLEstimator(BaseEstimator):
         """
         # Reward is negative cost
         reward_matrix = -cost_fn.compute()
+
+        # Normalize reward if configured
+        if self.config.normalize_reward:
+            mean = reward_matrix.mean()
+            std = reward_matrix.std()
+            if std > 1e-8:
+                reward_matrix = (reward_matrix - mean) / std
 
         # Run soft value iteration
         result = hybrid_iteration(

@@ -1,0 +1,397 @@
+\section{Structural Estimation of DDCs\label{sec:ddc}}
+
+The term ``structural'' refers to the attempt to infer the underlying preferences and beliefs of economic
+agents rather than simply summarizing their behavior, the main goal of reduced-form econometrics.
+In a DDC model the agent's decision rule $\pi(a|s)$ is referred to as a ``reduced-form model'' that captures behavior: structural econometrics 
+refers to methods that attempt to invert $\pi$ to infer the underlying preferences and beliefs $\{\beta,r,p\}$ that generate observed behavior. 
+Key references include \citet{rust:1987}, \citet{rust:1994} and 
+the survey by \citet{AguirregabiriaMira:2010}.\footnote{\footnotesize See \citet{rust:2014} for a discussion 
+of the origins of SE, dating back to work at the Cowles Foundation in the 1940s and the rationale for this literature including
+the argument of \citet{lucas:1976} that structural models are superior to reduced-form for counterfactual prediction of policy changes.
+The development of DP in the 1950s and 60s 
+revolutionized economics by enabling models of sequential
+decision making under uncertainty, dynamic strategic interactions, and dynamic equilibria 
+in markets which are key features of nearly all economic problems.  DP led to new dynamic economic theories
+based on {\it rational expectations\/} that
+showed how beliefs about uncertain future events affect the current choices of rational forward looking agents.}
+
+An obstacle to inference is the fact that the optimal policy $\delta^*$ in (\ref{eq:bellman_policy}) is 
+a pure strategy (i.e. deterministic function of $s$).  This leads to a problem of {\it statistical degeneracy\/} because
+different individuals in the same observed state $s$ will typically make different choices, something the model cannot explain. 
+To explain this heterogeneity we  augment the
+state variable as $x=(s,\varepsilon)$  where
+$\varepsilon$ is a vector of idiosyncratic preference shocks observed by the agent but not by others.
+Even though $\delta^*(s,\varepsilon)$ is still a pure strategy from the agent's standpoint, it produces choices that appear
+random from the observer's standpoint. Under additional assumptions that include the assumption $A(s)$ is finite for all $s \in S$,
+we can derive a {\it conditional choice probability\/} (CCP) $\pi(a|s)$ implied by the 
+strategy $\delta^*$ that admits positive probabilities for all feasible choices $a \in A(s)$. Using this, we can form a likelihood
+function to infer $\{\beta,r,p\}$ from data on agents' states and choices.
+%.\footnote{\footnotesize An alternative
+%way to deal with statistical degeneracy is to assume the shock $\varepsilon$ captures idiosyncratic
+%{\it optimization errors\/} that cause individuals to make mistakes and choose actions that differ from their
+%intended optimal action $a=\delta(s)$. However this interpretation suffers from internal inconsistency, since
+%it assumes individuals are able to optimize, yet inexplicably deviate from their optimal policy.
+%If external frictions prevent individuals from taking their preferred action, a rational
+%individual would account for these frictions in the solution to a MDP with ``imperfect control''  
+%which the DDC framework already captures through imperfect control of $s'$ via $p(s'|s,a)$.}
+
+
+\citet{rust:1987} extended \citet{mcfadden:1973}'s work on static random utility models of discrete choice 
+to DDC models, resulting in an analytic formula for the CCP $\pi(a|s)$  known as 
+the {\it multinomial logit model\/} (``softmax'' function in the RL literature).
+Suppose that for each $s$, $\varepsilon$ is a vector with the same length as $|A(s)|$ the number of actions, so for
+$\varepsilon(a)$ is the component of $\varepsilon$ associated with action $a \in A(s)$. Assume that 
+the reward for action $a$ in state $(s,\varepsilon)$ can be written as $r(s,a)+\varepsilon(a)$. 
+We also assume that the transition density $p(s',\varepsilon'|s,\varepsilon,a)$ factors as $g(\varepsilon'|s')p(s'|s,a)$ 
+for a conditional density $g(\varepsilon'|s')$, where $\varepsilon$ has a multivariate Gumbel or Type 1 extreme value (EV) distribution 
+with common scale parameter $\sigma$ and expectation equal to $E\{\varepsilon(a)|s\}=0$ for $a \in A(s)$. 
+Let $V(s,\varepsilon)$ be the optimal value of this MDP, the solution to the Bellman equation (\ref{eq:bellman}). 
+Under these assumptions we can show $V(s,\varepsilon)$ has the representation
+\begin{equation} V(s,\varepsilon)=\max_{a \in A(s)}[Q(s,a)+\epsilon(a)],
+\label{eq:Vrep}
+\end{equation}
+where $Q=\Lambda_\sigma(Q)$ is the unique fixed point to the ``soft Bellman operator'' $\Lambda_\sigma$ given by
+\begin{equation}
+    \Lambda_\sigma(Q)(s,a) = r(s,a) + \beta \sum_{s'} \sigma \log\left(\sum_{a' \in A(s')} \exp\{Q(s',a')/\sigma\}\right)p(s'|s,a).
+\label{eq:smoothQ}
+\end{equation}
+The derivation of (\ref{eq:Vrep}) and (\ref{eq:smoothQ}) use an important
+property of the EV distribution for $\varepsilon$, namely that the expectation of $V(s,\varepsilon)$ with respect to $\varepsilon$
+has an  analytical expression given by the so-called log-sum or ``soft max function'' $V(s)$ 
+\begin{equation}
+    V(s) \equiv   E\left\{V(\tilde s,\tilde \varepsilon)\left|\tilde s=s\right\}\right. 
+    =  \int_\varepsilon \max_{a \in A(s)} \left[Q(s,a)+\varepsilon(a)\right]g(d\varepsilon|s) 
+    =  \sigma \log\left(\sum_{a\in A(s)} \exp\{Q(s,a)/\sigma\}\right).
+\label{eq:smoothV}
+\end{equation}
+Using equations (\ref{eq:smoothQ}) and (\ref{eq:smoothV}) we can derive a ``soft Bellman equation'' for $V$
+\begin{equation}
+    V(s)= \sigma \log\left(\sum_{a\in A(s)} \exp\left\{[r(s,a)+\beta \sum_{s'} V(s')p(s'|s,a)]/\sigma\right\}\right).
+ \label{eq:smoothBellman}
+\end{equation}
+Equation (\ref{eq:smoothQ}) defines a ``soft $Q$'' as the fixed point of the smoothed Bellman operator
+$Q_\sigma=\Lambda_\sigma(Q_\sigma)$, and (\ref{eq:smoothBellman}) defines $V$ as a fixed point of the smoothed 
+Bellman operator 
+$V_\sigma=\Gamma_\sigma(V_\sigma)$ and both are contractions. These operators are equivalent  to the corresponding 
+``hard operators'' $\Lambda_0$ and $\Gamma_0$ in MDPs without the state variable
+$\varepsilon$, and one can show that $Q_\sigma$ and $V_\sigma$ converge to the standard hard 
+$Q$ and $V$ functions as $\sigma \downarrow 0$. 
+
+The representation of $V(s,\varepsilon)$ in equation (\ref{eq:Vrep}) means that the decision rule $\pi(a|s,\varepsilon)$ 
+is isomorphic to a static random utility model where $Q(s,a)+\varepsilon(a)$ is the reward from action $a$.
+The CCP $\pi(a|s)$ is the conditional probability that the DM chooses action $a \in A(s)$
+given the observed state $s$, and under the assumptions above, it has the multinomial logit form
+\begin{eqnarray}
+     \pi(a|s)  & =& \int I\left\{Q(s,a)+\varepsilon(a) \ge \max_{a' \in A(s)}[Q(s,a')+\varepsilon(a')]\right\}F(d\varepsilon|s)\nonumber \\
+ &=&{ \exp\{Q(s,a)/\sigma\} \over \sum_{a' \in A(s)} \exp\{Q(s,a')/\sigma\}}.
+\label{eq:ccp}
+\end{eqnarray}
+As $\sigma \downarrow 0$, $\pi(a|s)$ converges to a degenerate probability that equals 1 if 
+$Q(s,a)$ is the largest $Q$ value  and 0 otherwise, i.e. to the optimal pure strategy $\pi$
+ in equation (\ref{eq:bellman_policy}) for MDPs without the  $\varepsilon$ variable.
+It follows that the choice-specific values $Q(s,a)$ in (\ref{eq:smoothQ}) and CCPs $\pi(a|s)$ in (\ref{eq:ccp})
+are exactly the same as the ``soft Q'' values and optimal policy derived in the RL
+literature under the assumption that agents care about entropy of the policy $\pi$, given in equation
+(\ref{eq:vdefentropy}) of section~\ref{section:rl}.
+
+\citet{AguirregabiriaMira:2002} showed how to implement a ``soft'' analog of {\it policy iteration,\/} see section~\ref{section:pi},
+to solve the soft Bellman equation (\ref{eq:smoothBellman}). 
+Equation (\ref{eq:ccp}) is the {\it policy improvement step,\/} the analog of (\ref{eq:bellman_policy}), that computes the  policy 
+$\pi$ implied by $Q$. The  analog of the {\it policy valuation\/} step (\ref{eq:policy_valuation}) is 
+the function $V_\pi$ that solves the linear system
+\begin{equation}
+   V_\pi(s) =\sum_{a \in A(s)} \pi(a|s)[r(s,a)+E_\pi\{\varepsilon(a)|s,a\}+\beta \sum_{s'} V_\pi(s')p(s'|s,a)],
+\label{eq:smoothpolicyvaluation}
+\end{equation}
+where $E_\pi\{\varepsilon(a)|s,a\}$ is the conditional expectation of $\varepsilon(a)$ given that action $a$ is chosen
+in state $s$  under decision rule $\pi$. The EV assumption implies that
+$E_\pi\{\varepsilon(a)|s,a\}=-\sigma \log(\pi(a|s))$, and using equation (\ref{eq:ccp}), we see that right side of 
+(\ref{eq:smoothpolicyvaluation}) equals the soft max function defining the soft Bellman operator in equation
+(\ref{eq:smoothBellman}). Soft policy iteration solves the soft Bellman equation $V_\sigma=\Gamma_\sigma(V_\sigma)$ 
+by cycling between policy valuation steps (\ref{eq:smoothpolicyvaluation})
+and policy improvement steps (\ref{eq:ccp}), using the $Q_\pi$ implied by $V_\pi$ in equation (\ref{eq:smoothQ}). 
+Hard/soft policy iteration is equivalent to using Newton's method to solve the hard/soft Bellman equations for $V$.
+
+Equation (\ref{eq:smoothpolicyvaluation}) is  the Bellman equation for the entropy-adjusted MDP problem, (\ref{eq:vdefentropy}), where
+the entropy term $H(\pi(s))$ equals  the expectation of the unobserved component of rewards $\varepsilon$ under an optimal pure strategy
+$\delta^*(s,\varepsilon)$ for the MDP with augmented state variable $(s,\varepsilon)$, value function $V(s,\varepsilon)$ (\ref{eq:Vrep}), 
+and implied CCP $\pi$ (\ref{eq:ccp}). It also implies that $\sigma\log(\pi(a|s))=Q(s,a)-V(s)\equiv \mathcal{A}(s,a)$, where
+$\mathcal{A}(s,a)$ is known as the {\it advantage function\/} in the RL literature. We can use it to rewrite the fixed point
+equation (\ref{eq:smoothQ}) for $Q$ as a linear system depending on $r(s,a)$ and $\log(\pi(a|s))$,
+\begin{equation}
+    Q(s,a) = r(s,a) + \beta \sum_{s'} \sum_{a' \in A(s')} \left[ -\sigma\log(\pi(a'|s'))+Q(s',a')\right]\pi(a'|s')p(s'|s,a).
+\label{eq:linq}
+\end{equation}
+$Q$ decomposes as $Q(s,a)=Q_r(s,a)+Q_\varepsilon(s,a)$ where $Q_r(s,a)$ is the component 
+of discounted value from observed rewards $r$ and $Q_\varepsilon(s,a)$ is the component from unobserved rewards $\varepsilon$.
+Substituting expression (\ref{eq:smoothpolicyvaluation}) in place of (\ref{eq:smoothBellman}) in the equation for
+$Q$ in (\ref{eq:smoothQ}), we can show that $Q_r$ and $Q_\varepsilon$ are solutions to the linear systems
+\begin{eqnarray}
+     Q_r(s,a)&=&r(s,a)+\beta \sum_{s'} \sum_{a' \in A(s')} Q_r(s',a')\pi(a'|s')p(s'|s,a) \label{eq:Qr} \\
+     Q_\varepsilon(s,a)&=&\beta \sum_{s'} \sum_{a' \in A(s')}\left[-\sigma\log(\pi(a'|s'))+ Q_\varepsilon(s',a')\right]\pi(a'|s')p(s'|s,a).
+\label{eq:Qeps}
+\end{eqnarray}
+The next section shows how this decomposition can reduce the computational burden of estimating DDCs.
+
+\subsection{Estimation Methods for DDCs}
+\label{section:ddc_methods}
+
+The most common estimation method for DDCs is some form of  maximum likelihood.
+Suppose we observe a random sample of {\it trajectories\/} $\mathcal{D}=\{\tau_i|i=1,\ldots,N\}$ 
+where the trajectory $\tau_i$ for individual $i$ is a sequence of consecutive states and actions 
+$\tau_i=\{(s_{it},a_{it})|t=0,\ldots,T_i\}$. Suppose  
+that we smoothly parametrize $(r,p)$ using a vector unknown parameters $\theta$, which we denote by
+$r_\theta$ and $p_\theta$.\footnote{\footnotesize
+The discount factor  $\beta$ is often treated as known, though in 
+some cases it is also estimated and thus part of $\theta$.}  
+Using the implicit function theorem, we can show that $V_\theta$ and $Q_\theta$, the contraction fixed points given in equations
+(\ref{eq:smoothV}) and (\ref{eq:smoothQ}), are continuously differentiable function of $\theta$.
+Using these fixed points and the logit formula for $\pi(a|s)$ in equation (\ref{eq:ccp}) we can  write a full  likelihood
+function $\mathcal{L}^f_{\mathcal{D}}(\theta)$ for the data as a function of the unknown parameters $\theta$ given by
+\begin{equation}
+    \mathcal{L}^f_{\mathcal{D}}(\theta) = \prod_{i=1}^N \prod_{t=1}^{T_i}  \pi_\theta(a_{it}|s_{it})p_\theta(s_{it}|s_{it-1},a_{it-1}).
+\label{eq:lf}
+\end{equation}
+The smoothness of $V_\theta$ and $Q_\theta$ in $\theta$ implies that the CCP $\pi_\theta$ and the
+likelihood $\mathcal{L}^f_{\mathcal{D}}(\theta)$ are both smooth functions of $\theta$ so the standard asymptotic
+efficiency properties of parametric maximum likelihood estimation apply. 
+
+The Nested Fixed Point algorithm (NFXP) \citep{rust:1988} computes the MLE of $\theta$ via a standard outer hill-climbing loop that maximizes $\mathcal{L}^f_{\mathcal{D}}(\theta)$, where each evaluation calculates
+the contraction fixed point $Q_\theta=\Lambda_\theta(Q_\theta)$ that defines the choice-specific values $Q_\theta$ where $\Lambda_\theta$
+is the operator defined on the right hand side of equation (\ref{eq:smoothQ}).
+Notice that $\mathcal{L}^f_{\mathcal{D}}(\theta)$ depends on $\theta$ via $Q_\theta$. An alternative strategy \citep{sujudd:2012}
+computes the MLE via the MPEC algorithm, maximizing $\mathcal{L}^f_{\mathcal{D}}(\theta,Q)$ as a function of $(\theta,Q)$
+subject to the fixed point constraint $Q_\theta=\Lambda_\theta(Q_\theta)$.\footnote{\footnotesize \citet{sujudd:2012} claim that the
+MPEC algorithm is substantially faster than NFXP, but this was due to using SA \citep{sujuddcomment:2016}
+to compute the fixed point $Q_\theta=\Lambda_\theta(Q_\theta)$, which is slow when $\beta$ is close to 1. When Newton's method is used
+to compute this fixed point, the cpu times for MPEC and NFXP are roughly comparable with NFXP being faster on test problems with
+large sample sizes.}
+NFXP's computational burden stems from computing the inner fixed point $Q_\theta=\Lambda_\theta(Q_\theta)$
+for each trial value of $\theta$ in the outer hill-climbing algorithm. 
+Newton's method (e.g. policy iteration) is typically used to solve for $Q_\theta$ or for $V_\theta$ from 
+the soft Bellman equation (\ref{eq:smoothBellman}). Even though  Newton's method converges rapidly, it requires $O(|S|^3)$ operations per Newton/policy
+iteration step, making NFXP burdensome for large state spaces $S$. Therefore alternative estimation methods have been proposed that 
+reduce the total number of policy iteration steps required to estimate $\theta$.
+
+
+The ``CCP estimator'' \citep{hotzmiller:1993}
+for $r$ uses a non-parametric estimate of $\pi(a|s)$ to avoid repeated
+solution of $Q$ over the search for $\theta$ that NFXP requires. Consider the case where $r_\theta$ is linear in parameters,
+i.e. we can write $r_\theta(s,a)=r(s,a)*\theta \equiv \sum_{k=1}^K r_k(s,a)\theta_k$ for known functions
+ $\vec{r}=(r_1,\ldots,r_K)$ called {\it features\/} in the IRL
+literature. Then (\ref{eq:Qr}) implies that $Q_r(s,a)=R(s,a)^{\top}\theta$ where
+$R$ is the solution to
+\begin{equation}
+   R(s,a)=\vec{r}(s,a) + \beta \sum_{s'} \sum_{a' \in A(s')} R(s',a')\pi(a'|s')p(s'|s,a) = \vec{r}(s,a)+\beta ER(s,a),
+\label{eq:hequation}
+\end{equation}
+and $ER(s,a)$ is a shorthand for the conditional expectation of $R(s,a)$ in the middle of the expression in (\ref{eq:hequation}).
+It follows that we only need to solve (\ref{eq:hequation}) once using a non-parametric estimate of $\hat\pi$ along with
+$Q_\varepsilon$ in (\ref{eq:Qeps}) to serve as a ``correction term''  to obtain the following form for the CCP
+\begin{equation}  
+           \pi_\theta(a|s) = {\exp\{\hat R(s,a)^{\top}\theta+\hat Q_\varepsilon(s,a)\} \over \sum_{a' \in A(s)}
+\exp\{\hat R(s,a')^{\top}\theta+\hat Q_\varepsilon(s,a')\}},
+\label{eq:ccpestimator}
+\end{equation}
+where $\hat R(s,a)$ is the solution to (\ref{eq:hequation}) and $\hat Q_\varepsilon$ is the solution
+to (\ref{eq:Qeps}) using non-parametric first stage
+estimators $\hat\pi(a|s)$ and $\hat p(s'|s,a)$. The CCP estimator $\hat\theta$ maximizes the partial likelihood 
+$\mathcal{L}^p_{\mathcal{D}}(\theta)$ given by 
+\begin{equation}
+    \mathcal{L}^p_{\mathcal{D}}(\theta) = \prod_{i=1}^N \prod_{t=1}^{T_i}  \pi_\theta(a_{it}|s_{it}),
+\label{eq:ccplf}
+\end{equation}
+where $\pi$ is given in (\ref{eq:ccpestimator}).\footnote{\footnotesize See \citet{lrspe:2022} 
+for  a modified version of the CCP estimator that is ``locally robust'' i.e. it corrects for sampling
+error in the first stage estimates of the functions $\hat H(s,a)$ and $Q_\varepsilon(s,a)$.}
+Thus, when $r$ is a  linear combination of known features, we only  need to compute $\hat R$ and $\hat Q_\varepsilon$ once
+at the start of the estimation, requiring  $K+1$ solutions of systems with $|S|$ equations and unknowns,
+where $K$ is the number of features. This can be further reduced to
+a single solution if we assume that $r(s,a_s)$ is known for some
+``normalizing alternative'' $a_s \in A(s)$ (see Section~\ref{section:identification}).
+
+A cost of the CCP estimator is that it is less efficient than using NFXP to estimate the same partial likelihood criterion (\ref{eq:ccplf})
+due to the noise in the first stage non-parametric estimates $\hat\pi$ that are used to construct
+the $\hat Q_\varepsilon$ function in (\ref{eq:ccpestimator}).  \citet{AguirregabiriaMira:2002} (AM) addressed this problem
+by proposing an iterative estimator called {\it nested pseudo likelihood\/} (NPL)  that uses an initial non-parametric estimate $\hat\pi$ 
+to compute the value function $V_{\hat\pi}$ implied by this initial estimate by solving for it in the policy valuation step
+in equation (\ref{eq:smoothpolicyvaluation}), which we denote as $\hat V_{\theta,\hat\pi}$ since it depends
+both on $\hat\pi$ and the parameters $\theta$ entering
+the reward function. NPL  estimates  $\hat\theta$ using a pseudo-likelihood similar to (\ref{eq:ccplf})
+except that the CCP $\pi_\theta(a|s)$ is evaluated using (\ref{eq:ccp}) using estimated $Q$ functions given by
+\begin{equation}
+                  \hat Q_\theta(s,a)=r_\theta(s,a)+\beta \sum_{s'}\hat V_{\theta,\hat\pi}(s'|s,a)p(s'|s,a),
+\label{eq:qhat}
+\end{equation}
+Thus, the likelihood $L_\pi(\theta)$ depends implicitly on the first stage non-parametric CCP estimate $\hat\pi$, which can be regarded
+as a ``nuisance parameter''. In principle, estimation noise in $\hat\pi$ will contaminate and affect the asymptotic 
+covariance matrix for the parameters of interest $\theta$. However 
+at the fixed point, we have $\partial V(s)/\partial \pi=0$ and AM showed that this  {\it zero Jacobian property\/}  
+implies that  the information matrix for the parameters of interest $\theta$ 
+is ``Neyman orthogonal'' with respect to estimation error in the first stage nuisance parameter $\hat\pi$, 
+so the NPL estimator of $\theta$ is unaffected by noise in the first stage $\hat\pi$, at least asymptotically.
+In smaller samples the orthogonality may not hold exactly, but 
+NPL can be iterated to result in improved finite sample properties.
+An iterative or $k$-step version of NPL
+uses the initial estimate  $\hat\theta$ to update the estimate of the CCPs using equation (\ref{eq:ccp}), then using the updated policy
+$\hat\pi=\pi_{\hat\theta}$ and a soft policy valuation step (\ref{eq:linq}) to obtain
+updated $V$ and $Q$ functions (\ref{eq:qhat}),  which are in turn
+used in the likelihood (\ref{eq:ccplf}) to produce an updated estimate $\hat\theta'$. Iterative NPL amounts to ``swapping''
+the policy iteration and maximization steps of the NFXP estimator (NFXP  maximizes the likelihood over $\theta$ in the ``outside'' loop
+and does policy iteration in the ``inside'' loop). Swapping the order of maximization
+and policy iteration reduces the total number of policy iteration steps required to 
+estimate $\theta$. AM showed that if the iterated version of  NPL converges, it produces the
+same  estimate $\hat\theta$ that  NFXP produces from maximization of the partial likelihood  (\ref{eq:ccplf}).
+Thus the iterated NPL estimator is as efficient but faster than NFXP and more efficient but slower than the CCP
+estimator.\footnote{\footnotesize
+See also {\it efficient pseudo likelihood\/} (EPL) \citep{dearingblevins:2025}, a similar iterative
+procedure that is also an efficient sequential estimator that 
+can estimate parameters of dynamic games.}  
+
+The extreme value (EV) assumption, while restrictive, dramatically reduces computational burden 
+via the analytic expressions it implies for the softmax CCP (\ref{eq:ccp}) and expected value function (\ref{eq:smoothV}).
+Other natural choices for the unobserved $\varepsilon$ such as multivariate normal do not result in analytical expressions  
+and thus considerable computation to approximate these quantities. 
+The conditional independence (CI) of the $\{\varepsilon_t\}$ shocks is another restrictive assumption driven by
+computational considerations. Though there are computationally
+efficient recursive likelihood integration methods, e.g. \citet{reich:2018}, that can allow
+for serial correlation in $\varepsilon_t$ shocks, these methods are still burdensome for estimation.
+\citet{ijc:2009} and \citet{norets:2009} introduced
+Bayesian inference in DDC models that use Markov Chain Monte Carlo (MCMC) methods to
+simulate from rather than directly compute the posterior by numerical integration. 
+MCMC facilitates {\it data augmentation\/} where latent variables 
+can be simulated symmetrically with observed ones rather than being marginalized from the likelihood, 
+allowing us to relax the EV and CI assumptions. They also show that RL can be used to update the Q functions
+of the underlying MDP problem in parallel inside the overall do-loop for the MCMC simulations
+where the structural parameters are drawn from the likelihood using Gibbs' or Metropolis-Hastings' samplers.
+
+There are also non-Bayesian, non-likelihood based  simulation estimators such as the {\it method of simulated moments\/}
+(MSM) \citet{msm:1989}, {\it indirect inference\/} \citet{ii:1993},  the {\it moment inequality\/} estimator of
+\citet{bbl:2007}, and the {\it adversarial estimator\/} of \citet{kaji:2023} 
+that use stochastic simulations to  estimate problems where it is difficult to explicitly specify or compute a likelihood function. 
+%For example, \citet{hallrust:2021} apply MSM to structurally estimate a dynamic model of inventory investment in steel plates, where a key
+%state variable, the price of steel plate, is only recorded by the company only on the dates it buys steel plates. 
+%Since the company only occasionally purchases new inventory, maximum likelihood estimation entails high dimensional integration over the
+%unobserved price of steel on the majority of days the firm does not buy steel plate. With MSM we can simulate prices regardless
+%of whether the firm buys or not, and MSM searches for $\theta$ to minimize the distance between  moments we construct from 
+%observed data to equivalent moments from simulations of the structural model.
+All the estimators discussed so far are designed for problems where the state space is discrete and small enough to be enumerable. When the state space is large or contains continuous variables, these methods become computationally infeasible, motivating the function approximation techniques we turn to next.
+
+\subsection{Function Approximation Methods for Large State Spaces}
+
+When the state space $S$ is large (i.e. the DDC has many continuous state variables that must be discretized)
+the approaches discussed above that use PI and repeated solution of
+large linear systems with $|S|$ equations and unknowns are computationally infeasible. 
+Following section~\ref{section:curse} we can approximate 
+the fixed point $Q=\Lambda_\sigma(Q)$ of the soft Bellman operator in equation (\ref{eq:smoothQ}) by $Q_\phi(s)$
+with a flexible parametric family such as a neural network with weights $\phi$, and  approximate
+the solutions to 
+the fixed point problems (\ref{eq:smoothQ}) and (\ref{eq:smoothV}) more tractably as nonlinear least squares problems.  
+Let $\mbox{BE}(\phi,\theta)$ be the mean squared Bellman error defined in equation (\ref{eq:dqnideal}).
+It depends both on the parameters (weights) $\phi$ of the neural network approximation $Q_\phi$
+as well as the structural parameters $\theta$ via the soft Bellman operator $\Lambda_{\sigma,\theta}(Q_\phi)$ 
+defined in (\ref{eq:smoothQ})  via the dependence of the structural functions $\{\beta,r,p\}$ on the parameters
+$\theta$.  A nested least squares estimator similar to NFXP can estimate $\theta$ 
+by maximizing the likelihood $\mathcal{L}^f_{\mathcal{D}}(\theta)$ (\ref{eq:lf}) while minimizing 
+$\mbox{BE}(\phi,\theta)$ over $\phi$ for
+each value of $\theta$. A penalized likelihood estimator called SEES \citep{LuoSang:2024}, for {\it sieve-based efficient estimator for
+structural models\/}, chooses $\hat\theta$ and $\hat\phi$ to maximize 
+\begin{equation}
+(\hat\theta,\hat\phi)=\argmax_{\theta,\phi} \log(\mathcal{L}^f_{\mathcal{D}}(\theta))-\lambda \mbox{BE}(\phi,\theta),
+\label{eq:penalizedllf}
+\end{equation}
+where $\lambda \ge 0$ is a penalization parameter. Consistency of SEES requires the use of a {\it sieve,\/} i.e.
+the dimension of $\phi$ must grow to infinity at certain rate with the sample
+size so that the approximation error in approximating $Q$ by $Q_\phi$ converges to zero.
+A related estimator, the {\it neural network efficient estimator\/} (NNES) of \citet{Nguyen:2025}, maximizes a penalized criterion
+similar to SEES in a modified version of the sequential NPL
+estimator of \citet{AguirregabiriaMira:2002}.
+
+A challenge facing sieve-based estimators is that $\phi$ are high dimensional  ``nuisance parameters'' 
+(their only purpose is to approximate $Q$) whereas $\theta$ are the ``parameters of interest'' 
+that determine  rewards and beliefs, $\{\beta,r,p\}$. Since $\hat\phi$  minimizes
+the sum of squared residuals $\mbox{BE}(\phi,\theta)$  for each $\theta$, it follows that $\hat\phi$ will be an implicit
+function of $\theta$. The asymptotic covariance matrix for $\hat\theta$  requires $\nabla_\theta Q_{\hat\phi(\theta)}$, the gradient
+of $Q_{\hat\phi(\theta)}$ with respect to $\theta$. $\hat\phi(\theta)$ is a well defined smooth function
+of $\theta$ by the Implicit Function Theorem, and differentiating 
+the first order condition for $\hat\phi(\theta)$, 
+$\nabla_\phi Q_\phi=0$ at $\phi=\hat\phi(\theta)$, to compute $\nabla_\theta \hat\phi(\theta)$  requires 
+calculating the Hessian matrix $\nabla^2_{\phi,\phi} Q_\phi$  which is typically infeasible to compute.
+Thus computing $\nabla_\theta Q_{\hat\phi(\theta)}=\nabla_\phi Q_{\hat\phi(\theta)}\nabla_\theta\hat\phi(\theta)$
+via the chain rule is generally out of the question. Computing $\nabla_\theta Q$ via numerical differentiation of
+$Q_{\hat\phi(\theta)}$ with respect to $\theta$ is also time-consuming and potentially inaccurate
+because  multiple local optima in $\phi$ result in fragile
+solutions $\hat\phi(\theta)$ where small changes in $\theta$ produce discontinuous jumps in $\hat\phi(\theta)$ and $Q_{\hat\phi(\theta)}$. 
+\citet{Nguyen:2025} shows that a fast and accurate way to compute $\nabla_\theta Q_{\hat\phi(\theta)}$ is to use the
+method of {\it equilibrium propagation\/} introduced by \citet{ep:2022}.
+
+
+
+
+
+\subsection{The Identification Problem}
+\label{section:identification}
+
+Section~\ref{sec:mdp} showed how $\pi$ is calculated from the structure $\{\beta,r,p\}$, which
+we summarize by the mapping $\pi=f(\beta,r,p)$. The Identification Problem asks if this mapping is invertible:
+given $\pi$ is there a unique underlying structure $\{\beta,r,p\}$ that implies it? Unfortunately, without
+further restrictions the answer is negative, as shown by \citet{hotzmiller:1993}, 
+\citet{rust:1994}, \citet{nhr:1999}, and \citet{magnacthesmar:2002}. 
+Consider the first step of the inversion process, uncovering  $Q$ from $\pi$:
+\begin{equation}
+               \log\left(\pi(a|s)/\pi(a'|s)\right) = Q(s,a)-Q(s,a'), \quad s \in S, \; a,a' \in A.
+\label{eq:ccpinverse}
+\end{equation}
+Thus, knowledge of $\pi$ is insufficient to recover all the $Q$ values: only the {\it differences\/} in
+$Q$ are identified. Indeed, the structure $\{\beta,r,p\}$ contains $1+|S|(|A|-1)+|S|^2|A|$  
+parameters, more than the $|S|(|A|-1)$ parameters of $\pi$, so we will generally have ``more equations than unknowns'' 
+so the structure is only partially identified. Unique (or ``point'') identification requires additional restrictions on $\{\beta,r,p\}$. 
+A common assumption is that $r$ and $p$ have known parametric functional forms that depend on a relatively small number of parameters $\theta$. In some situations the reward function can be treated as
+known, and this facilitates the identification of subjective beliefs $p(s'|s,a)$.\footnote{\footnotesize 
+For example \citet{tennis:2025} are able to identify the subjective beliefs of professional tennis servers about how their serve
+strategies affects their probability of winning a tennis game. These beliefs take the form of a transition $p(s'|s,a)$ where $s$ denotes
+the point state of the game and $a$ denotes serve direction. Identification of beliefs is possible  because it is reasonable to assume
+$r$ is known: i.e. the server earns a reward of 1 if they win the game and 0 otherwise, and due to reasonable parametric restrictions
+on $p$.} Rational expectations is a strong identifying assumption, 
+i.e. agents' subjective beliefs $p(s'|s,a)$ correspond to the actual probability governing
+these transitions. With sufficient data, $p$ can be estimated non-parametrically and treated as known from the standpoint of 
+identification.  The discount factor $\beta$ is often assumed to be known {\it a priori,\/} though \citet{abbringdaljord:2020} showed that $\beta$ is identified
+under rational expectations with certain restrictions on rewards.\footnote{\footnotesize \citet{yao:2024} show that observing experts with different planning horizons identifies both rewards and discount factors.}
+
+When  $\{\beta,p\}$ are known, identification of $r$ depends on the assumption that either it has a known parametric
+functional form $r_\theta$ where the dimension of $\theta$ 
+is less than $|S|(|A|-1)$, or that for each $s \in S$ there is
+a normalizing or ``anchor action'' $a_s$ such that  $r(s,a_s)$ is known. The latter assumption amounts to $|S|$ restrictions
+that imply there are only $|S|(|A|-1)$ unknown rewards to be recovered, the same number of free values of $\pi$. 
+\citet{hotzmiller:1993} and \citet{kang:2025} show that in this ``exactly identified'' case,
+we can calculate $Q(s,a_s)$ from knowledge of $r(s,a_s)$ and $\pi(a_s|s)$ using equation (\ref{eq:linq}) 
+and then (\ref{eq:ccpinverse}) allows us to recover all remaining $Q$ values. 
+Using the $Q$ values we can back out the remaining unknown rewards $r$ from the soft Bellman equation (\ref{eq:smoothQ}).\footnote{\footnotesize 
+\citet{eerl:2026} provide an alternative condition that implies exact identification of $r$, namely that there exists
+some known policy $\pi(a|s)$ with zero expected reward, $0=\sum_{a \in A(s)} r(s,a)\pi(a|s)$, for all $s \in S$. }
+
+The assumption that $r(s,a_s)$ is known for some normalizing action $a_s$ in each state $s \in S$ is far from innocuous. If wrong, estimated rewards will not equal true rewards even though the model perfectly fits $\pi$, and counterfactual predictions may differ from actual outcomes. 
+For example we can always estimate rewards with the trivial estimator $\hat r(s,a)=\log(\pi(a|s))$ that perfectly fits
+observed behavior and is optimal, i.e. the implied $Q$ function satisfies the fixed point $Q=\Lambda_\sigma(Q)$
+in (\ref{eq:smoothQ}). However easy to see this estimator differs from the true reward: $\hat r(s,a)=r(s,a)+\beta \int V(s')p(s'|s,a)-V(s)$.
+Indeed, in the absence of any prior restrictions on rewards, we can only identify a set of rewards 
+$\mathcal{R}(r)=\{r_h\}$ that are observationally equivalent to $r$ given by $r_h(s,a)=r(s,a)+\beta \sum_{s'} h(s')p(s'|s,a)-h(s)$ for any function $h: S \to R$. 
+\citet{nhr:1999} refers to  $\mathcal{R}(r)$ as ``potential-based reward shaping'' 
+and shows that {\it policy invariance\/} holds: i.e.  $\pi_{r_h}=f(\beta,r_h,p)=\pi_r=f(\beta,r,p)$ for all
+$r_h \in \mathcal{R}(r)$.  However for alternative transition probabilities $\lambda(s'|s,a)\ne p(s'|s,a)$ policy invariance
+does not hold: $\pi_{r_h}=f(\beta,r_h,\lambda) \ne \pi_{r}=f(\beta,r,\lambda)$, i.e. counterfactual behavior 
+implied by observationally equivalent rewards $r_h$ and $r$ differ in the new environment $\lambda$.
+
+Identification can potentially be established if we have the luxury of being
+able to conduct experiments with subjects to see how their behavior changes in different environments.
+For example, \citet{cao_irl:2021} prove rewards are identifiable up to a constant if the agent is observed in two environments with sufficiently different transition laws.
+The DDC and IRL literatures use different assumptions to overcome  the identification problem,
+reflecting different goals of the respective fields. \citet{eerl:2026} and \citet{souza:2021} 
+show that some counterfactuals are identified even if $\{\beta,r,p\}$ 
+is partially identified, providing a  ``call for caution while leaving room for optimism: 
+although counterfactual behavior and welfare can be sensitive to identifying restrictions imposed on the model, 
+there exists important classes of counterfactuals that are robust to such restrictions.'' (p. 385).\footnote{\footnotesize \citet{rolland:2022} prove that linearly independent transition matrices across environments guarantee transfer even without full reward identification.}
+
+
+
+

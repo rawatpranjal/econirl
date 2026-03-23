@@ -1,0 +1,143 @@
+
+\section{Inverse Reinforcement Learning\label{sec:irl}}
+% PRANJAL: Notation fixes applied Jan 26 - changed gamma->beta for discount factor consistency,
+% defined nu(s,a) as basis functions, fixed R_phi formula. Added transfer papers (Rolland 2022, Schlaginhaufen 2024). Please review. -P
+
+The IRL literature \citep{ng:2000} has two motivations for inferring rewards: 1) ``the potential use of reinforcement learning and
+related methods as potential models for human and animal learning'' and 2) to provide a reward function
+that RL can use to construct an ``intelligent agent that can behave successfully in a particular domain.'' Though
+they note that imitation and apprenticeship learning (IL and AL) can be used to learn a policy $\pi$, ``the reward
+function often provides a much more parsimonius description of behaviour'' so that IRL can constitute an effective
+form of AL. IRL has become an important method in many areas of robotics and \citet{av:2025} note that IRL has ``found great success in predicting 
+trajectories through inferring cost or reward functions from expert demonstrations, 
+and then using these functions to guide the behavior of self-driving vehicles in unseen driving environments.'' The idea of inferring objectives from observed optimal behavior has a longer history, tracing to \citet{kalman:1964}'s work on Inverse Optimal Control in engineering.
+
+The IRL problem \citep{ng:2000} is to infer the reward function $r_\theta(s,a) = \theta^\top\phi(s,a)$ from expert demonstrations. Given trajectories $\mathcal{D}_E = \{\tau_i\}$ or a policy $\pi_E$, we seek the parameters $\theta$ that rationalize observed behavior. The problem is ill-posed: many $\theta$ can yield the same observed behavior. For linear rewards, \citet{abbeel:2004} showed that matching the expert's feature expectations $\mu(\pi) = \mu_E$ suffices for policy imitation but does not uniquely identify $\theta$. Different IRL algorithms represent different principles for selecting a unique $\theta$ from this equivalence class. We selectively review methods most relevant to DDC and economic applications, referring readers to \citet{azar:2020}, \citet{arora:2021}, \citet{gleave:2022}, and \citet{adams:2022} for comprehensive surveys.
+
+While feature matching suffices for policy imitation, it does not uniquely identify rewards. Maximum margin methods \citep{ratliff:2006} address this by requiring the expert's cumulative value to exceed any alternative policy's value by a margin that grows with the alternative's deviation from expert behavior. Policies vastly different from the expert's are penalized more heavily. This framework resembles moment inequality estimators in dynamic games \citep{bbl:2007}. However, margin-based methods assume a near-optimal expert, making them brittle in stochastic environments with noisy demonstrations. Furthermore, the constraint set is exponentially large, requiring computationally intensive methods. These limitations motivated probabilistic approaches that explicitly model suboptimal behavior.
+
+\subsection{Maximum Entropy and Maximum Likelihood Methods}
+
+Chronologically, the first use of a Boltzmann likelihood in IRL was \citet{birl:2007}, who modeled expert actions as $P(a|s, R) \propto \exp(\alpha Q^*(s,a,R))$ where $\alpha$ is a ``confidence parameter'' equivalent to the inverse temperature $1/\sigma$ in DDC.\footnote{\footnotesize Bayesian IRL (2007) predates the Bayesian DDC literature \citep{ijc:2009,norets:2009} by two years, yet neither community cited the other, an instance of parallel discovery across disciplinary silos.} Crucially, BIRL uses standard (``hard'') Q-values from the classical Bellman equation, treating stochastic choice as optimization error. They combine this likelihood with a prior on rewards and use MCMC to estimate the posterior $P(R|\mathcal{D}_E)$.
+
+Building on this foundation, subsequent work derived the same likelihood from different principles. Modern IRL methods rely on a softmax (Boltzmann-rational) policy as their probabilistic foundation:
+\begin{equation}
+\pi_\theta(a|s) = \frac{\exp(Q_\theta(s,a)/\sigma)}{\sum_{a'}\exp(Q_\theta(s,a')/\sigma)}
+\label{eq:softmaxirl}
+\end{equation}
+This is identical to the CCP formula (\ref{eq:ccp}) from DDC.\footnote{\footnotesize Small $\sigma$ makes the policy concentrate almost entirely on the highest-value action, while large $\sigma$ spreads probability nearly uniformly across actions. Because the softmax formula depends only on $Q/\sigma$, the reward scale and $\sigma$ cannot both be identified, so DDC applications typically fix $\sigma=1$. When calibration data are available, \citet{ghosal:2023} show how to estimate the inverse temperature $\alpha$ (equivalently $\sigma=1/\alpha$) instead of fixing it.} There are a few ways to motivate such a soft-optimal policy. 
+
+\citet{ziebart:2008,ziebart:2010} derive (\ref{eq:softmaxirl}) by maximizing causal entropy $H_c(\pi) = \mathbb{E}_\pi[-\sum_t \log\pi(a_t|s_t)]$ subject to matching the expert's feature expectations: $\mathbb{E}_\pi[\phi] = \mu_E$.\footnote{\footnotesize Causal entropy differs from Shannon entropy over trajectories: it conditions each action only on past and current states, respecting the MDP's temporal structure. Standard Shannon entropy $H(\tau) = -\sum_\tau P(\tau)\log P(\tau)$ does not impose this causal constraint.} The reward parameters $\theta$ emerge as Lagrange multipliers. This information-theoretic derivation produces the most random policy consistent with observed behavior. This MaxEnt approach is agnostic about why behavior appears stochastic: it does not assume agents optimize-but-tremble (as in BIRL) or face unobserved utility shocks (as in RUM). The principle traces to \citet{jaynes:1957}, who showed that maximizing entropy subject to moment constraints yields the least presumptive distribution consistent with the data. The solution assigns trajectory probabilities proportional to exponentiated cumulative rewards, $p(\tau) \propto \exp(\sum_t \gamma^t r(s_t,a_t)/\sigma)$, so higher-reward trajectories are exponentially more likely. The Lagrangian dual of this entropy maximization problem is equivalent to maximum likelihood estimation of $\theta$ from the observed trajectories, establishing a deep connection between information-theoretic and statistical perspectives.
+
+A second motivation comes from Random Utility Theory. \citet{pitombeira:2024} argue the agent is not stochastic but deterministically optimal; the observed randomness arises from the observer's incomplete information about utility-relevant features. They model total reward as $R(s,a) = r_\theta(s,a) + \epsilon$, where $\epsilon$ captures unobserved features known only to the agent. If $\epsilon$ follows a Gumbel distribution, the resulting choice probability is identical to (\ref{eq:softmaxirl}). This provides a microfoundation rooted in incomplete information rather than bounded rationality, and they prove Maximum Entropy IRL is a special case of their Random Utility IRL framework with $\gamma=1$. \citet{matejka:2015} provide yet another microfoundation: under Rational Inattention, agents optimally allocate limited attention, and the resulting choice probabilities take the logit form.
+
+A third derivation makes use of a behavioural assumption. Assume experts choose actions according to (\ref{eq:softmaxirl}). MLE of $\theta$ from demonstrations $\mathcal{D}_E$ yields the gradient:
+\begin{equation}
+\nabla_\theta \mathcal{L}(\theta) \propto \mu_E - \mathbb{E}_{\pi_\theta}[\phi]
+\label{eq:mlgrad}
+\end{equation}
+At the optimum, model feature expectations match expert feature expectations, the same condition as the Max-Ent constraint. The partial likelihood is identical to (\ref{eq:ccplf}) from DDC, establishing mathematical equivalence between the two literatures under specific conditions: linear rewards and an exponential family likelihood \citep{berger:1996}. While \citet{ziebart:2010} proves this equivalence (Thm 6.4), the MaxEnt framework provides a distinct motivation rooted in handling ambiguity rather than explicit agent optimization, remaining useful when RUM assumptions of DDC may not hold.\footnote{\footnotesize \citet{ziebart:2008} applied this to model route choices of Yellow cab drivers in Pittsburgh, correctly predicting nearly 80\% of paths in a holdout sample.} Max-Ent IRL optimizes over trajectory distributions rather than action-by-action choices, accounting for temporal correlations at the cost of increased computational complexity.
+
+The Max-Ent IRL algorithm iterates until convergence. First, a backward pass computes soft value functions via $Q_\theta(s,a) = r_\theta(s,a) + \beta \sum_{s'} p(s'|s,a) V_\theta(s')$ and $V_\theta(s) = \sigma \log \sum_a \exp(Q_\theta(s,a)/\sigma)$, from which the policy $\pi_\theta(a|s)$ follows from (\ref{eq:softmaxirl}). Next, a forward pass computes expected state-action visitation $\mu_\theta = \mathbb{E}_{\pi_\theta}[\sum_t \beta^t \phi(s_t,a_t)]$ via dynamic programming or Monte Carlo simulation. Finally, the gradient update $\theta \leftarrow \theta + \alpha(\mu_E - \mu_\theta)$ adjusts reward parameters; this gradient is both the score of the log-likelihood under the MLE derivation and the direction that enforces the feature-matching constraint under Max-Ent. This requires solving the soft Bellman equation and computing state visitation frequencies at each iteration, making the method model-based. Classic MaxEnt IRL further requires a discrete, enumerable state space and knowledge of the transition dynamics $p(s'|s,a)$, limiting its applicability to tabular settings.
+
+\citet{guidedcostlearning:2016} (Guided Cost Learning, GCL) scaled MaxEnt IRL to high-dimensional continuous domains by addressing these limitations. Three key innovations enable this: (1) a neural network parameterizes the reward function $r_\theta(s,a)$, replacing hand-crafted features; (2) importance sampling corrects the distribution mismatch when policy samples come from a suboptimal generator rather than the current optimal policy; and (3) lazy policy optimization runs the inner RL loop for only a few iterations per reward update, avoiding the prohibitive cost of full convergence. GCL approximates the MaxEnt gradient $\mu_E - \mathbb{E}_{\pi_\theta}[\phi]$ using these sampled, reweighted trajectories, enabling end-to-end training in continuous control tasks. \citet{softqlearning:2017} completed the connection to DDC by deriving the soft Bellman equation from an entropy-augmented reward criterion, yielding the smoothed value function formulation discussed in Section~\ref{sec:mdp}.
+
+\subsection{Adversarial Methods}
+
+Max-Ent IRL also admits a game-theoretic interpretation via Lagrangian duality. The dual function is $g(\theta) = (\max_\pi \mathbb{E}_\pi[\theta^\top \Phi(\tau)] + H_c(\pi)) - \theta^\top \mu_E$, and the dual problem is $\min_\theta g(\theta)$. This is a saddle-point problem: the outer minimization finds reward parameters $\theta$, while the inner maximization finds the entropy-regularized optimal policy for that reward. This dual view motivates adversarial methods that implement the game explicitly. The bridge to these methods is the \emph{discounted occupancy measure}, $\rho_\pi(s,a) = \mathbb{E}_\pi[\sum_{t=0}^\infty \beta^t \mathbb{I}(s_t=s, a_t=a)]$, which reformulates expected cumulative reward as a static inner product $\langle \rho_\pi, r \rangle$, allowing policy comparison via state-action distributions. Generative Adversarial Imitation Learning (GAIL) \citep{ho:2016} targets the full occupancy measure $\rho_\pi(s,a)$ rather than feature expectations, using a discriminator to minimize divergence to the expert's occupancy. However, the discriminator's output is entangled with dynamics and does not yield a portable reward function. The Max-Ent/MLE approaches are model-based: computing the gradient (\ref{eq:mlgrad}) requires solving for $Q_\theta$, which depends on $p(s'|s,a)$. Adversarial methods offer a scalable, model-free alternative by replacing explicit occupancy computation with a learned discriminator.
+
+A naive adversarial IRL recovers the expert's advantage function $\mathcal{A}^*(s,a) = Q^*(s,a) - V^*(s)$, which is an ``entangled'' reward that is not robust to changes in dynamics since $\mathcal{A}^*$ depends on the value function $V^*$, which in turn depends on $p(s'|s,a)$. To address this, \citet{fu:2018} introduced Adversarial IRL (AIRL) to learn a \emph{disentangled} reward. The key innovation is a structured discriminator with logits:
+\begin{equation}
+f_{\theta,\psi}(s,a,s') = g_\theta(s,a) + \beta h_\psi(s') - h_\psi(s)
+\label{eq:airldecomp}
+\end{equation}
+This structure explicitly implements the potential-based reward shaping from Section~\ref{section:identification}. It is designed to decompose the learned reward into two components: a transferable, state-action reward $g_\theta(s,a)$, and a non-transferable, dynamics-dependent value function shaping term $h_\psi(s)$ that plays the role of the potential function $\Phi(s)$. Without this state-only restriction on $g_\theta$, \citet{fu:2018} show that adversarial methods recover rewards that effectively ``bake in'' the training dynamics $p(s'|s,a)$, causing policy failure when transferring to environments with shifted physical dynamics (e.g., a robot with modified legs). In principle, this forces $g_\theta$ to capture the intrinsic reward, enabling policy transfer to new environments with different dynamics.\footnote{\footnotesize The foundational proof in \citet{fu:2018} that this decomposition successfully recovers the true reward (i.e., $g_\theta \to r$ and $h_\psi \to V$) relies on an assumption of deterministic dynamics, a key point of departure from the stochastic environments central to DDC modeling. \citet{lee:2026} demonstrate identification in stochastic settings is possible by adding further structural constraints, such as an anchor action with known utility.}
+
+The AIRL algorithm proceeds iteratively. At each step, a policy $\pi$ generates trajectories by interacting with the environment. A discriminator with structure (\ref{eq:airldecomp}) is trained via binary logistic regression to distinguish expert transitions $\mathcal{D}_E$ from policy-generated ones. The trained discriminator is used to recover an updated reward signal, $r'(s,a,s') \leftarrow \log D(s,a,s') - \log(1 - D(s,a,s'))$. The policy $\pi$ is then updated using a standard RL algorithm (e.g., TRPO) to maximize this reward. This cycle of discriminating and generating improves both the reward estimate and the policy simultaneously.
+
+The adversarial framework connects to structural econometrics: \citet{kaji:2023} show that a discriminator distinguishing real from simulated data automatically selects optimal moments, reducing to optimally-weighted SMM with a logistic discriminator. \citet{lee:2026} achieve identification by fixing the utility of an anchor action to zero within the discriminator's objective, eliminating reward shaping ambiguity and recovering interpretable preference segments from consumption trajectories.
+
+Inverse soft-Q learning (IQ-Learn) \citep{garg:2022} avoids the unstable adversarial game entirely. It starts from the same occupancy-matching objective but collapses the nested $\max_r \min_\pi$ problem into a single maximization over $Q$ by substituting the analytical solution $\pi_Q \propto \exp(Q)$ directly into the objective, enabling non-adversarial training. However, \citet{kang:2025} show that occupancy matching methods (including GAIL and IQ-Learn) are not guaranteed to consistently estimate the true $Q$ function: they minimize average Bellman error, not pointwise Bellman error. This implies that rewards cannot be reliably inferred from $Q$ using the Bellman equation after deriving $Q$ via occupancy matching.
+
+\subsection{Model-Free IRL}
+
+While principled, the methods above are model-based: they require knowledge of $p(s'|s,a)$ to compute $Q$ functions via the Bellman equation. As \citet{adams:2022} notes, ``in many scenarios, the transition function may be unknown and difficult or impossible to estimate.''\footnote{\footnotesize In RL, ``model-free'' means using raw transitions $(s,a,s')$ without explicitly estimating $p(s'|s,a)$, whereas ``model-based'' means constructing or estimating $p$ for planning \citep{BartoSutton:2020}. In SE/DDC, methods using historical data are often called ``model-based'' since $p$ can be estimated from observed transitions. We follow RL terminology throughout.} Model-free IRL avoids this by using observed transitions $(s,a,s')$ directly, reminiscent of experience replay in deep Q-learning \citep{mnih:2015}. For example, \citet{mlirl:2011} made the MLE interpretation explicit by directly maximizing trajectory likelihood, and \citet{jain:2019} make the MLE framework model-free by retaining the Max-Ent log-likelihood objective but replacing the model-based Bellman update with a differentiable variant of Q-learning, estimating gradients using only sampled transitions. We discuss two other recent contributions: AE, which can be regarded as an IRL version of the two-step CCP estimator, and GLADIUS, which is analogous to the penalized likelihood SEES estimator of \citet{LuoSang:2024}. Both use function approximation to handle large state spaces.
+
+\citet{AE:2022} (AE) proposed a model-free estimator that combines a core method of RL, the method of {\it temporal differences\/} (TD),
+\citet{BartoSutton:2020}, and the two step \citet{hotzmiller:1993} CCP estimator in
+section~\ref{section:ddc_methods} that avoids the need to estimate or make parametric assumptions about $p(s'|s,a)$. Similar to the CCP estimator, they
+assume the reward is a linear combination of known ``features'', i.e. $r_\theta(s,a)=\sum_{k=1}^K \theta_k r_k(s,a)$
+and  estimate the structural parameters $\theta$ by maximizing the partial likelihood (\ref{eq:ccplf}). 
+However rather than numerically computing functions $R$ and $Q_\epsilon$ that
+enter as covariates in the CCP $\pi$ in equation (\ref{eq:ccpestimator}), they use observed state transitions
+to estimate  $R$ and $Q_\epsilon$ under the assumption they can be approximated as linear
+combinations of a set of known basis functions that depend on $(s,a)$ and a vector of parameters $\phi$. Let $R_\phi(s,a)$
+be the approximation of $R$, and assume a similar approximation is used to compute $Q_\varepsilon$ (omitted for brevity).
+If $p$ were known, we could choose $\hat\phi$ to minimize the mean-squared TD error given by
+\begin{equation}
+     \hat\phi =\argmin_\phi E\left\{ [\vec{r}(s,a)+\beta R_\phi(s',a')-R_\phi(s,a)]^2\right\},
+\label{eq:hatphi}
+\end{equation}
+where $E$ denotes the expectation operator over $(s,a,s',a')$, which requires $p$.
+Using results from \citet{TsitsiklisVanRoy:1997} on the convergence of TD learning with linear function approximation, 
+AE show that $\hat\phi$ can be computed using the {\it sample expectation operator $E_N$\/} in (\ref{eq:hatphi})
+using the formula
+\begin{equation}
+     \hat\phi = \left[E_N\{\nu(s,a)[\nu(s,a)-\beta\nu(s',a')]^{{\scriptscriptstyle T}}\}\right]^{-1} E_N\{\nu(s,a)\vec{r}(s,a)\}.
+\label{eq:QR_regression}
+\end{equation}
+Note that relying on the sample expectation $E_N$ implicitly assumes rational expectations, as it constrains the agent's subjective beliefs to match the empirical data distribution.
+Using $\hat\phi$ the implied estimate $\hat R(s,a)=\phi(s,a)\hat\phi$ that can be used as the covariate 
+in the CCP estimator of  $\theta$ in (\ref{eq:ccpestimator}), and the other ``correction term''  $\hat Q_\varepsilon(s,a)$
+can be estimated in similar fashion. The asymptotic distribution of this two stage TD/CCP estimator of $\theta$  is 
+ affected by ``estimation noise'' in the $\hat R$ and $\hat Q_{\varepsilon}$ functions
+that can introduce bias and noise. To deal with this, AE propose a third estimation stage that uses  
+a modified  score (i.e. gradient) of the  partial log-likelihood (\ref{eq:ccplf}) to create 
+a robust (Neyman orthogonal) version of the score function \citep{lrspe:2022},
+obtaining an improved estimator $\hat\theta$ robust to first stage estimation
+noise in $\hat R$ and $\hat Q_\varepsilon$ by setting the modified score to zero.\footnote{\footnotesize
+See \citet{khwaja:2025} for an alternative approach to AE's TD methods that they call RLTD-CCS that combines the TD algorithm 
+from RL with the Conditional Choice Simulator (CCS) estimator of \citet{hmss:1994} that relies on forward simulations
+of paths to produce a Monte Carlo estimate the $Q_\theta(s,a)$  and hence is a model-based approach to estimation.}
+
+The GLADIUS estimator \citep{kang:2025} (Gradient-based Learning with Ascent-Descent for Inverse Utility learning from Samples) is model-free, does not require first-stage CCP estimation, and uses flexible function approximation. It parameterizes $Q_{\phi_1}(s,a)$ and $EV_{\phi_2}(s,a) = \mathbb{E}[V(s')|s,a]$ using neural networks, recovering the reward as $r(s,a) = Q_{\hat\phi_1}(s,a) - \beta EV_{\hat\phi_2}(s,a)$ via the Bellman equation (\ref{eq:smoothQ}).
+GLADIUS maximizes a penalized likelihood where the penalty targets the Bellman error $\rho_{BE}(Q) = E\{[Q(s,a) - \Lambda_\sigma(Q)(s,a)]^2\}$. 
+It builds on an insight of \citet{antos:2008} that the $Q$ that minimizes mean squared Bellman error does
+not necessarily minimize mean squared TD error  given by
+\begin{equation}
+        \rho_{TD}(Q_{\phi_1})=E\left\{\left[r(s,a)+\beta\sigma\log\left(\sum_{a' \in A(s')} 
+\exp\{Q_{\phi_1}(s',a')\}/\sigma\right) -Q_{\phi_1}(s,a)\right]^2\right\},
+\label{eq:msetd}
+\end{equation}
+where we use equation (\ref{eq:smoothV}) to write $V(s')$ as a log-sum of $Q_{\phi_1}$.
+The quantities are related by:
+\begin{equation}
+   \rho_{TD}(Q)=\rho_{BE}(Q)+\beta^2 E\{[V(s')-EV(s,a)]^2\}
+\label{eq:tdbe}
+\end{equation}
+The second term is the conditional variance of next-period values. GLADIUS addresses this via a max-min formulation: the outer maximization finds $\phi_1$ to maximize the penalized likelihood, while the inner minimization finds $\phi_2$ to estimate the conditional variance term. This targets the correct Bellman error without requiring $p(s'|s,a)$. Like the CCP estimator, GLADIUS imposes a normalizing action assumption for identification, using the Hotz-Miller inversion (\ref{eq:ccpinverse}) to recover remaining $Q$ values. Under realizability assumptions, GLADIUS achieves global convergence with error $O(1/T) + O(1/N)$, the first such guarantee for methods minimizing mean squared Bellman residuals.
+
+\subsection{Theoretical Frontiers}
+
+A frontier of research integrates behavioral economics constraints directly into IRL. \citet{hoiles:2020}, for example, model agents under Rational Inattention, where acquiring information about the state $s$ incurs an information-theoretic cost. The agent first chooses an attention policy $\alpha(s'|s)$ (mapping true states $s$ to perceived signals $s'$) to maximize expected utility net of information costs. The observed choice probability $\pi(a|s)$ emerges as a mixture over these signals. The IRL problem is then to test whether observed choices are consistent with a reward function $r_\theta(s,a)$ solving this attention-constrained optimization. This revealed preference approach allows simultaneous recovery of the agent's reward parameters $\theta$ and their implicit information acquisition cost, providing a framework to test for and model bounded rationality directly from choice data.
+
+Another theoretical frontier establishes fundamental limits for IRL. \citet{metelli:2023} derive the first minimax sample complexity lower bound for recovering the feasible reward set (all rewards consistent with expert behavior), proving that any algorithm requires at least $\Omega(H^3SA/\epsilon^2)$ samples. This provides a baseline for the inherent difficulty of the IRL problem.
+
+\subsection{Synthesis and Applications}
+
+We have surveyed IRL methods most relevant to DDC. Model-free methods avoid specifying $p(s'|s,a)$ but implicitly assume rational expectations. For counterfactual analysis involving changed dynamics, model-based methods remain necessary, since inaccurate models from finite data with limited coverage can compound errors in estimated rewards \citep{zeng:2024}. Furthermore, \citet{schlaginhaufen:2024} demonstrate that with finite demonstration data, the theoretical rank conditions for transfer \citep{rolland:2022} are insufficient. They propose using principal angles between the transition laws of observed experts to quantify the environment diversity required to bound the error of the recovered reward in counterfactual settings.
+
+\citet{ziebart:2010}'s maximum causal entropy IRL, for instance, is nearly isomorphic to DDC models under the AS/CI/EV assumptions discussed in section 3. As \citet{gleave:2022} notes:
+``algorithms based on MCE IRL have scaled to high-dimensional environments. Maximum Entropy Deep IRL \citet{maxentdeepirl:2016} was one of the first extensions, and is able to learn rewards in gridworlds from pixel observations. More recently, Guided Cost Learning 
+\citet{guidedcostlearning:2016} and AIRL have scaled to continuous control tasks.''
+
+Large-scale applications include \citet{Barnes:2024} using IRL to infer route preferences from Google Maps data and \citet{zhao:2023} applying AIRL to taxi trajectories.\footnote{\footnotesize The Shanghai application succeeded because road networks provide deterministic transitions and the goal was matching observed trajectories rather than counterfactual analysis.} \citet{liang:2025} address the opacity of Deep IRL by introducing a post-hoc interpretation framework based on knowledge distillation. They train a surrogate Multinomial Logit (MNL) model using the ``soft labels'' (probability distributions) generated by the Deep AIRL policy, rather than ground-truth data. This effectively projects the high-dimensional, non-linear behavior learned by the neural network onto a linear-in-parameters structural model, allowing for the recovery of interpretable preference parameters typically associated with DDC. \citet{lee:2026} extend AIRL to unstructured text data.
+
+Autonomous vehicles illustrate why IRL matters. \citet{waymo_bcsac:2023} combined imitation and reinforcement learning (BC-SAC), achieving 38\% fewer safety failures than imitation alone. Meanwhile, \citet{remonda:2021} found RL agents with engineered lap-time rewards matched human speed but used fundamentally different control patterns, highlighting that engineered rewards fail to capture implicit human trade-offs.
+
+\subsection{Alternative Approaches}
+
+Closely related to IRL is the Inverse Optimal Control (IOC) tradition in control theory. Originating with \citet{kalman:1964} for linear-quadratic systems, IOC was later adapted to complex, nonlinear biological behaviors by \citet{locomotion:2010} and \citet{berret:2011}. Their approach employed numerical bilevel optimization that, analogous to the nested fixed point algorithm in DDC, requires solving the full forward control problem within the inner loop of parameter estimation. The computational intractability of this inner loop for high-dimensional continuous domains led to the local probabilistic approximations of \citet{levine:2012}, which in turn enabled the deep, sampling-based Guided Cost Learning of \citet{guidedcostlearning:2016}, which merged the IOC tradition with IRL.
+
+A parallel stream in cognitive science connects ``mentalizing'' to inverse reinforcement learning \citep{ng:2000}. \citet{baker:2009} modeled action understanding as inverse planning, a framework explicitly connected to the IRL literature by \citet{jaraettinger:2019}: observers infer unobservable mental states by inverting a forward RL model. These models extend standard IRL by recovering subjective epistemic and motivational states. The Bayesian Theory of Mind (BToM) framework treats agents as POMDP planners acting on potentially false beliefs \citep{baker:2017}, while the ``naive utility calculus'' \citep{jaraettinger:2016} grounds social reasoning in agent-specific cost-reward trade-offs. Although recent approaches like ToMnet \citep{rabinowitz:2018} scale via meta-learning without recovering explicit reward functions, this literature provides ways to model beliefs as separate from states and offers behavioral microfoundations for IRL.
+

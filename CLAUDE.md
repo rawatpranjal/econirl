@@ -2,19 +2,31 @@
 
 ## Project Overview
 
-**econirl** is a Python library for structural estimation and inverse reinforcement learning (IRL) in dynamic discrete choice models. It bridges econometrics (NFXP, CCP) with machine learning (MaxEnt IRL, MCE IRL).
+**econirl** is a Python library for structural estimation and inverse reinforcement learning (IRL) in dynamic discrete choice models. It bridges econometrics (NFXP, CCP) with machine learning (MaxEnt IRL, MCE IRL, GAIL, AIRL).
 
 ## Key Architecture
 
 ```
 src/econirl/
-├── core/           # Types (DDCProblem, Panel, Trajectory), Bellman operators
-├── estimation/     # NFXP, CCP, MCE IRL, MaxEnt IRL, Max Margin IRL
-├── environments/   # Rust bus, Robinson Crusoe
-├── preferences/    # LinearUtility, ActionDependentReward
-├── simulation/     # Synthetic data generation, counterfactuals
+├── core/           # Types (DDCProblem, Panel, Trajectory), Bellman operators, solvers
+├── estimation/     # 10 estimators: NFXP, CCP, MaxEnt IRL, MCE IRL, Max Margin,
+│   │                 GCL, TD-CCP, GLADIUS, GAIL, AIRL
+│   └── adversarial/  # GAIL and AIRL implementations
+├── environments/   # RustBus, MultiComponentBus, Gridworld
+├── preferences/    # LinearUtility, ActionDependentReward, NeuralCost
+├── inference/      # Standard errors, identification diagnostics, EstimationSummary
+├── simulation/     # Synthetic data generation, Monte Carlo, counterfactuals
 └── visualization/  # Policy and value function plots
 ```
+
+Each subdirectory has its own CLAUDE.md with detailed interface documentation. See:
+- `src/econirl/core/CLAUDE.md` - Types, Bellman operator, solvers
+- `src/econirl/estimation/CLAUDE.md` - All 10 estimators and base contract
+- `src/econirl/environments/CLAUDE.md` - Environment base class and 3 implementations
+- `src/econirl/preferences/CLAUDE.md` - Utility function protocol and LinearUtility
+- `src/econirl/inference/CLAUDE.md` - SE methods, identification, EstimationSummary
+- `src/econirl/simulation/CLAUDE.md` - Data generation, Monte Carlo, counterfactuals
+- `tests/CLAUDE.md` - Test conventions, fixtures, running tests
 
 ## Critical Implementation Details
 
@@ -47,6 +59,9 @@ for traj in panel.trajectories:
 ## Testing Commands
 
 ```bash
+# Run quick tests (skip slow)
+python3 -m pytest tests/ -v -m "not slow"
+
 # Run all tests
 python3 -m pytest tests/ -v
 
@@ -62,12 +77,12 @@ python3 -m pytest tests/ --cov=econirl
 ### MCE IRL not converging
 1. Check feature normalization (should be [-1, 1])
 2. Check parameter initialization (don't use zeros)
-3. Verify inner loop (soft VI) converges - increase `inner_max_iter` for high γ
+3. Verify inner loop (soft VI) converges - increase `inner_max_iter` for high gamma
 4. Try smaller learning rate if oscillating
 
 ### NFXP slow convergence
-1. High discount factor (γ > 0.99) requires many inner iterations
-2. Consider lowering γ for testing
+1. High discount factor (gamma > 0.99) requires many inner iterations
+2. Consider lowering gamma for testing
 3. Check that transitions are properly normalized (rows sum to 1)
 
 ## Key References

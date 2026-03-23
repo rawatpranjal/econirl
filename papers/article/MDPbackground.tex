@@ -1,0 +1,305 @@
+
+
+\section{Background on DP and MDPs\label{sec:mdp}}
+
+The SE and RL literatures both build on a body of work that provides a recursive characterization of  optimal sequential decision making
+under uncertainty, commonly referred  to as {\it dynamic programming,\/} (DP) the name coined by one of the prominent
+early contributors to this theory, \citet{Bellman:1957}. We will briefly review a special class of DP problems known
+as stationary, infinite horizon Markovian Decision Problems (MDP) introduced by Bellman and \citet{Howard:1960} that is the
+predominant underpinning of SE and RL and we refer the reader to \citet{bertsekas:2017} for a first rate treatment of DP and MDPs.\footnote{\footnotesize  
+Note that DP and MDPs involve the optimization of  discounted utility which was introduced by
+\citet{Samuelson:1937}  combined with the expected utility concept introduced by \citet{vnm:1944} for problems involving
+uncertainty. Though Samuelson ``had concerns about its
+its descriptive realism, and it was never empirically validated as the appropriate model for intertemporal choice'' (\citet{Loewenstein:2002}), 
+and laboratory tests including the famous {\it Allais Paradox\/} (see \cite{Machina:1987}) constitute evidence against the hypothesis of expected utility maximization,
+the MDP framework remains highly relevant for modern work in economics and AI and other areas because MDPs are sufficiently 
+flexible to provide good approximations to a huge range of sequential decision problems. Though there is research
+on ``recursive utility'' that relaxes the discounted
+utility and expected utility assumptions, there are unsolved challenges in applying recursive methods 
+to characterize and numerically approximate optimal strategies for ``non-separable'' problems.}
+
+MDPs are defined by  1) a state space $S$, 2) an action space $A$, and  3) the objects  $\{r,p,\beta\}$, where $r(s,a)$ is the {\it reward or utility function\/}
+providing the payoff to a decision maker (DM), $p(s'|s,a)$ is a {\it transition density\/} for next period's state when the state is $s$ and action is $a$
+and $\beta \in (0,1)$ is a discount factor.  To simplify exposition we assume
+that both $S$ and $A$ are finite sets, with $|S|$ and $|A|$ elements, respectively.\footnote{\footnotesize The general
+theory carries over essentially unchanged
+if $S$ or $A$ have an infinite number or
+even a continuum of elements provided certain boundedness and continuity conditions
+hold. However we will see that very different methods are used to solve 
+MDPs with large state spaces.} The DM is presumed to choose a function $\pi(a|s)$ referred to as a {\it strategy,\/} {\it decision rule,\/}
+or {\it policy\/} that specifies the probability 
+of taking action $a$ in state $s$.\footnote{\footnotesize The term ``policy'' is commonly used for the
+decision rule $\pi$ in the RL literature, but the term should be distinguished
+from the term ``policy'' used in the introduction, i.e. economic policies such as
+tax rates, regulations and so forth that can affect the decision rule
+$\pi$ as we will discuss in section 3.} For any $s \in S$ the support or $\pi$ is restricted to a subset $A(s) \subset A$ 
+of choices that are feasible for the DM to take in state $s$. Note
+that strategies can be either {\it mixed\/} (i.e. $\pi$ is a probability) or {\it pure\/} ($\pi$ is a function). The DM's objective is to choose a  policy
+$\pi$ to maximize the expected dicounted stream of rewards given by
+\begin{equation}
+       V(s)= \max_\pi  V_\pi(s),  \quad \mbox{where} \;  V_\pi(s) = E_\pi \left\{\sum_{t=0}^\infty \beta^t r(s_t,a_t)| s_0=s\right\},
+\label{eq:vdef}
+\end{equation}
+where $E_\pi$ denotes the expectation operator over the Markov process $\{s_t,a_t\}$ implied by the transition probability $p$ and policy $\pi$.
+\citet{Bellman:1957}, \citet{Howard:1960} and others proved that an optimal policy can be defined recursively in terms
+of what is now known as {\it Bellman's equation\/}
+\begin{equation}
+            V(s) = \max_{a \in A(s)}\left[ r(s,a)+ \beta \sum_{s' \in S} V(s')p(s'|s,a)\right] \equiv \Gamma(V)(s),
+\label{eq:bellman}
+\end{equation}
+so $V$ is the fixed point $V=\Gamma(V)$ where the operator $\Gamma(V)$, known as the ``Bellman operator'',
+is the function of $s$ implicitly defined
+by the right hand side of (\ref{eq:bellman}). The Bellman operator can also be shown to be a {\it contraction mapping\/} 
+(so for any vectors $V,W \in R^{|S|}$ we have $\|\Gamma(V)-\Gamma(W)\| \le \beta \|V-W\|$ where $\beta$ is less than 1
+and $\|\cdot\|$ is the Euclidean norm).
+This implies a unique solution $V$ to the Bellman equation exists.
+The optimal policy can be recovered from $V$ as the choice $a^* \in A(s)$ that attains the maximum in Bellman's equation
+\begin{equation}
+       \pi(a|s) = \argmax_{a \in A(s)}\left[ r(s,a)+\beta \sum_{s' \in S} V(s')p(s'|s,a)\right].
+\label{eq:bellman_policy}
+\end{equation}
+Note that equation (\ref{eq:bellman_policy}) implies that the optimal policy is generically a pure strategy, i.e. except for
+rare case of ties, for each state $s$ there 
+is a unique $a^* \in A(s)$ that maximizes the right hand side of (\ref{eq:bellman_policy}), so an optimal policy chooses this action with probability 1. 
+
+An MDP can be considered as  a ``game against nature'' where ``nature's move'' is encoded in the transition probability $p(s'|s,a)$ and the optimal
+strategy $\pi$ can be considered as a ``best reply'' to nature. This framework
+can be extended to dynamic games where there are multiple rational players in addition to nature. In this setting the reward and transition probabilities for each player
+can depend on the actions of their opponents as well as nature. \citet{MaskinTirole:2001} introduced the concept of {\it Markov Perfect equilibrium\/} (MPE) which is
+a generalization of the concept of Nash equilibrium in static games where each player's strategy is a best reply to all of their opponents
+and nature. A MPE is defined by the solution to a {\it system of Bellman equations,\/} one for each player (except nature). Unlike the single Bellman equation
+in a single agent game against nature, this system of Bellman equations can have multiple solutions, corresponding to multiple MPE. Further, MPE strategies
+can be mixed whereas the optimal policy in a single agent MDP is generically pure. 
+There are no known algorithms that are guaranteed to find even a single MPE, since unlike the single agent case, the system of Bellman equations
+is no longer a contraction mapping.\footnote{\footnotesize \citet{IRS:2015} introduced the {\it recursive lexicopgraphical search\/} (RLS) that can provably find all MPE
+in the subclass of dynamic directional games.}
+We now summarize several standard algorithms for solving the Bellman equation in the single agent setting.
+
+
+\subsection{Successive Approximations}
+
+As is well known, any contraction mapping on a Euclidean space has a unique fixed point, and the contraction property guarantees that the
+method of {\it successive approximations\/} i.e. the sequence $\{V_t\}$ given by $V_{t}=\Gamma(V_{t-1})$, for $t=1,2,\ldots$ starting from
+any initial starting guess $V_0$ will converge to the fixed point $V$.
+Successive approximations converge to $V$ at a geometric rate in $\beta$  and can be very slow when $\beta$ is close to 1. 
+
+\subsection{Policy Iteration}
+
+In many cases, a much faster method for solving the MDP is the {\it policy iteration\/} (PI) algorithm due to \citet{Howard:1960}. This algorithm
+cycles between {\it policy valuation\/} and {\it policy improvement\/} steps. At iteration $t$ of the PI algorithm there is a candidate
+policy $\pi_t(a|s)$. The policy valuation step calculates the value implied by this policy as $V_{\pi_t} \in R^{|S|}$ as the solution to the linear system
+\begin{equation}
+     V_{\pi_t} = r_{\pi_t} + \beta E_{\pi_t} V_{\pi_t},
+\label{eq:policy_valuation}
+\end{equation}
+where $r_{\pi_t} \in R^{|S|}$ is the vector whose $s^{\mbox{th}}$ element is $r(s,\pi_t(s))$ and $E_{\pi_t}$ is the $|S| \times |S|$ matrix whose
+with element in row $s$ and column $s'$ given by $E_{\pi_t}(s,s')=p(s'|s,\pi_t(a|s))$. It is easy to show that for any feasible policy $\pi$
+that $E_{\pi}$ is a Markov transition probability matrix with matrix norm $\|E_{\pi}\|=1$, which implies that equation (\ref{eq:policy_valuation})
+has a unique solution given by $V_{\pi_t}=[I-\beta E_{\pi_t}]^{-1} r_{\pi_t}$.\footnote{\footnotesize Alternatively we can show that the policy-specific
+Bellman operator $\Gamma_{\pi_t}(V)(s)=r(s,\pi_t(a|s))+\beta E_{\pi_t} V(s)$ in equation (\ref{eq:policy_valuation}) is a contraction.}  Given the value $V_{\pi_t}$ the  policy improvement step
+calculates a new policy $\pi_{t+1}$ given by the right hand side of equation (\ref{eq:bellman_policy}) except with $V_{\pi_t}$ substituted for $V$. 
+If $\pi_{t+1}=\pi_t$ then policy iteration has converged and it is not hard to show that $V_{\pi_t}=V$, the unique solution to Bellman's equation (\ref{eq:bellman}).
+\citet{PutermanBrumelle:1979} showed that PI is mathematically equivalent to using Newton's method to find a zero of the function $F(V)=V-\Gamma(V)$. It  is 
+well known that Newton's method is quadratically convergent, and in fact
+for discrete MDPs, PI converges in a finite number of iterations and typically the
+number of iterations is quite small, regardless of how close $\beta$ is to 1. The main downside of PI is that for problems where the state space
+is large, the work required to solve the linear system (\ref{eq:policy_valuation}) for  $V_{\pi_t}$ at each policy valuation step involves $O(|S|^3)$ operations. 
+Thus, in the absence of sparsity or other ``special structure'' for the matrices $E_{\pi_t}$,
+ alternative algorithms must be relied on for problems where the number of states $|S|$ exceeds several hundred thousand.
+
+\subsection{Avoiding the Curse of Dimensionality with function approximation}
+
+The computational burden of solving an MDP when the state space is large was recognized early on: Bellman 
+referred to the problem as the {\it curse of dimensionality.\/} For example in problems where $s$ is a continuous vector in $R^d$, 
+if we approximate Bellman's equation using interpolation with a finite grid  $N$ points in each dimension, then $|S|=N^d$ and the total
+work to solve the MDP is $O(N^{3d})$, which increases exponentially fast in $d$. Even when the state space $S$ is naturally discrete
+and finite, $|S|$ can be very large: for example in classic board games such as chess, the number of possible states (board positions)
+is estimated to be approximately $10^{44}$. Thus it is infeasible to use PI or SA to try to solve finite
+state approximations to MDPs when the true state space $S$ is sufficiently large.
+
+\citet{BD:1959} were among the first to recognize that
+one way to deal with the curse of dimensionality is to approximate the value function parametrically. For example we could represent it
+using a linear combination of fixed basis functions or approximate it with a neural network. Let $\phi$ denote the vector of parameters defining a 
+parametric approximation to $V$ with $V_\phi$ denoting the value function evaluated at parameter $\phi$. Then an alternative way to
+approximate the solution to Bellman's equation is to convert it into a nonlinear least squares problem where $\hat\phi$ is chosen
+to minimize the squared ``Bellman residuals'' over a grid of points $(s_1,\ldots,s_J)$ in $S$
+\begin{equation}
+      \hat\phi = \argmin_{\phi} \sum_{j=1}^J [V_\phi(s_j)- \Gamma(V_\phi)(s_j)]^2.
+\label{eq:nlls}
+\end{equation}
+The implied value function $V_{\hat\phi}$ is an approximate solution to Bellman's equation, (\ref{eq:bellman}).
+We can also  consider a modification of PI that we call {\it parametric policy iteration\/} (PPI), \citet{ppi:2000}, 
+which uses a parametric approximation $V_{\hat\phi_t}$ and finds $\hat\phi_t$ that mimimizes a least squares criterion
+similar to (\ref{eq:nlls}) to approximate the solution $V_{\pi_t}=r_{\pi_t}+\beta E_{\pi_t}V_{\pi_t}$ 
+to each policy valuation step $t$, (\ref{eq:policy_valuation}). When $V_\phi$
+is approximated as a linear combination of ``basis functions'', $\hat\phi_t$ can be computed by 
+linear regression rather than a nonlinear regression as in (\ref{eq:nlls}) when we 
+replace the nonlinear Bellman operator $\Gamma$ with the linear operator $E_{\pi_t}$. 
+Most of the modern methods for solving high dimensional MDPs involve the use of function approximation, either for the
+value function or the policy function, or sometimes both simultaneously. 
+
+\subsection{Reinforcement Learning}
+
+This is a class of stochastic iterative algorithms for solving for the value function $V$ and the optimal
+policy $\pi$.  A prominent example is {\it Q-learning\/} introduced by \citet{Watkins:1989} as a ``general
+formal model of an animal's behavioural choices in its environment'' and how it improves over time in response to feedback.
+In this sense Q-learning embodies a type of ``learning'' though for our purposes  it can be viewed as a stochastic algorithm
+for solving MDPs since ``Q'' is just the choice-specific value function in an alternative way of expressing the Bellman equation
+\begin{eqnarray}
+      Q(s,a) &=& r(s,a) + \beta \sum_{s'} V(s')p(s'|s,a), \label{eq:q1}   \\
+      V(s) &=& \max_{a \in A(s)} Q(s,a).
+\label{eq:q2}
+\end{eqnarray}
+Note that by substituting equation (\ref{eq:q2}) into equation (\ref{eq:q1}) we can represent $Q$ as a fixed point $Q=\Lambda(Q)$ to a mapping $\Lambda$ that
+can also be shown to be a contraction mapping. 
+$Q(s,a)$ is the value of taking action $a$ in state $s$ and the optimal policy is to choose the action with the highest $Q(s,a)$, 
+so $V(s)$ is the largest $Q$ value in state $s$. Watkins proposed a stochastic iterative algorithm for updating $Q$ given by
+\begin{equation}
+   Q_{t+1}(s_t,a_t)= Q_t(s_t,a_t) + \alpha_t \left[ r(s_t,a_t)+\beta \max_{a \in A(s_t)}[Q_t(\tilde s_{t+1},a)] - Q_t(s_t,a_t) \right],
+\label{eq:qlearning}
+\end{equation}
+where $(s_t,a_t)$ is the state and action taken by the DM at iteration $t$, and $\tilde s_{t+1}$ is a random draw from the transition probability
+$p(s'|s_t,a_t)$. Q-learning is a form of {\it stochastic aproximation\/} \citet{robbinsmunro:1951} and as such 
+the step size sequence $\{\alpha_t\}$ must converge to 0 but at a sufficiently slow rate to guarantee the probability 1 convergence
+of the stochastic sequence $\{Q_t\}$ to $Q=\Lambda(Q)$ the unique $Q$ function implied by the modified version of Bellman's in  equations (\ref{eq:q1}) and (\ref{eq:q2}) 
+as shown by \citet{DayanWatkins:1992} and \citet{Tsitsiklis:1994}.\footnote{\footnotesize The conditions on the step size are 1) $\sum_t \alpha_t = \infty$
+and 2) $\sum_t \alpha_t^2 < \infty$. Note $\alpha_t=1/t$ satisfies these conditions.}
+
+Equation (\ref{eq:qlearning}) does not specify how $a_t$ is chosen: a typical choice is the {\it greedy policy\/}
+$a_t = \argmax_{a \in A(s_t)} Q_t(s_t,a)$. However a key condition for the convergence of Q-learning is 
+that every state-action pair $(s,a)$ must be sampled an infinite
+number of times. This implies the usual exploration/exploitation tradeoff since suboptimal actions must
+be taken infinitely often for order for $Q$ learning to converge, but this need not happen under a greedy policy.
+ One solution to this problem is to use a {\it $\varepsilon$-greedy policy\/} that takes the optimal action $a_t$
+ with probability $1-\varepsilon$, and with probability $\varepsilon$ a randomly selected 
+suboptimal action (i.e. an action $a$ with $Q_t(s_t,a)<Q_t(s_t,a_t)$). However unless $\varepsilon$ converges
+to $0$ with $t$, $Q_t$ will converge to a $Q$ that does not satisfy the Bellman equation (\ref{eq:q2})
+since an $\varepsilon$-greedy policy is suboptimal.
+
+\citet{softqlearning:2017}  introduced {\it soft-Q learning\/} 
+building  on the work of \citet{ziebart:2008} on {\it maximum entropy reinforcement learning\/}
+that provides an alternative way to generate continuous exploration, ensuring that all actions are
+explored infinitely often. These result in policies that converge to mixed strategies that are self-consistent in the 
+sense that the corresponding $Q$ satisfy a modified version of the Bellman equation 
+(\ref{eq:bellman}) they refer to as the {\it soft Bellman equation.\/} The term ``maximum entropy'' refers to the
+inclusion of an ``entropy regularization'' term in the agent's objective function to result in optimal policies
+that are generically  mixed. Specifically, suppose instead of the original objective in equation (\ref{eq:vdef}), we 
+assume the agent's objective includes an entropy term, $H(\pi(s))=-\sum_{a \in A(s)}\pi(a|s)\log(\pi(a|s))$, so the
+agent maximizes
+\begin{equation}
+       V(s)= \max_\pi  V_\pi(s),  \quad \mbox{where} \;  V_\pi(s) = E_\pi \left\{\sum_{t=0}^\infty \beta^t[r(s_t,a_t)+\sigma H(\pi(s_t))]| s_0=s\right\},
+\label{eq:vdefentropy}
+\end{equation}
+where $\sigma$ is the weight on entropy. Note that when $\sigma=0$ we obtain the original MDP objective
+(\ref{eq:vdef}) and the optimal $\pi$ is generically pure and has 0 entropy,
+but as $\sigma \to \infty$ the agent's optimal policy is simply to choose each feasible action with
+equal probability, resulting in a $\pi$ with maximum entropy.  The solution $V$ to the modified DP problem
+(\ref{eq:vdefentropy}) turns out to satisfy a ``soft Bellman equation'' which  turns out to be identical
+to a version of the ``smoothed Bellman equation'' derived by \citet{rust:1988}, 
+see equations  (\ref{eq:smoothV}) and (\ref{eq:smoothQ}) of section 3. 
+
+Q-learning  is described as {\it model-free\/} since, unlike SA or PI, it does not require explicit calculation of expectations using the
+transition probability $p(s'|s,a)$: instead all that is needed is be able to {\it simulate new states using $p$.\/} In  Watkins'  example 
+of how an animal learns to adapt and thrive in its environment, it would be the environment that ``draws'' the successor state
+$s_{t+1}$ needed to implement the update in $Q_t$ in equation (\ref{eq:qlearning}). When trained in this manner Q-learning is indeed ``model-free'' 
+and so are other RL algorithms that are trained ``online''.\footnote{\footnotesize See \citet{Barto:1995} for other
+examples of online, model-free algorithms for solving DP problems they refer to as  {\it real time dynamic programming\/} (RTDP).}
+
+In many situations online Q-learning and related RL methods produce policies that 
+are too noisy and converge too slowly to be useful in practical 
+real time applications, especially when the number of states is large.  As \citet{JiangXie:2024} note, their 
+``decisions can lead to undesirable outcomes, especially at the early stages of learning when the algorithm has little knowledge of the environment. This is not a problem when the environment is a simulator, but can lead to serious consequences when people are part of the environment.''
+As a result RL training is increasingly done {\it offline\/} with
+sufficient computer power to rapidly conduct many thousands or millions of training iterations to produce a much better solution than could be achieved
+from a limited amount on real-time, online experience.  However when models are trained offline using computer simulations, 
+they may no longer be  ``model-free'' since the computer needs 
+the transition probability  $p(s'|s,a)$ to make simulated draws of the
+successor states, $s_{t+1}$, needed by the Q-learning algorithm.\footnote{\footnotesize The use of Q learning
+to train chess strategies is an interesting intermediate case: it is not considered to be
+``model-free'' even though the functional form of $p(s'|s,a)$ for chess is unknown since
+this transition probability depends on the action of the opponent. However because the opponent's
+move can be simulated via self-play, the use of Q-learning in chess is considered to be
+``model-based''.}  The ability to simulate from the true $p(s'|s,a)$  (or a good approximation to it)
+and for sufficient number of iterations, is  the key to producing good solutions using RL.
+In section 4 we return to this issue, showing that when we have sufficient data on state/action transitions in
+data on {\it past behavior\/} IRL can use this information to learn agents' rewards in an offline
+training in a way that is model-free.
+
+Tabular (i.e. finite state/action) Q-learning, (\ref{eq:qlearning}), is far to slow for MDPs with large state or action spaces. 
+One scalable solution to this problem to use a  Deep Q-Network (DQN), which is a deep convolutional neural network with parameters $\phi$ 
+that parameterizes the Q-function as $Q_\phi(s,a)$ similar to the way $V$ is approximated by $V_\phi$ in (\ref{eq:nlls}).
+This transforms the problem from iteratively updating Q-values, as in (\ref{eq:qlearning})
+to using stochastic gradient descent to find $\phi$ that minimizes the mean squared Bellman error $\rho(\phi)$ corresponding to
+(\ref{eq:q2})  given by
+\begin{equation} 
+   \rho(\phi) = \sum_{i=1}^N \left[ r(s_i,a_i)+\beta \sum_{s'} \max_{a \in A(s_i)} Q_\phi(s',a)p(s'|s_i,a_i) - Q_\phi(s_i,a_i)\right]^2,
+\label{eq:dqnideal}
+\end{equation}
+over a grid of $N$ points $\{(s_i,a_i)\}$. However the problem with directly
+minimizing $\rho(\phi)$ over $\phi$ in (\ref{eq:dqnideal}) is that forming a grid is challenging and the transition probability
+$p$ may be unknown. \citet{mnih:2015} introduced a stochastic iterative procedure that converges to a $\hat\phi$ that
+approximately minimizes the Bellman error $\rho(\phi)$ and applied it to train effective strategies
+for classic Atari 2600 video games. Similar methods were subsequently used for
+board games such as chess, Go and Shogu, see \citet{Silver:2018}. Simulated data were generated using {\it self-play\/} where
+each player makes choices using a trial policy $\pi$ resulting in 
+a simulated data set $\mathcal{D}$ of $(s,a,s')$ sequences. Then they used  stochastic gradient descent to minimize 
+an approximation to the squared Bellman error (\ref{eq:dqnideal}) using the mean squared {\it temporal difference error\/}
+\begin{equation}
+      \rho(\phi) = \mathbb{E}_{(s,a,s')\sim\mathcal{D}} \left[ \left(r(s,a) + \beta \max_{a'} Q_{\hat\phi}(s', a') - Q_\phi(s, a) \right)^2 \right],
+\label{eq:dqn_loss}
+\end{equation}
+where $\mathbb{E}_{(s,a,s')\sim\mathcal{D}}$ denotes the sample average over the simulated data set $\mathcal{D}$.
+Note that in (\ref{eq:dqn_loss}) $\hat\phi$ is a lagged value of the network parameters from
+previous training iterations. Use of $\hat\phi$ instead of $\phi$ in (\ref{eq:dqn_loss}) is motivated by the fact that
+the combination of off-policy learning, bootstrapping from subsequent estimates, and the use of a 
+flexible nonlinear function approximator (the `deadly triad') can lead to instability and non-convergence
+as noted by \citet{BartoSutton:2020}. Two innovations in the DQN avoided these problems.  
+The first was \textit{experience replay}, whereby transitions are stored in a large ``replay buffer'' $\mathcal{D}$. 
+The network is then trained on mini-batches of transitions sampled uniformly randomly from $\mathcal{D}$, breaking 
+the strong temporal correlations in the sequence of observations (e.g. persistent streaks in certain parts of the state space), 
+thereby stabilizing the updates by conforming more closely to the i.i.d. assumptions underlying most stochastic gradient methods.
+The second innovation is the use of a separate \textit{target network} with parameters $\hat\phi$,  so
+that  $Q_{\hat\phi}$  is a lagged version of the current or ``online'' network $Q_\phi$. 
+Keeping the target network's parameters
+$\hat\phi$ fixed for several iterations of the overall stochastic descent algorithm, keeps the optimization target stable, 
+preventing the online network from attempting to converge to a non-stationary objective. 
+Together, these innovations mitigated the deadly triad and enabled Q-learning to scale to very high-dimensional problems that 
+were previously intractable.\footnote{\footnotesize 
+\citet{mnih:2015} demonstrated that a single deep reinforcement learning agent could learn to play a diverse 
+suite of Atari 2600 games directly from raw pixel inputs and game scores. It reused the same neural 
+network architecture and hyperparameters across all tasks. Without any game-specific engineering, the DQN agent 
+achieved human-level performance in several games. Despite this achievement, 
+it should be highlighted that they did not demonstrate that their DQN converged to the optimal value function as
+the convergence of the approach is still an open question.  Proofs of convergence for stochasti RL
+algorithms involving function approximation do exist: \citet{TsitsiklisVanRoy:1997} proved the probability 1
+convergence for Temporal Difference (TD) methods in the case where $V_\phi$ is parameterized as a linear
+combination of basis functions.}
+
+Later studies confirmed that minimizing Bellman error in deep RL does not ensure recovery of the optimal value function. Empirical results show that agents can achieve low Bellman error on replay data while learning suboptimal policies due to overfitting and distribution shift \citet{fu2019diagnosing}. Theoretical work provides explicit examples where many Q-functions satisfy the Bellman equation on sampled data but only one is optimal, and Bellman error can be minimized by poor value functions in the finite data regime \citet{fujimoto22a}. Despite these gaps, deep RL results in policies that exhibit human level and often superhuman levels
+of peformance in a variety of high dimensional problems where standard methods such as value or policy iteration
+ are infeasible.
+ 
+
+%cite RL survey by \citet{RLsurvey:2025} and other key books on AI and RL
+%\citet{RussellNorvig:2022} and \citet{BartoSutton:2020} and \citet{bertsekas:2025}
+%
+%
+%non-convergence of deep Q learning and other types of Q learning with function
+%approximation \citet{TsitsiklisVanRoy:1997}, \citet{Zhang:2023}
+%discuss Deep Q learning, and training via self-play and other RL algorithms including 
+%\citet{mnih:2015} \citet{deepqtheory:2020} \citet{JiangXie:2024}
+%
+%
+%and possiby work on  model based RL \citet{MBRLsurvey:2022}
+%
+%Williams 1992 REINFORCE
+%policy gradient \citet{suttonpolicygradient:1999}
+%TRPO  \citet{trpo:2015}
+%PPO \citet{ppo:2017}
+%\citet{fgcnpg:2021}
+%In recent years, several different approaches have been proposed for reinforcement learning with neural network function approximators. The leading contenders are deep Q-learning [Mni+15], “vanilla” policy gradient methods [Mni+16], and trust region / natural policy gradient methods [Sch+15b]. However, there is room for improvement in developing a method that is scalable (to large models and parallel implementations), data efficient, and robust (i.e., successful on a variety of problems without hyperparameter tuning). Q-learning (with function approximation) fails on many simple problems1 and is poorly understood, vanilla policy gradient methods have poor data effiency and robustness; and trust region policy optimization (TRPO) is relatively complicated, and is not compatible with architectures that include noise (such as dropout) or parameter sharing (between the policy and value function, or with auxiliary tasks).
+%
+
+
+
+

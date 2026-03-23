@@ -7,6 +7,7 @@ from econirl.estimation.maxent_irl import MaxEntIRLEstimator
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
 from econirl.estimation.max_margin_planning import MaxMarginPlanningEstimator, MMPConfig
 from econirl.estimation.gcl import GCLEstimator, GCLConfig
+from econirl.estimation.td_ccp import TDCCPEstimator, TDCCPConfig
 from econirl.estimation.transitions import (
     estimate_transition_probs,
     estimate_transition_probs_by_group,
@@ -21,6 +22,9 @@ from econirl.estimation.adversarial import (
     TabularDiscriminator,
     LinearDiscriminator,
 )
+
+# Neural network IRL
+from econirl.estimation.gladius import GLADIUSEstimator, GLADIUSConfig
 
 __all__ = [
     # Base
@@ -37,6 +41,9 @@ __all__ = [
     "MMPConfig",
     "GCLEstimator",
     "GCLConfig",
+    # TD-CCP Neural
+    "TDCCPEstimator",
+    "TDCCPConfig",
     # Adversarial methods
     "GAILEstimator",
     "GAILConfig",
@@ -44,6 +51,9 @@ __all__ = [
     "AIRLConfig",
     "TabularDiscriminator",
     "LinearDiscriminator",
+    # Neural network IRL
+    "GLADIUSEstimator",
+    "GLADIUSConfig",
     # Utilities
     "estimate_transition_probs",
     "estimate_transition_probs_by_group",

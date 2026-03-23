@@ -1,0 +1,99 @@
+% \usetheme{Frankfurt}
+% \usetheme{Madrid}
+% \usetheme{Warsaw}
+\setbeamercolor{section in head/foot}{fg=black, bg=white}
+\definecolor{myblue}{rgb}{0,0,0.75}
+\definecolor{light}{rgb}{0.8,0.8,0.8}
+\setbeamercolor{frametitle}{fg=myblue, bg=white}
+\setbeamertemplate{mini frames}{} % this removes the little circles, since we have too many slides
+
+%the following is to ensure that subsections don't break the navigation bar
+\useoutertheme[subsection=false]{miniframes}
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd{\slideentry}{\advance\beamer@xpos by1\relax}{}{}{}
+\def\beamer@subsectionentry#1#2#3#4#5{\advance\beamer@xpos by1\relax}%
+\makeatother
+
+\usepackage[T1]{fontenc}
+\usepackage[latin9]{inputenc}
+\usepackage{tikz}  % Used for looping
+\usepackage{lipsum} % Used for looping
+\usepackage{listings}
+\usepackage{booktabs} % nice looking tables
+\usepackage{threeparttable} % footnotes for tables
+\usepackage{graphicx} % For resizebox
+\usepackage{setspace}
+\usepackage{epsfig}
+\usepackage{comment}
+\usepackage{bbold} %for nice indicator function \mathbb{1}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{textcomp}
+\usepackage{comment}
+
+% To fix frame count (so the appendix is not counted)
+\setbeamercolor{background canvas}{bg=white}
+\newcommand{\backupbegin}{
+   \newcounter{framenumberappendix}
+   \setcounter{framenumberappendix}{\value{framenumber}}
+}
+\newcommand{\backupend}{
+   \addtocounter{framenumberappendix}{-\value{framenumber}}
+   \addtocounter{framenumber}{\value{framenumberappendix}} 
+}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+\makeatletter
+
+\setbeamercovered{transparent}
+\setbeamertemplate{footline}[frame number]
+\makeatother
+\usepackage[english]{babel}
+\usepackage{setspace}
+
+\definecolor{light}{rgb}{0.8,0.8,0.8}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% NEW COMMANDS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\newcommand{\bi}{\begin{itemize}}
+\newcommand{\ei}{\end{itemize}}
+\newcommand{\bnm}{\begin{enumerate}}
+\newcommand{\enm}{\end{enumerate}}
+\newcommand{\bdm}{\begin{displaymath}}
+\newcommand{\edm}{\end{displaymath}}
+\newcommand{\bblock}{\begin{block}{}}
+\newcommand{\eblock}{\end{block}}
+\newcommand{\bcenter}{\begin{center}}
+\newcommand{\ecenter}{\end{center}}
+\newcommand{\bea}{\begin{eqnarray}}
+\newcommand{\eea}{\end{eqnarray}}
+\newcommand{\bean}{\begin{eqnarray*}}
+\newcommand{\eean}{\end{eqnarray*}}
+\newcommand{\redify} {\textcolor[rgb]{0,0,.75}}
+\newcommand{\red} {\textcolor[rgb]{1,0,0}}
+\newcommand{\blue} {\textcolor[rgb]{0,0,1}}
+\newcommand{\green} {\textcolor[rgb]{0,0.55,0}}
+\newcommand{\orange} {\textcolor[rgb]{0.8,0.4,0}}
+\newcommand{\purple} {\textcolor[rgb]{0.7,0,0.8}}
+\newcommand{\gray} {\textcolor{gray}}
+\newtheorem*{Nassumption}{Assumption}
+
+\def\argmin{\mathop{\it argmin}}
+\def\argmax{\mathop{\it argmax}}
+
+%this allows for the table with columns of fixed width and any alignment
+\usepackage{array}
+\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+
+
+
+
+

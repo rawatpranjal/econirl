@@ -1,0 +1,111 @@
+
+
+\section{Introduction\label{sec:introduction}}
+
+This article compares {\it dynamic discrete choice\/} (DDC), a subfield of structural econometrics (SE),
+to {\it inverse reinforcement learning\/} (IRL), a subfield of machine learning (ML). 
+The goal of both is to infer preferences of individuals from observations of their choices over time 
+assuming they are {\it rational,\/} i.e. that their choices over time maximize an expected reward (or ``utility'') function based on 
+beliefs of how their actions affect uncertain current and future outcomes and payoffs. 
+Individual  choices are affected by stochastic shocks that make their behavior appear probabilistic
+from the standpoint of outside observers. DDC and IRL share a common framework, Markovian decision processes (MDP)
+that can be viewed as dynamic versions of {\it random utility models\/} in economics, allowing
+inference of preferences by methods such as
+maximum likelihood, see \citet{mcfadden:1973} and \citet{rust:1987}. DDC and IRL differ primarily in the methods used to
+solve the MDP, conduct inference, as well as the overall rationale for inferring preferences.
+
+SE focuses on  testing and evaluating economic theories and making {\it counterfactual predictions\/}
+of the effect of changes in the environment and
+economic policies on economic behavior, outcomes, and welfare.\footnote{\footnotesize In economics ``policy'' refers to government interventions (tax rates, regulations, etc.), whereas
+in RL/MDP it refers to a {\it decision rule,\/} i.e. a mapping of states into a probability distribution over actions.} 
+SE differs from {\it reduced-form econometrics\/} that focus on summarizing behavior without attempting to infer 
+preferences and thus without requiring the rationality assumption, analogous to the corresponding distinction
+ between IRL and {\it imitation learning\/} (IL) in the ML literature.\footnote{\footnotesize
+Other names for this include {\it behavioral cloning,\/} {\it learning from demonstration\/} and {\it apprenticeship learning.\/}
+These are types of {\it supervised learning\/} in the ML literature, where an 
+individual's decision rule can be learned from sufficient data on pairs of actions and states, $(a,s)$, without
+any assumption that actions taken are ``optimal'',  see \citet{hussein:2018}.}
+Reduced-form models can be used to make
+some types of counterfactual predictions when there is sufficient
+historical variation in policies to allow them to be treated as covariates in the model.
+By uncovering preferences, SE models allow us to assess the welfare impacts of policy changes that are not
+possible using reduced-form models and enable 
+counterfactual predictions of policy changes that have no close historical antecedent.
+
+For example, Denmark has long had one of the world's highest tax rates on new cars, but with little historical variation 
+that could be used by reduced form approaches to predict how reductions in this tax would affect the Danish economy.
+\citet{GIMRS:2022} structurally estimated an equilibrium model of ownership and trading of cars to recover consumer preferences
+under the high tax {\it status quo\/} regime, and used it to compute counterfactual equilibria under a variety of alternative tax rates.
+They showed that by reducing the tax on new cars and increasing the gas tax, Denmark can: 1) improve the welfare of most of its citizens,
+2) increase total tax revenue from cars, and 3) reduce total $\mbox{CO}_2$ pollution.
+Credible structural models are a faster, cheaper way of predicting the effects of policy changes by 
+``crash testing'' them with computer simulations before actually implementing them in reality.
+
+IRL, introduced by \citet{ng:2000}, builds on {\it reinforcement learning\/} (RL) \citep{BartoSutton:1998}. Its goal is to develop intelligent agents that can perform complex robotic and intellectual tasks without
+the need for explicit programming or an explicit reward function to direct behavior. The success of ML 
+is largely due to supervised learning algorithms (such as neural networks) to predict outcomes using labeled data. 
+However this is data-intensive and does not naturally handle sequential decision making 
+where actions have long-term consequences. RL overcomes this by training agents to maximize a reward through trial-and-error,
+via repeated dynamic interactions with the environment. 
+When the reward function is known, RL can  approximate optimal behavior without labeled examples. Chess is an example with a known reward (1 for a win, -1 for a loss and 0 for a draw). RL has been able to learn superhuman performance via {\it self-play,\/} i.e. repeatedly playing the algorithm against itself resulting in performance that exceeds the best human and computerized chess players, see e.g. \citet{Silver:2018}.
+
+Unfortunately, it is often unclear what reward function to use to program tasks in AI and robotic applications using RL.
+For example, \citet{christiano:2017} note that RL provides no guidance on the appropriate reward function to 
+``train a robot to clean a table or scramble an egg.''  
+IRL solves this by learning a reward function from limited data on human or expert demonstrations. Using the inferred reward function, 
+these algorithms can be  trained more rapidly and cheaply via RL using computer simulations that result in
+ intelligent behavior consistent with human preferences in situations outside of those in a limited demonstration
+data set.
+For example, Google Maps trip data \citep{Barnes:2024} revealed travelers' route preferences reflecting trade-offs between traffic, distance, hills, safety, and scenery. They massively scaled IRL to estimate a route preference function (360M parameters, 110M trips) enabling RL to generate recommendations achieving 16-24\% improvement in global route quality, and to the best of our knowledge, represents the largest published application of IRL in a real-world setting to date.
+
+Section 2 reviews Dynamic Programming (DP) and Markovian Decision Processes (MDP), the common framework
+used in the DDC and IRL literatures, and reinforcement learning (RL). Section 3 reviews the DDC literature
+and section 4 the IRL literature. Section 5 concludes, comparing/contrasting
+the literatures and the key challenges and limitations they both face.
+
+%\begin{table}[h!]
+%\centering
+%\caption{List of abbreviations and acronyms}
+%\begin{tabular}{|l|l|}
+%\hline
+%\textbf{Abbreviation} & \textbf{Full Name} \\
+%\hline
+%AI & Artificial Intelligence \\
+%AIRL & Adversarial Inverse Reinforcement Learning\\
+%AGI & Artificial General Intelligence \\
+%AL & Apprenticeship Learning \\
+%BC & Behavioral Cloning \\
+%BIRL & Bayesian Inverse Reinforcement Learning\\
+%CCP & Conditional Choice Probability \\
+%CCS & Conditional Choice Simulator \\
+%DDC & Dynamic Discrete Choice \\
+%DM  & Decision Maker (Agent) \\
+%DNN & Deep Neural Network \\
+%DP  & Dynamic Programming \\
+%DSE & Dynamic Structural Estimation \\
+%DU & Discounted Utility \\
+%EU   & Expected Utility\\
+%IOC & Inverse Optimal Control \\
+%IL & Imitation Learning  \\
+%IRL & Inverse Reinforcement Learning\\
+%MCMC & Markov Chain Monte Carlo \\
+%MDP & Markovian Decision Process \\
+%ML & Machine Learning \\
+%MPE & Markov perfect Equilibrium \\
+%MPEC & Mathematical Programming with Equilibrium Constraints\\
+%NFXP & Nested Fixed Point \\
+%%PG & Policy Gradient \\
+%PI  & Policy Iteration \\
+%%PPO & Proximal Policy Optimization \\
+%RFE & Reduced Form Estimation \\
+%RL & Reinforcement Learning  \\
+%RLHF & Reinforcement Learning from Human Feedback \\
+%RTDP & Real Time Dynamic Programming \\
+%SA  & Successive Approximations \\
+%TD  & Temporal Difference\\
+%%TRPO & Trust Region Polcy Optimization \\
+%%XAI, XRL & Explainable AI, RL \\
+%\hline
+%\end{tabular}
+%\label{tab:abbrevs}
+%\end{table}

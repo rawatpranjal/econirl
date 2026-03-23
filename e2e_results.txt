@@ -1,0 +1,32 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0 -- /Users/pranjal/Code/econirl/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/pranjal/Code/econirl
+configfile: pyproject.toml
+plugins: cov-7.0.0
+collecting ... collected 800 items
+
+tests/benchmarks/test_convergence.py::test_vi_converges_rust_bus PASSED
+tests/benchmarks/test_convergence.py::test_vi_converges_gridworld PASSED
+tests/benchmarks/test_convergence.py::test_soft_bellman_is_contraction PASSED
+tests/benchmarks/test_convergence.py::test_contraction_multiple_steps PASSED
+tests/benchmarks/test_convergence.py::test_policy_valid_distribution PASSED
+tests/benchmarks/test_convergence.py::test_mce_feature_matching_at_convergence PASSED
+tests/benchmarks/test_gradient_checks.py::test_nfxp_numerical_gradient PASSED
+tests/benchmarks/test_gradient_checks.py::test_ccp_numerical_gradient PASSED
+tests/benchmarks/test_gradient_checks.py::test_hessian_symmetry PASSED
+tests/benchmarks/test_gradient_checks.py::test_hessian_negative_definite_at_true PASSED
+tests/benchmarks/test_identification.py::test_hessian_full_rank PASSED
+tests/benchmarks/test_identification.py::test_negative_hessian_positive_eigenvalues PASSED
+tests/benchmarks/test_identification.py::test_identification_status_well_identified PASSED
+tests/benchmarks/test_identification.py::test_collinear_features_detected PASSED
+tests/benchmarks/test_identification.py::test_condition_number_finite PASSED
+tests/benchmarks/test_parameter_recovery.py::test_nfxp_rust_bus FAILED
+tests/benchmarks/test_parameter_recovery.py::test_ccp_rust_bus FAILED
+tests/benchmarks/test_parameter_recovery.py::test_mce_irl_rust_bus FAILED
+tests/benchmarks/test_parameter_recovery.py::test_maxent_irl_rust_bus FAILED
+tests/benchmarks/test_parameter_recovery.py::test_td_ccp_rust_bus PASSED
+tests/benchmarks/test_parameter_recovery.py::test_td_ccp_multi_component_k2 PASSED
+tests/benchmarks/test_parameter_recovery.py::test_gladius_rust_bus PASSED
+tests/benchmarks/test_parameter_recovery.py::test_gail_rust_bus /opt/homebrew/Cellar/python@3.11/3.11.14_1/Frameworks/Python.framework/Versions/3.11/lib/python3.11/multiprocessing/resource_tracker.py:254: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

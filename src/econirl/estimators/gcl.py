@@ -106,6 +106,7 @@ class GCL:
         n_sample_trajectories: int = 100,
         trajectory_length: int = 50,
         importance_clipping: float = 10.0,
+        normalize_reward: bool = False,
         verbose: bool = False,
     ):
         self.n_states = n_states
@@ -118,6 +119,7 @@ class GCL:
         self.n_sample_trajectories = n_sample_trajectories
         self.trajectory_length = trajectory_length
         self.importance_clipping = importance_clipping
+        self.normalize_reward = normalize_reward
         self.verbose = verbose
 
         # Fitted attributes
@@ -204,6 +206,7 @@ class GCL:
             n_sample_trajectories=self.n_sample_trajectories,
             trajectory_length=self.trajectory_length,
             importance_clipping=self.importance_clipping,
+            normalize_reward=self.normalize_reward,
             verbose=self.verbose,
         )
         self._estimator = GCLEstimator(config=config)
