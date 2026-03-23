@@ -277,6 +277,7 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
         DeepMaxEntIRLEstimator,
         FIRLEstimator,
         NNESEstimator,
+        SEESEstimator,
         CCPEstimator,
         GAILEstimator,
         GCLEstimator,
@@ -472,6 +473,17 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
             ),
             name="f-IRL",
             can_recover_params=False,
+        ),
+        EstimatorSpec(
+            SEESEstimator,
+            kwargs=dict(
+                basis_type="fourier",
+                basis_dim=8,
+                penalty_lambda=0.01,
+                compute_se=False,
+            ),
+            name="SEES",
+            can_recover_params=True,
         ),
     ]
 

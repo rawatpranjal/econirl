@@ -40,6 +40,9 @@ from econirl.estimation.nnes import NNESEstimator
 # f-IRL
 from econirl.estimation.f_irl import FIRLEstimator
 
+# SEES
+from econirl.estimation.sees import SEESEstimator
+
 __all__ = [
     # Base
     "Estimator",
@@ -79,6 +82,8 @@ __all__ = [
     "NNESEstimator",
     # f-IRL
     "FIRLEstimator",
+    # SEES
+    "SEESEstimator",
     # Utilities
     "estimate_transition_probs",
     "estimate_transition_probs_by_group",
