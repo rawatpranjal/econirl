@@ -92,6 +92,8 @@ class BenchmarkResult:
     pct_optimal_transfer: float | None = None
     estimates: dict[str, float] = field(default_factory=dict)
     true_params: dict[str, float] = field(default_factory=dict)
+    estimated_reward: torch.Tensor | None = None
+    true_reward: torch.Tensor | None = None
 
 
 def _make_env(dgp: BenchmarkDGP) -> MultiComponentBusEnvironment:
@@ -147,9 +149,8 @@ def _evaluate_pct_optimal(
 
 
 def _compute_transfer_pct_optimal(
-    est_params: torch.Tensor,
-    true_params: torch.Tensor,
-    feature_matrix: torch.Tensor,
+    est_utility: torch.Tensor,
+    true_utility: torch.Tensor,
     problem: DDCProblem,
     dgp: BenchmarkDGP,
 ) -> float:
@@ -158,6 +159,12 @@ def _compute_transfer_pct_optimal(
     Creates a transfer environment with different mileage wear rates,
     re-solves the MDP using estimated rewards, and evaluates the resulting
     policy under true rewards + new transitions.
+
+    Args:
+        est_utility: Estimated reward matrix (n_states, n_actions).
+        true_utility: True reward matrix (n_states, n_actions).
+        problem: MDP specification.
+        dgp: DGP with transfer_transition_probs.
     """
     transfer_env = MultiComponentBusEnvironment(
         K=1,
@@ -169,9 +176,6 @@ def _compute_transfer_pct_optimal(
         mileage_transition_probs=dgp.transfer_transition_probs,
     )
     transfer_transitions = transfer_env.transition_matrices
-
-    true_utility = torch.einsum("sak,k->sa", feature_matrix, true_params)
-    est_utility = torch.einsum("sak,k->sa", feature_matrix, est_params)
 
     # True optimal under transfer
     operator = SoftBellmanOperator(problem=problem, transitions=transfer_transitions)
@@ -415,15 +419,23 @@ def run_single(
                 summary.policy, true_utility, transitions, problem,
             )
 
-        # Transfer % of optimal (only for param-recovering estimators)
+        # Reward matrices for visualization
+        estimated_reward = None
+        if summary.parameters is not None:
+            n_s, n_a = problem.num_states, problem.num_actions
+            if spec.name == "GCL":
+                # GCL returns cost parameters c(s,a) — negate to get rewards
+                estimated_reward = -summary.parameters.reshape(n_s, n_a)
+            elif len(summary.parameters) == len(true_params):
+                estimated_reward = torch.einsum(
+                    "sak,k->sa", env.feature_matrix, summary.parameters
+                )
+
+        # Transfer % of optimal (any estimator with estimated rewards)
         pct_optimal_transfer = None
-        if (
-            spec.can_recover_params
-            and est_params is not None
-            and len(est_params) == len(true_params)
-        ):
+        if estimated_reward is not None:
             pct_optimal_transfer = _compute_transfer_pct_optimal(
-                est_params, true_params, env.feature_matrix, problem, dgp,
+                estimated_reward, true_utility, problem, dgp,
             )
 
         return BenchmarkResult(
@@ -439,6 +451,8 @@ def run_single(
             pct_optimal_transfer=pct_optimal_transfer,
             estimates=estimates,
             true_params=true_dict,
+            estimated_reward=estimated_reward,
+            true_reward=true_utility,
         )
     except Exception as e:
         elapsed = time.perf_counter() - t0
