@@ -275,6 +275,7 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
         BayesianIRLEstimator,
         BehavioralCloningEstimator,
         DeepMaxEntIRLEstimator,
+        NNESEstimator,
         CCPEstimator,
         GAILEstimator,
         GCLEstimator,
@@ -449,6 +450,17 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
             ),
             name="Deep MaxEnt",
             can_recover_params=False,
+        ),
+        EstimatorSpec(
+            NNESEstimator,
+            kwargs=dict(
+                hidden_dim=32,
+                v_epochs=500,
+                outer_max_iter=200,
+                compute_se=False,
+            ),
+            name="NNES",
+            can_recover_params=True,
         ),
     ]
 
