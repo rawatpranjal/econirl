@@ -170,16 +170,14 @@ class MaxMarginIRLEstimator(BaseEstimator):
             )
 
         # Sum features across all observed state-action pairs
-        total_count = 0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                if is_action_dependent:
-                    action = traj.actions[t].item()
-                    feature_expectations += feature_matrix[state, action, :]
-                else:
-                    feature_expectations += feature_matrix[state]
-                total_count += 1
+        all_states = panel.get_all_states()
+        total_count = len(all_states)
+
+        if is_action_dependent:
+            all_actions = panel.get_all_actions()
+            feature_expectations = feature_matrix[all_states, all_actions, :].sum(dim=0)
+        else:
+            feature_expectations = feature_matrix[all_states, :].sum(dim=0)
 
         # Normalize by total observations
         if total_count > 0:

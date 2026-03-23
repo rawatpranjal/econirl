@@ -239,10 +239,11 @@ class MaxEntIRLEstimator(BaseEstimator):
         initial_distribution = None
         if panel is not None:
             initial_counts = torch.zeros(problem.num_states, dtype=torch.float32)
-            for traj in panel.trajectories:
-                if len(traj) > 0:
-                    initial_state = traj.states[0].item()
-                    initial_counts[initial_state] += 1
+            init_states = torch.tensor(
+                [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
+                dtype=torch.long,
+            )
+            initial_counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
             if initial_counts.sum() > 0:
                 initial_distribution = initial_counts / initial_counts.sum()
 
@@ -336,12 +337,7 @@ class MaxEntIRLEstimator(BaseEstimator):
             log_probs = operator.compute_log_choice_probabilities(
                 reward_matrix, solver_result.V
             )
-            nll = 0.0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    state = traj.states[t].item()
-                    action = traj.actions[t].item()
-                    nll -= log_probs[state, action].item()
+            nll = -log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
 
             # Gradient of NLL = expected - empirical features
             expected_features = self._compute_expected_features(
@@ -398,12 +394,7 @@ class MaxEntIRLEstimator(BaseEstimator):
             reward_matrix, solver_result.V
         )
 
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                action = traj.actions[t].item()
-                ll += log_probs[state, action].item()
+        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
 
         # Compute Hessian for standard errors
         hessian = None
@@ -420,12 +411,7 @@ class MaxEntIRLEstimator(BaseEstimator):
                     reward_mat, solver_res.V
                 )
 
-                total_ll = 0.0
-                for traj in panel.trajectories:
-                    for t in range(len(traj)):
-                        state = traj.states[t].item()
-                        action = traj.actions[t].item()
-                        total_ll += log_p[state, action].item()
+                total_ll = log_p[panel.get_all_states(), panel.get_all_actions()].sum().item()
                 return torch.tensor(total_ll)
 
             hessian = compute_numerical_hessian(final_params, ll_fn)
@@ -517,20 +503,10 @@ class MaxEntIRLEstimator(BaseEstimator):
                 reward_minus, solver_minus.V
             )
 
-            # Compute gradients for each observation
-            obs_idx = 0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    state = traj.states[t].item()
-                    action = traj.actions[t].item()
-
-                    grad_k = (
-                        log_probs_plus[state, action]
-                        - log_probs_minus[state, action]
-                    ) / (2 * eps)
-                    gradients[obs_idx, k] = grad_k
-
-                    obs_idx += 1
+            # Compute gradients for all observations at once
+            all_states = panel.get_all_states()
+            all_actions = panel.get_all_actions()
+            gradients[:, k] = (log_probs_plus[all_states, all_actions] - log_probs_minus[all_states, all_actions]) / (2 * eps)
 
         return gradients
 

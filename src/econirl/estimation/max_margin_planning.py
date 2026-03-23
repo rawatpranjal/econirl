@@ -189,12 +189,10 @@ class MaxMarginPlanningEstimator(BaseEstimator):
         state_action_counts = torch.zeros((n_states, n_actions), dtype=torch.float32)
         state_counts = torch.zeros(n_states, dtype=torch.float32)
 
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                s = traj.states[t].item()
-                a = traj.actions[t].item()
-                state_action_counts[s, a] += 1
-                state_counts[s] += 1
+        all_states = panel.get_all_states()
+        all_actions = panel.get_all_actions()
+        state_action_counts.index_put_((all_states, all_actions), torch.ones(len(all_states), dtype=torch.float32), accumulate=True)
+        state_counts.index_put_((all_states,), torch.ones(len(all_states), dtype=torch.float32), accumulate=True)
 
         # Convert to probabilities with smoothing for unvisited states
         expert_policy = torch.zeros((n_states, n_actions), dtype=torch.float32)
@@ -314,19 +312,14 @@ class MaxMarginPlanningEstimator(BaseEstimator):
                 f"ActionDependentReward, got {type(reward_fn)}"
             )
 
-        n_features = reward_fn.num_parameters
-        feature_sum = torch.zeros(n_features, dtype=torch.float32)
-        total_count = 0
+        all_states = panel.get_all_states()
+        total_count = len(all_states)
 
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                s = traj.states[t].item()
-                if is_action_dependent:
-                    a = traj.actions[t].item()
-                    feature_sum += feature_matrix[s, a, :]
-                else:
-                    feature_sum += feature_matrix[s, :]
-                total_count += 1
+        if is_action_dependent:
+            all_actions = panel.get_all_actions()
+            feature_sum = feature_matrix[all_states, all_actions, :].sum(dim=0)
+        else:
+            feature_sum = feature_matrix[all_states, :].sum(dim=0)
 
         if total_count > 0:
             return feature_sum / total_count
@@ -608,12 +601,7 @@ class MaxMarginPlanningEstimator(BaseEstimator):
 
         # Compute log-likelihood on expert data
         log_probs = operator.compute_log_choice_probabilities(final_reward, final_V)
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                s = traj.states[t].item()
-                a = traj.actions[t].item()
-                ll += log_probs[s, a].item()
+        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
 
         # Feature matching quality
         final_policy_features = self._compute_policy_features(
@@ -705,12 +693,7 @@ class MaxMarginPlanningEstimator(BaseEstimator):
 
             log_probs = operator.compute_log_choice_probabilities(reward_matrix, result.V)
 
-            ll = 0.0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    s = traj.states[t].item()
-                    a = traj.actions[t].item()
-                    ll += log_probs[s, a].item()
+            ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
             return ll
 
         # Compute Hessian using central differences

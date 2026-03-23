@@ -297,23 +297,13 @@ class MCEIRLEstimator(BaseEstimator):
 
         if feature_matrix.ndim == 3:
             # Action-dependent features: (n_states, n_actions, n_features)
-            n_features = feature_matrix.shape[2]
-            feature_sum = torch.zeros(n_features, dtype=feature_matrix.dtype)
-
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    s = traj.states[t].item()
-                    a = traj.actions[t].item()
-                    feature_sum += feature_matrix[s, a, :]
+            all_states = panel.get_all_states()
+            all_actions = panel.get_all_actions()
+            feature_sum = feature_matrix[all_states, all_actions, :].sum(dim=0)
         else:
             # State-only features: (n_states, n_features)
-            n_features = feature_matrix.shape[1]
-            feature_sum = torch.zeros(n_features, dtype=feature_matrix.dtype)
-
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    s = traj.states[t].item()
-                    feature_sum += feature_matrix[s, :]
+            all_states = panel.get_all_states()
+            feature_sum = feature_matrix[all_states, :].sum(dim=0)
 
         if total_obs > 0:
             return feature_sum / total_obs
@@ -409,12 +399,8 @@ class MCEIRLEstimator(BaseEstimator):
                 return d @ feature_matrix
             else:
                 # Fallback: iterate over empirical states
-                n_features = feature_matrix.shape[1]
-                feature_sum = torch.zeros(n_features, dtype=feature_matrix.dtype)
-                for traj in panel.trajectories:
-                    for t in range(len(traj)):
-                        s = traj.states[t].item()
-                        feature_sum += feature_matrix[s, :]
+                all_states = panel.get_all_states()
+                feature_sum = feature_matrix[all_states, :].sum(dim=0)
                 if total_obs > 0:
                     return feature_sum / total_obs
                 return feature_sum
@@ -426,11 +412,11 @@ class MCEIRLEstimator(BaseEstimator):
     ) -> torch.Tensor:
         """Compute initial state distribution from data."""
         counts = torch.zeros(n_states, dtype=torch.float32)
-
-        for traj in panel.trajectories:
-            if len(traj) > 0:
-                initial_state = traj.states[0].item()
-                counts[initial_state] += 1
+        init_states = torch.tensor(
+            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
+            dtype=torch.long,
+        )
+        counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
 
         if counts.sum() > 0:
             return counts / counts.sum()
@@ -587,12 +573,7 @@ class MCEIRLEstimator(BaseEstimator):
 
         # Log-likelihood
         log_probs = operator.compute_log_choice_probabilities(reward_matrix, V)
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                action = traj.actions[t].item()
-                ll += log_probs[state, action].item()
+        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
 
         # Inference
         hessian = None
@@ -757,12 +738,7 @@ class MCEIRLEstimator(BaseEstimator):
             V, policy, _ = self._soft_value_iteration(operator, reward_matrix)
             log_probs = operator.compute_log_choice_probabilities(reward_matrix, V)
 
-            ll = 0.0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    state = traj.states[t].item()
-                    action = traj.actions[t].item()
-                    ll += log_probs[state, action].item()
+            ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
             return ll
 
         # Compute Hessian using central differences
