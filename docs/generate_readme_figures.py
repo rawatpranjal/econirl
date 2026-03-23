@@ -222,14 +222,14 @@ def generate_reward_heatmaps(
 
     specs = get_default_estimator_specs()
 
-    if cached is not None and only_estimators is not None:
-        # Selective re-run: only run specified estimators, keep rest from cache
+    if cached is not None:
         panels = dict(cached)
-        specs_to_run = [s for s in specs if s.name in only_estimators]
-    elif cached is not None:
-        # Full cache hit — nothing to run
-        panels = cached
-        specs_to_run = []
+        if only_estimators is not None:
+            # Selective re-run: only run specified estimators
+            specs_to_run = [s for s in specs if s.name in only_estimators]
+        else:
+            # Run any estimators missing from cache
+            specs_to_run = [s for s in specs if s.name not in cached]
     else:
         # No cache — run all (or filtered subset)
         panels = {}
@@ -245,10 +245,10 @@ def generate_reward_heatmaps(
         status = f"{result.pct_optimal:.1f}%" if not np.isnan(result.pct_optimal) else "FAIL"
         print(f"{status} ({result.time_seconds:.1f}s)")
 
-        reward = (result.estimated_reward.numpy()
+        reward = (result.estimated_reward.detach().numpy()
                   if result.estimated_reward is not None
                   else None)
-        policy = (result.learned_policy.numpy()
+        policy = (result.learned_policy.detach().numpy()
                   if result.learned_policy is not None
                   else None)
         panels[spec.name] = {
