@@ -107,7 +107,9 @@ def _save_cache(panels: dict[str, dict]) -> None:
 # ── Utilities ──────────────────────────────────────────────────────
 
 def _normalize(r: np.ndarray) -> np.ndarray:
-    """Normalize to zero-mean, unit-variance (handles IRL scale ambiguity)."""
+    """Normalize for comparison (removes unidentified state-dependent constant)."""
+    # IRL rewards are identified up to r(s,a) + f(s); center each state row
+    r = r - r.mean(axis=1, keepdims=True)
     std = r.std()
     if std < 1e-10:
         return r - r.mean()
