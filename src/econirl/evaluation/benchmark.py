@@ -282,7 +282,7 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
         GAILEstimator,
         GCLEstimator,
         GLADIUSEstimator,
-        GLADIUSConfig,
+
         MaxEntIRLEstimator,
         MaxMarginIRLEstimator,
         MaxMarginPlanningEstimator,
@@ -683,6 +683,344 @@ def run_benchmark(
             **{f"true_{k}": v for k, v in r.true_params.items()},
         })
     return pd.DataFrame(rows)
+
+
+def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
+    """Get estimator specs with hyperparameters adapted for state space size.
+
+    Adapts learning rates, network sizes, iteration counts, and sample sizes
+    to avoid catastrophic slowdowns at large state spaces while keeping
+    small-state behavior unchanged.
+
+    Args:
+        n_states: Number of states in the MDP.
+
+    Returns:
+        List of EstimatorSpec with adapted hyperparameters.
+    """
+    from econirl.estimation import (
+        AIRLEstimator,
+        BayesianIRLEstimator,
+        BehavioralCloningEstimator,
+        DeepMaxEntIRLEstimator,
+        FIRLEstimator,
+        NNESEstimator,
+        SEESEstimator,
+        CCPEstimator,
+        GAILEstimator,
+        GCLEstimator,
+        GLADIUSEstimator,
+        MaxEntIRLEstimator,
+        MaxMarginIRLEstimator,
+        MaxMarginPlanningEstimator,
+        MCEIRLEstimator,
+        NFXPEstimator,
+        TDCCPEstimator,
+        TDCCPConfig,
+    )
+
+    hidden_dim = min(64, max(32, n_states // 4))
+
+    specs = [
+        EstimatorSpec(
+            BehavioralCloningEstimator,
+            kwargs=dict(smoothing=1.0),
+            name="BC",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            NFXPEstimator,
+            kwargs=dict(
+                inner_solver="hybrid",
+                inner_max_iter=10000,
+                compute_hessian=False,
+            ),
+            name="NFXP",
+        ),
+        EstimatorSpec(
+            CCPEstimator,
+            kwargs=dict(
+                num_policy_iterations=5,
+                compute_hessian=False,
+            ),
+            name="CCP",
+        ),
+        EstimatorSpec(
+            MCEIRLEstimator,
+            kwargs=dict(
+                learning_rate=0.5,
+                use_adam=False,
+                outer_max_iter=1000,
+                inner_max_iter=10000,
+                gradient_clip=1.0,
+                compute_se=False,
+            ),
+            name="MCE IRL",
+        ),
+        EstimatorSpec(
+            MaxEntIRLEstimator,
+            kwargs=dict(
+                inner_solver="value",
+                inner_tol=1e-8,
+                inner_max_iter=5000,
+                outer_max_iter=300,
+                compute_hessian=False,
+            ),
+            name="MaxEnt IRL",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            MaxMarginPlanningEstimator,
+            kwargs=dict(
+                learning_rate=1.0,
+                max_iterations=min(3000, max(500, 10000 // n_states)),
+                compute_se=False,
+                loss_type="trajectory_hamming",
+                loss_scale=0.5,
+                regularization_lambda=0.0,
+                inner_max_iter=5000,
+            ),
+            name="Max Margin",
+        ),
+        EstimatorSpec(
+            MaxMarginIRLEstimator,
+            kwargs=dict(
+                max_iterations=50,
+                margin_tol=1e-4,
+                compute_hessian=False,
+            ),
+            name="Max Margin IRL",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            TDCCPEstimator,
+            kwargs=dict(
+                config=TDCCPConfig(
+                    hidden_dim=hidden_dim,
+                    avi_iterations=30,
+                    epochs_per_avi=20,
+                    learning_rate=5e-4,
+                    batch_size=512,
+                    compute_se=False,
+                ),
+            ),
+            name="TD-CCP",
+        ),
+        EstimatorSpec(
+            GLADIUSEstimator,
+            kwargs=dict(
+                max_epochs=500,
+                q_hidden_dim=hidden_dim,
+                v_hidden_dim=hidden_dim,
+                q_num_layers=2,
+                v_num_layers=2,
+                compute_se=False,
+                batch_size=256,
+                bellman_penalty_weight=0.1,
+                weight_decay=1e-3,
+            ),
+            name="GLADIUS",
+        ),
+        EstimatorSpec(
+            GAILEstimator,
+            kwargs=dict(
+                discriminator_type="linear",
+                max_rounds=500,
+                discriminator_lr=0.02,
+                discriminator_steps=10,
+                reward_transform="logit",
+                convergence_tol=0,
+                compute_se=False,
+            ),
+            name="GAIL",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            AIRLEstimator,
+            kwargs=dict(
+                reward_type="linear",
+                max_rounds=500,
+                reward_lr=0.02,
+                discriminator_steps=10,
+                compute_se=False,
+            ),
+            name="AIRL",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            GCLEstimator,
+            kwargs=dict(
+                max_iterations=300,
+                n_sample_trajectories=min(200, max(50, 500 // n_states)),
+                cost_lr=5e-4,
+                embed_dim=16,
+                hidden_dims=[32, 32],
+                importance_clipping=5.0,
+                normalize_reward=True,
+            ),
+            name="GCL",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            DeepMaxEntIRLEstimator,
+            kwargs=dict(
+                hidden_dims=[hidden_dim, hidden_dim],
+                lr=1e-3,
+                max_epochs=min(300, max(100, 3000 // n_states)),
+            ),
+            name="Deep MaxEnt",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            NNESEstimator,
+            kwargs=dict(
+                hidden_dim=hidden_dim,
+                v_epochs=500,
+                outer_max_iter=200,
+                compute_se=False,
+            ),
+            name="NNES",
+            can_recover_params=True,
+        ),
+        EstimatorSpec(
+            FIRLEstimator,
+            kwargs=dict(
+                f_divergence="kl",
+                lr=0.5,
+                max_iter=500,
+            ),
+            name="f-IRL",
+            can_recover_params=False,
+        ),
+        EstimatorSpec(
+            SEESEstimator,
+            kwargs=dict(
+                basis_type="fourier",
+                basis_dim=8,
+                penalty_lambda=0.01,
+                compute_se=False,
+            ),
+            name="SEES",
+            can_recover_params=True,
+        ),
+    ]
+
+    # Skip BIRL for large state spaces (2000 MCMC x full VI = catastrophic)
+    if n_states <= 50:
+        specs.append(
+            EstimatorSpec(
+                BayesianIRLEstimator,
+                kwargs=dict(
+                    n_samples=2000,
+                    burnin=500,
+                    proposal_sigma=0.1,
+                    prior_sigma=5.0,
+                ),
+                name="BIRL",
+                can_recover_params=False,
+            ),
+        )
+
+    return specs
+
+
+def run_scaling_benchmark(
+    state_sizes: list[int] | None = None,
+    seed: int = 42,
+    timeout_seconds: float = 300,
+) -> pd.DataFrame:
+    """Run all estimators across a range of state space sizes.
+
+    Adapts data richness (n_agents, n_periods) to each state size so
+    estimation is never data-starved. Tracks wall-clock time and skips
+    estimators that exceed the timeout at smaller sizes.
+
+    Args:
+        state_sizes: List of state space sizes to test.
+            Defaults to [5, 10, 20, 50, 100, 200, 500].
+        seed: Random seed for data simulation.
+        timeout_seconds: If an estimator exceeds this at one state size,
+            skip it at all larger sizes.
+
+    Returns:
+        DataFrame with columns: estimator, n_states, n_agents, n_periods,
+        time_seconds, pct_optimal, converged.
+    """
+    if state_sizes is None:
+        state_sizes = [5, 10, 20, 50, 100, 200, 500]
+
+    results: list[dict] = []
+    timed_out: set[str] = set()
+
+    for n_states in sorted(state_sizes):
+        n_agents = max(200, 2 * n_states)
+        n_periods = max(100, n_states)
+        dgp = BenchmarkDGP(n_states=n_states, discount_factor=0.99)
+        specs = get_scaling_estimator_specs(n_states)
+
+        print(f"\n--- n_states={n_states}, n_agents={n_agents}, "
+              f"n_periods={n_periods} ---")
+
+        for spec in specs:
+            if spec.name in timed_out:
+                results.append({
+                    "estimator": spec.name,
+                    "n_states": n_states,
+                    "n_agents": n_agents,
+                    "n_periods": n_periods,
+                    "time_seconds": float("nan"),
+                    "pct_optimal": float("nan"),
+                    "converged": False,
+                    "skipped": True,
+                })
+                continue
+
+            result = run_single(
+                dgp, spec, n_agents=n_agents,
+                n_periods=n_periods, seed=seed,
+            )
+
+            results.append({
+                "estimator": spec.name,
+                "n_states": n_states,
+                "n_agents": n_agents,
+                "n_periods": n_periods,
+                "time_seconds": result.time_seconds,
+                "pct_optimal": result.pct_optimal,
+                "converged": result.converged,
+                "skipped": False,
+            })
+
+            status = "OK" if result.converged else "FAIL"
+            print(f"  {spec.name:>15s}: {result.time_seconds:7.1f}s  "
+                  f"pct_optimal={result.pct_optimal:6.1f}%  [{status}]")
+
+            if result.time_seconds > timeout_seconds:
+                timed_out.add(spec.name)
+                print(f"  {'':>15s}  ^ timed out — skipping at larger sizes")
+
+    df = pd.DataFrame(results)
+
+    # Print pivot table summary
+    print("\n=== Scaling Benchmark Summary (time in seconds) ===")
+    estimator_names = df["estimator"].unique()
+    state_cols = sorted(df["n_states"].unique())
+
+    header = f"{'':>15s}" + "".join(f"  n={s:<5d}" for s in state_cols)
+    print(header)
+
+    for est in estimator_names:
+        row_str = f"{est:>15s}"
+        for s in state_cols:
+            cell = df[(df["estimator"] == est) & (df["n_states"] == s)]
+            if cell.empty or cell.iloc[0]["skipped"]:
+                row_str += f"  {'---':>6s}"
+            else:
+                t = cell.iloc[0]["time_seconds"]
+                row_str += f"  {t:6.1f}"
+        print(row_str)
+
+    return df
 
 
 def summarize_benchmark(df: pd.DataFrame) -> pd.DataFrame:

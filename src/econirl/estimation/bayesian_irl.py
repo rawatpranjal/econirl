@@ -120,12 +120,9 @@ class BayesianIRLEstimator(BaseEstimator):
             reward_matrix, solver_result.V
         )
 
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                s = traj.states[t].item()
-                a = traj.actions[t].item()
-                ll += log_probs[s, a].item()
+        all_states = panel.get_all_states()
+        all_actions = panel.get_all_actions()
+        ll = log_probs[all_states, all_actions].sum().item()
 
         return self._confidence * ll
 
@@ -213,12 +210,9 @@ class BayesianIRLEstimator(BaseEstimator):
         log_probs = operator.compute_log_choice_probabilities(
             reward_matrix, solver_result.V
         )
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                s = traj.states[t].item()
-                a = traj.actions[t].item()
-                ll += log_probs[s, a].item()
+        all_states = panel.get_all_states()
+        all_actions = panel.get_all_actions()
+        ll = log_probs[all_states, all_actions].sum().item()
 
         elapsed = time.time() - start_time
 

@@ -102,12 +102,12 @@ class FIRLEstimator(BaseEstimator):
         Returns:
             State-action marginal, shape (n_states, n_actions), sums to 1.
         """
-        counts = torch.zeros(n_states, n_actions)
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                s = traj.states[t].item()
-                a = traj.actions[t].item()
-                counts[s, a] += 1
+        all_states = panel.get_all_states()
+        all_actions = panel.get_all_actions()
+        idx = all_states * n_actions + all_actions
+        counts = torch.zeros(n_states * n_actions).scatter_add_(
+            0, idx.long(), torch.ones(idx.shape[0])
+        ).reshape(n_states, n_actions)
         total = counts.sum()
         return counts / total.clamp(min=1)
 
@@ -128,9 +128,11 @@ class FIRLEstimator(BaseEstimator):
 
         # Initial state distribution from data
         init_counts = torch.zeros(n_states)
-        for traj in panel.trajectories:
-            if len(traj) > 0:
-                init_counts[traj.states[0].item()] += 1
+        init_states = torch.tensor(
+            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
+            dtype=torch.long,
+        )
+        init_counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
         mu = init_counts / init_counts.sum().clamp(min=1)
 
         # Forward propagation of state visitation
@@ -233,12 +235,9 @@ class FIRLEstimator(BaseEstimator):
             log_probs = operator.compute_log_choice_probabilities(
                 reward, solver_result.V,
             )
-            ll = 0.0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    s = traj.states[t].item()
-                    a = traj.actions[t].item()
-                    ll += log_probs[s, a].item()
+            all_states = panel.get_all_states()
+            all_actions = panel.get_all_actions()
+            ll = log_probs[all_states, all_actions].sum().item()
 
             if ll > best_ll:
                 best_ll = ll

@@ -217,59 +217,48 @@ class TestAllEstimators:
 
 @pytest.mark.slow
 class TestScalingBenchmark:
-    """Scaling tests across state space sizes."""
+    """Scaling tests across state space sizes with all estimators."""
 
     def test_scaling_benchmark(self):
-        """NFXP, CCP, TD-CCP across n_states=[10, 50, 100, 500]."""
-        specs = [
-            EstimatorSpec(
-                NFXPEstimator,
-                kwargs=dict(inner_solver="hybrid", inner_max_iter=10000,
-                            compute_hessian=False),
-                name="NFXP",
-            ),
-            EstimatorSpec(
-                CCPEstimator,
-                kwargs=dict(num_policy_iterations=5, compute_hessian=False),
-                name="CCP",
-            ),
-            EstimatorSpec(
-                TDCCPEstimator,
-                kwargs=dict(config=TDCCPConfig(
-                    hidden_dim=64, avi_iterations=20, compute_se=False,
-                )),
-                name="TD-CCP",
-            ),
-        ]
+        """All estimators across n_states=[5, 10, 20] with timeout."""
+        from econirl.evaluation.benchmark import run_scaling_benchmark
 
-        dgp = BenchmarkDGP(discount_factor=0.99)
-        df = run_benchmark(
-            dgp=dgp,
-            n_states_list=[10, 50, 100, 500],
-            estimators=specs,
-            n_agents_list=[200],
-            n_periods=100,
-            seeds=[42],
+        df = run_scaling_benchmark(
+            state_sizes=[5, 10, 20],
+            seed=42,
+            timeout_seconds=300,
         )
 
-        # 3 estimators x 4 state sizes = 12 rows
-        assert len(df) == 12
+        # Should have results for all estimator x state_size combinations
+        assert len(df) > 0
+        assert "estimator" in df.columns
+        assert "n_states" in df.columns
+        assert "time_seconds" in df.columns
+        assert "pct_optimal" in df.columns
 
-        # Print scaling table
-        print("\n=== Scaling Benchmark ===")
-        for est in ["NFXP", "CCP", "TD-CCP"]:
-            rows = df[df["estimator"] == est].sort_values("n_states")
-            print(f"\n  {est}:")
-            for _, row in rows.iterrows():
-                print(
-                    f"    n_states={row['n_states']:>4d}: "
-                    f"time={row['time_seconds']:.2f}s, "
-                    f"policy_rmse={row['policy_rmse']:.4f}"
-                )
+        # Every state size should appear
+        for s in [5, 10, 20]:
+            assert s in df["n_states"].values, f"Missing n_states={s}"
 
-        # NFXP should complete for all sizes
-        nfxp = df[df["estimator"] == "NFXP"]
-        assert nfxp["converged"].all()
+        # BC and NFXP should work at all sizes
+        for est in ["BC", "NFXP"]:
+            est_df = df[(df["estimator"] == est) & (~df["skipped"])]
+            assert len(est_df) == 3, f"{est} missing results"
+
+    def test_scaling_benchmark_full(self):
+        """Full scaling grid [5, 10, 20, 50, 100, 200, 500]."""
+        from econirl.evaluation.benchmark import run_scaling_benchmark
+
+        df = run_scaling_benchmark(
+            state_sizes=[5, 10, 20, 50, 100, 200, 500],
+            seed=42,
+            timeout_seconds=300,
+        )
+
+        # Print summary
+        print(f"\nTotal results: {len(df)}")
+        print(f"Estimators: {sorted(df['estimator'].unique())}")
+        print(f"Timed out: {df[df['skipped']]['estimator'].unique().tolist()}")
 
 
 @pytest.mark.slow

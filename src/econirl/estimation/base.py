@@ -289,21 +289,11 @@ class BaseEstimator(ABC):
         Returns:
             Fraction of observations where modal prediction matches choice
         """
-        correct = 0
-        total = 0
-
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                action = traj.actions[t].item()
-
-                # Predicted action is the one with highest probability
-                predicted = policy[state].argmax().item()
-
-                if predicted == action:
-                    correct += 1
-                total += 1
-
+        all_states = panel.get_all_states()
+        all_actions = panel.get_all_actions()
+        predicted = policy[all_states].argmax(dim=1)
+        total = all_states.shape[0]
+        correct = (predicted == all_actions).sum().item()
         return correct / total if total > 0 else 0.0
 
     def _log(self, message: str) -> None:

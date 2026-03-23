@@ -30,16 +30,8 @@ class AdversarialEstimatorBase(BaseEstimator):
         batch_size: int | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Sample state-action pairs from expert demonstrations."""
-        all_states = []
-        all_actions = []
-
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                all_states.append(traj.states[t].item())
-                all_actions.append(traj.actions[t].item())
-
-        states = torch.tensor(all_states, dtype=torch.long)
-        actions = torch.tensor(all_actions, dtype=torch.long)
+        states = panel.get_all_states()
+        actions = panel.get_all_actions()
 
         if batch_size is not None and batch_size > 0 and batch_size < len(states):
             indices = torch.randperm(len(states))[:batch_size]
@@ -52,20 +44,10 @@ class AdversarialEstimatorBase(BaseEstimator):
         panel: Panel,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample (s, a, s') transitions from expert demonstrations."""
-        states = []
-        actions = []
-        next_states = []
-
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                states.append(traj.states[t].item())
-                actions.append(traj.actions[t].item())
-                next_states.append(traj.next_states[t].item())
-
         return (
-            torch.tensor(states, dtype=torch.long),
-            torch.tensor(actions, dtype=torch.long),
-            torch.tensor(next_states, dtype=torch.long),
+            panel.get_all_states(),
+            panel.get_all_actions(),
+            panel.get_all_next_states(),
         )
 
     def _sample_from_policy(
@@ -133,11 +115,11 @@ class AdversarialEstimatorBase(BaseEstimator):
     ) -> torch.Tensor:
         """Compute initial state distribution from data."""
         counts = torch.zeros(n_states, dtype=torch.float32)
-
-        for traj in panel.trajectories:
-            if len(traj) > 0:
-                initial_state = traj.states[0].item()
-                counts[initial_state] += 1
+        init_states = torch.tensor(
+            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
+            dtype=torch.long,
+        )
+        counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
 
         if counts.sum() > 0:
             return counts / counts.sum()
