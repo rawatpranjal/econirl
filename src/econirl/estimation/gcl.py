@@ -445,11 +445,11 @@ class GCLEstimator(BaseEstimator):
     ) -> torch.Tensor:
         """Compute initial state distribution from demonstration data."""
         counts = torch.zeros(n_states, dtype=torch.float32)
-
-        for traj in panel.trajectories:
-            if len(traj) > 0:
-                initial_state = traj.states[0].item()
-                counts[initial_state] += 1
+        init_states = torch.tensor(
+            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
+            dtype=torch.long,
+        )
+        counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
 
         if counts.sum() > 0:
             return counts / counts.sum()
@@ -639,12 +639,7 @@ class GCLEstimator(BaseEstimator):
         V, policy, _ = self._update_policy(cost_fn, operator)
         log_probs = operator.compute_log_choice_probabilities(reward_matrix, V)
 
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                action = traj.actions[t].item()
-                ll += log_probs[state, action].item()
+        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
 
         optimization_time = time.time() - start_time
 

@@ -228,20 +228,10 @@ class AIRLEstimator(BaseEstimator):
         Returns:
             Tuple of (states, actions, next_states) tensors
         """
-        states = []
-        actions = []
-        next_states = []
-
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                states.append(traj.states[t].item())
-                actions.append(traj.actions[t].item())
-                next_states.append(traj.next_states[t].item())
-
         return (
-            torch.tensor(states, dtype=torch.long),
-            torch.tensor(actions, dtype=torch.long),
-            torch.tensor(next_states, dtype=torch.long),
+            panel.get_all_states(),
+            panel.get_all_actions(),
+            panel.get_all_next_states(),
         )
 
     def _sample_transitions_from_policy(
@@ -320,11 +310,11 @@ class AIRLEstimator(BaseEstimator):
     ) -> torch.Tensor:
         """Compute initial state distribution from data."""
         counts = torch.zeros(n_states, dtype=torch.float32)
-
-        for traj in panel.trajectories:
-            if len(traj) > 0:
-                initial_state = traj.states[0].item()
-                counts[initial_state] += 1
+        init_states = torch.tensor(
+            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
+            dtype=torch.long,
+        )
+        counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
 
         if counts.sum() > 0:
             return counts / counts.sum()
@@ -527,12 +517,7 @@ class AIRLEstimator(BaseEstimator):
 
         # Compute log-likelihood
         log_probs = operator.compute_log_choice_probabilities(final_reward, V)
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                action = traj.actions[t].item()
-                ll += log_probs[state, action].item()
+        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
 
         # Extract parameters
         if self.config.reward_type == "linear":

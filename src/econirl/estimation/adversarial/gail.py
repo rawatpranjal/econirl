@@ -238,16 +238,8 @@ class GAILEstimator(BaseEstimator):
         Returns:
             Tuple of (states, actions) tensors
         """
-        all_states = []
-        all_actions = []
-
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                all_states.append(traj.states[t].item())
-                all_actions.append(traj.actions[t].item())
-
-        states = torch.tensor(all_states, dtype=torch.long)
-        actions = torch.tensor(all_actions, dtype=torch.long)
+        states = panel.get_all_states()
+        actions = panel.get_all_actions()
 
         if batch_size is not None and batch_size > 0 and batch_size < len(states):
             indices = torch.randperm(len(states))[:batch_size]
@@ -333,11 +325,11 @@ class GAILEstimator(BaseEstimator):
     ) -> torch.Tensor:
         """Compute initial state distribution from data."""
         counts = torch.zeros(n_states, dtype=torch.float32)
-
-        for traj in panel.trajectories:
-            if len(traj) > 0:
-                initial_state = traj.states[0].item()
-                counts[initial_state] += 1
+        init_states = torch.tensor(
+            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
+            dtype=torch.long,
+        )
+        counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
 
         if counts.sum() > 0:
             return counts / counts.sum()
@@ -471,10 +463,7 @@ class GAILEstimator(BaseEstimator):
 
             # Track best policy by log-likelihood on expert data
             log_probs_iter = operator.compute_log_choice_probabilities(reward_matrix, V)
-            ll_iter = 0.0
-            for traj in panel.trajectories:
-                for t in range(len(traj)):
-                    ll_iter += log_probs_iter[traj.states[t].item(), traj.actions[t].item()].item()
+            ll_iter = log_probs_iter[panel.get_all_states(), panel.get_all_actions()].sum().item()
             if ll_iter > best_ll:
                 best_ll = ll_iter
                 best_policy = policy.clone()
@@ -507,12 +496,7 @@ class GAILEstimator(BaseEstimator):
 
         # Compute pseudo log-likelihood
         log_probs = operator.compute_log_choice_probabilities(final_reward, V)
-        ll = 0.0
-        for traj in panel.trajectories:
-            for t in range(len(traj)):
-                state = traj.states[t].item()
-                action = traj.actions[t].item()
-                ll += log_probs[state, action].item()
+        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
 
         # Extract "parameters" (discriminator weights or reward values)
         if isinstance(discriminator, LinearDiscriminator):
