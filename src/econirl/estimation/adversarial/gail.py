@@ -395,6 +395,12 @@ class GAILEstimator(BaseEstimator):
         policy = torch.ones(n_states, n_actions) / n_actions
         V = torch.zeros(n_states)
 
+        # Track best policy by log-likelihood (adversarial training oscillates)
+        best_ll = float('-inf')
+        best_policy = policy.clone()
+        best_V = V.clone()
+        best_reward = None
+
         # Training metrics
         disc_losses = []
         policy_changes = []
@@ -463,6 +469,18 @@ class GAILEstimator(BaseEstimator):
             # Update policy via soft value iteration
             policy, V = self._compute_policy(reward_matrix, operator)
 
+            # Track best policy by log-likelihood on expert data
+            log_probs_iter = operator.compute_log_choice_probabilities(reward_matrix, V)
+            ll_iter = 0.0
+            for traj in panel.trajectories:
+                for t in range(len(traj)):
+                    ll_iter += log_probs_iter[traj.states[t].item(), traj.actions[t].item()].item()
+            if ll_iter > best_ll:
+                best_ll = ll_iter
+                best_policy = policy.clone()
+                best_V = V.clone()
+                best_reward = reward_matrix.clone()
+
             # Check convergence
             policy_change = torch.abs(policy - old_policy).max().item()
             policy_changes.append(policy_change)
@@ -480,11 +498,12 @@ class GAILEstimator(BaseEstimator):
 
         pbar.close()
 
-        # Final reward matrix
-        if self.config.reward_transform == "logit":
-            final_reward = discriminator.get_reward_matrix(reward_type="airl")
-        else:
-            final_reward = discriminator.get_reward_matrix(reward_type="gail")
+        # Use best policy found during training (adversarial training oscillates)
+        policy = best_policy
+        V = best_V
+        final_reward = best_reward if best_reward is not None else (
+            discriminator.get_reward_matrix(reward_type="airl" if self.config.reward_transform == "logit" else "gail")
+        )
 
         # Compute pseudo log-likelihood
         log_probs = operator.compute_log_choice_probabilities(final_reward, V)

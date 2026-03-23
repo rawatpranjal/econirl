@@ -269,10 +269,10 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
             MaxMarginPlanningEstimator,
             kwargs=dict(
                 learning_rate=1.0,
-                max_iterations=1000,
+                max_iterations=3000,
                 compute_se=False,
                 loss_type="trajectory_hamming",
-                loss_scale=1.0,
+                loss_scale=0.5,
                 regularization_lambda=0.0,
                 inner_max_iter=5000,
             ),
