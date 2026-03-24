@@ -1,4 +1,4 @@
-"""Generate scaling benchmark figures: time and accuracy vs state space size."""
+"""Generate scaling benchmark figures: time, accuracy, transfer, and Pareto front."""
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -50,7 +50,7 @@ FAMILY_MARKERS = {
 estimator_counts = df_active.groupby("estimator")["n_states"].nunique()
 scalable = estimator_counts[estimator_counts >= 3].index.tolist()
 
-# ── Figure 1: Wall-Clock Time ──
+# ── Figure 1: Time + Accuracy (2 panels) ──
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
 
 for est in scalable:
@@ -71,9 +71,8 @@ ax1.set_xticks([5, 10, 20, 50, 100, 200, 500])
 ax1.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
 ax1.legend(fontsize=8, ncol=2, loc="upper left")
 ax1.grid(True, alpha=0.3)
-ax1.axhline(y=300, color="red", linestyle="--", alpha=0.5, label="timeout")
+ax1.axhline(y=900, color="red", linestyle="--", alpha=0.5, label="15min timeout")
 
-# ── Figure 2: % Optimal Performance ──
 for est in scalable:
     sub = df_active[df_active["estimator"] == est].sort_values("n_states")
     ax2.plot(
@@ -97,6 +96,60 @@ ax2.axhline(y=90, color="green", linestyle="--", alpha=0.3)
 plt.tight_layout()
 plt.savefig("docs/scaling_benchmark.png", dpi=150, bbox_inches="tight")
 print("Saved docs/scaling_benchmark.png")
+
+# ── Figure 2: Transfer Performance ──
+has_transfer = "pct_optimal_transfer" in df_active.columns
+if has_transfer:
+    df_transfer = df_active.dropna(subset=["pct_optimal_transfer"])
+    transfer_counts = df_transfer.groupby("estimator")["n_states"].nunique()
+    scalable_transfer = transfer_counts[transfer_counts >= 3].index.tolist()
+
+    if scalable_transfer:
+        fig_t, (ax_t1, ax_t2) = plt.subplots(1, 2, figsize=(16, 7))
+
+        for est in scalable_transfer:
+            sub = df_transfer[df_transfer["estimator"] == est].sort_values("n_states")
+            ax_t1.plot(
+                sub["n_states"], sub["pct_optimal"],
+                marker=FAMILY_MARKERS.get(est, "o"),
+                color=FAMILY_COLORS.get(est, "#333"),
+                label=est, linewidth=1.8, markersize=7,
+            )
+
+        ax_t1.set_xscale("log")
+        ax_t1.set_xlabel("Number of States", fontsize=13)
+        ax_t1.set_ylabel("% of Optimal Value", fontsize=13)
+        ax_t1.set_title("In-Sample Policy Quality", fontsize=14)
+        ax_t1.set_xticks([5, 10, 20, 50, 100, 200, 500])
+        ax_t1.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax_t1.set_ylim(0, 105)
+        ax_t1.legend(fontsize=8, ncol=2, loc="lower left")
+        ax_t1.grid(True, alpha=0.3)
+        ax_t1.axhline(y=90, color="green", linestyle="--", alpha=0.3)
+
+        for est in scalable_transfer:
+            sub = df_transfer[df_transfer["estimator"] == est].sort_values("n_states")
+            ax_t2.plot(
+                sub["n_states"], sub["pct_optimal_transfer"],
+                marker=FAMILY_MARKERS.get(est, "o"),
+                color=FAMILY_COLORS.get(est, "#333"),
+                label=est, linewidth=1.8, markersize=7,
+            )
+
+        ax_t2.set_xscale("log")
+        ax_t2.set_xlabel("Number of States", fontsize=13)
+        ax_t2.set_ylabel("% of Optimal (Transfer)", fontsize=13)
+        ax_t2.set_title("Transfer Performance (Different Dynamics)", fontsize=14)
+        ax_t2.set_xticks([5, 10, 20, 50, 100, 200, 500])
+        ax_t2.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+        ax_t2.set_ylim(0, 105)
+        ax_t2.legend(fontsize=8, ncol=2, loc="lower left")
+        ax_t2.grid(True, alpha=0.3)
+        ax_t2.axhline(y=90, color="green", linestyle="--", alpha=0.3)
+
+        plt.tight_layout()
+        plt.savefig("docs/scaling_transfer.png", dpi=150, bbox_inches="tight")
+        print("Saved docs/scaling_transfer.png")
 
 # ── Figure 3: Speed-Accuracy Pareto at n=100 ──
 fig2, ax3 = plt.subplots(figsize=(10, 7))

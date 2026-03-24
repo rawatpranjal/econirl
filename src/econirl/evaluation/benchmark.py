@@ -721,6 +721,17 @@ def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
 
     hidden_dim = min(64, max(32, n_states // 4))
 
+    # Adaptive parameters for slow estimators
+    # MMP: reduce iterations for large n (each iter = 1 VI solve)
+    mmp_iters = min(500, max(200, 2000 // n_states))
+    # GCL: scale network capacity and sample count with state space
+    gcl_hidden = min(64, max(32, n_states // 2))
+    gcl_samples = min(200, max(50, 500 // n_states))
+    # GAIL/AIRL: fewer rounds for large n (each round = simulation + VI)
+    adv_rounds = min(200, max(100, 1000 // n_states))
+    # NNES: more V-network training for larger state spaces
+    nnes_epochs = min(1000, max(500, 10 * n_states))
+
     specs = [
         EstimatorSpec(
             BehavioralCloningEstimator,
@@ -769,15 +780,16 @@ def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
             name="MaxEnt IRL",
             can_recover_params=False,
         ),
+        # MMP: reduce iterations (each = 1 VI), lower lr for stability
         EstimatorSpec(
             MaxMarginPlanningEstimator,
             kwargs=dict(
-                learning_rate=1.0,
-                max_iterations=min(3000, max(500, 10000 // n_states)),
+                learning_rate=0.5,
+                max_iterations=mmp_iters,
                 compute_se=False,
                 loss_type="trajectory_hamming",
                 loss_scale=0.5,
-                regularization_lambda=0.0,
+                regularization_lambda=0.01,
                 inner_max_iter=5000,
             ),
             name="Max Margin",
@@ -785,7 +797,7 @@ def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
         EstimatorSpec(
             MaxMarginIRLEstimator,
             kwargs=dict(
-                max_iterations=50,
+                max_iterations=100,
                 margin_tol=1e-4,
                 compute_hessian=False,
             ),
@@ -821,40 +833,43 @@ def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
             ),
             name="GLADIUS",
         ),
+        # GAIL: fewer rounds, higher lr, fewer disc steps for speed
         EstimatorSpec(
             GAILEstimator,
             kwargs=dict(
                 discriminator_type="linear",
-                max_rounds=500,
-                discriminator_lr=0.02,
-                discriminator_steps=10,
+                max_rounds=adv_rounds,
+                discriminator_lr=0.05,
+                discriminator_steps=5,
                 reward_transform="logit",
-                convergence_tol=0,
+                convergence_tol=1e-3,
                 compute_se=False,
             ),
             name="GAIL",
             can_recover_params=False,
         ),
+        # AIRL: fewer rounds, higher lr for speed
         EstimatorSpec(
             AIRLEstimator,
             kwargs=dict(
                 reward_type="linear",
-                max_rounds=500,
-                reward_lr=0.02,
-                discriminator_steps=10,
+                max_rounds=adv_rounds,
+                reward_lr=0.05,
+                discriminator_steps=5,
                 compute_se=False,
             ),
             name="AIRL",
             can_recover_params=False,
         ),
+        # GCL: scale network with state space, higher lr
         EstimatorSpec(
             GCLEstimator,
             kwargs=dict(
                 max_iterations=300,
-                n_sample_trajectories=min(200, max(50, 500 // n_states)),
-                cost_lr=5e-4,
+                n_sample_trajectories=gcl_samples,
+                cost_lr=1e-3,
                 embed_dim=16,
-                hidden_dims=[32, 32],
+                hidden_dims=[gcl_hidden, gcl_hidden],
                 importance_clipping=5.0,
                 normalize_reward=True,
             ),
@@ -871,11 +886,12 @@ def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
             name="Deep MaxEnt",
             can_recover_params=False,
         ),
+        # NNES: more V-network training for larger state spaces
         EstimatorSpec(
             NNESEstimator,
             kwargs=dict(
                 hidden_dim=hidden_dim,
-                v_epochs=500,
+                v_epochs=nnes_epochs,
                 outer_max_iter=200,
                 compute_se=False,
             ),
@@ -896,7 +912,7 @@ def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
             SEESEstimator,
             kwargs=dict(
                 basis_type="fourier",
-                basis_dim=8,
+                basis_dim=min(16, max(8, n_states // 5)),
                 penalty_lambda=0.01,
                 compute_se=False,
             ),
@@ -905,15 +921,15 @@ def get_scaling_estimator_specs(n_states: int) -> list[EstimatorSpec]:
         ),
     ]
 
-    # Skip BIRL for large state spaces (2000 MCMC x full VI = catastrophic)
-    if n_states <= 50:
+    # BIRL: reduce samples for speed, skip for large state spaces
+    if n_states <= 20:
         specs.append(
             EstimatorSpec(
                 BayesianIRLEstimator,
                 kwargs=dict(
-                    n_samples=2000,
-                    burnin=500,
-                    proposal_sigma=0.1,
+                    n_samples=500,
+                    burnin=100,
+                    proposal_sigma=0.2,
                     prior_sigma=5.0,
                 ),
                 name="BIRL",
@@ -970,6 +986,7 @@ def run_scaling_benchmark(
                     "n_periods": n_periods,
                     "time_seconds": float("nan"),
                     "pct_optimal": float("nan"),
+                    "pct_optimal_transfer": float("nan"),
                     "converged": False,
                     "skipped": True,
                 })
@@ -980,6 +997,7 @@ def run_scaling_benchmark(
                 n_periods=n_periods, seed=seed,
             )
 
+            transfer = result.pct_optimal_transfer
             results.append({
                 "estimator": spec.name,
                 "n_states": n_states,
@@ -987,13 +1005,16 @@ def run_scaling_benchmark(
                 "n_periods": n_periods,
                 "time_seconds": result.time_seconds,
                 "pct_optimal": result.pct_optimal,
+                "pct_optimal_transfer": transfer,
                 "converged": result.converged,
                 "skipped": False,
             })
 
+            transfer_str = f"transfer={transfer:5.1f}%" if transfer is not None else "transfer=N/A"
             status = "OK" if result.converged else "FAIL"
             print(f"  {spec.name:>15s}: {result.time_seconds:7.1f}s  "
-                  f"pct_optimal={result.pct_optimal:6.1f}%  [{status}]")
+                  f"pct_optimal={result.pct_optimal:6.1f}%  "
+                  f"{transfer_str}  [{status}]")
 
             if result.time_seconds > timeout_seconds:
                 timed_out.add(spec.name)
