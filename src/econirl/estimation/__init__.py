@@ -1,6 +1,15 @@
 """Estimation algorithms for dynamic discrete choice models."""
 
 from econirl.estimation.base import Estimator, EstimationResult
+from econirl.estimation.categories import (
+    EstimatorCategory,
+    ProblemCapabilities,
+    ESTIMATOR_REGISTRY,
+    get_estimators_by_category,
+    get_estimators_with_capability,
+    get_category,
+    get_capabilities,
+)
 from econirl.estimation.nfxp import NFXPEstimator
 from econirl.estimation.ccp import CCPEstimator
 from econirl.estimation.maxent_irl import MaxEntIRLEstimator
@@ -90,6 +99,14 @@ __all__ = [
     # IQ-Learn
     "IQLearnEstimator",
     "IQLearnConfig",
+    # Taxonomy
+    "EstimatorCategory",
+    "ProblemCapabilities",
+    "ESTIMATOR_REGISTRY",
+    "get_estimators_by_category",
+    "get_estimators_with_capability",
+    "get_category",
+    "get_capabilities",
     # Utilities
     "estimate_transition_probs",
     "estimate_transition_probs_by_group",

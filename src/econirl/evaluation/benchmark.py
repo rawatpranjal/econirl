@@ -52,16 +52,29 @@ class EstimatorSpec:
         kwargs: Keyword arguments for the estimator constructor.
         name: Human-readable name (defaults to class name).
         can_recover_params: Whether parameter RMSE is meaningful.
+        category: Estimation paradigm (structural, entropy_irl, etc.).
+        capabilities: Problem-space capabilities (reward type, etc.).
     """
 
     estimator_class: type
     kwargs: dict[str, Any] = field(default_factory=dict)
     name: str = ""
     can_recover_params: bool = True
+    category: str = ""
+    capabilities: Any = None
 
     def __post_init__(self) -> None:
         if not self.name:
             self.name = self.estimator_class.__name__
+        # Auto-populate from registry if available
+        if not self.category or self.capabilities is None:
+            from econirl.estimation.categories import ESTIMATOR_REGISTRY
+            if self.name in ESTIMATOR_REGISTRY:
+                cat, caps = ESTIMATOR_REGISTRY[self.name]
+                if not self.category:
+                    self.category = cat.value
+                if self.capabilities is None:
+                    self.capabilities = caps
 
 
 @dataclass
