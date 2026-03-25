@@ -277,6 +277,7 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
         BehavioralCloningEstimator,
         DeepMaxEntIRLEstimator,
         FIRLEstimator,
+        IQLearnEstimator,
         NNESEstimator,
         SEESEstimator,
         CCPEstimator,
@@ -486,6 +487,17 @@ def get_default_estimator_specs() -> list[EstimatorSpec]:
             name="SEES",
             can_recover_params=True,
         ),
+        EstimatorSpec(
+            IQLearnEstimator,
+            kwargs=dict(
+                q_type="tabular",
+                divergence="chi2",
+                alpha=1.0,
+                max_iter=500,
+            ),
+            name="IQ-Learn",
+            can_recover_params=False,
+        ),
     ]
 
 
@@ -561,7 +573,7 @@ def run_single(
             if spec.name == "GCL":
                 # GCL returns cost parameters c(s,a) — negate to get rewards
                 estimated_reward = -summary.parameters.reshape(n_s, n_a)
-            elif spec.name in ("Deep MaxEnt", "f-IRL"):
+            elif spec.name in ("Deep MaxEnt", "f-IRL", "IQ-Learn"):
                 # These return reward matrix R(s,a) directly
                 estimated_reward = summary.parameters.reshape(n_s, n_a)
             elif len(summary.parameters) == len(true_params):

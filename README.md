@@ -17,7 +17,7 @@ from econirl.evaluation.benchmark import BenchmarkDGP, run_single, get_default_e
 dgp = BenchmarkDGP(n_states=5, discount_factor=0.95)
 specs = get_default_estimator_specs()
 
-# Run all 17 estimators with benchmark-tuned defaults
+# Run all 18 estimators with benchmark-tuned defaults
 for spec in specs:
     result = run_single(dgp, spec, n_agents=100, n_periods=50, seed=42)
     print(f"{result.estimator:12s}  {result.pct_optimal:6.1f}%  {result.time_seconds:5.1f}s")
@@ -51,6 +51,8 @@ for spec in specs:
 | GAIL        | Adversarial | No  | No  |  54.3% |  50.9% | 112.9s |
 | AIRL        | Adversarial | No  | Yes |  99.4% |  99.5% | 123.0s |
 | GCL         | Adversarial | No  | Yes |  92.7% |  95.3% | 166.5s |
+| **Inverse Q-Learning** | | | | | | |
+| IQ-Learn    | IRL         | No  | Yes |  96.3% |  95.9% |   0.0s |
 | **Baseline** | | | | | | |
 | BC          | Baseline    | No  | No  |  99.5% |  99.5% |   0.1s |
 
@@ -111,6 +113,14 @@ Approximate value functions with neural networks for scalability to large state 
 |-----------|-------|--------|
 | TD-CCP    | [Adusumilli & Eckardt (2022)](https://arxiv.org/abs/1912.09509) | TD-learning + CCP with neural approximate value iteration |
 | GLADIUS   | [Kang, Yoganarasimhan & Jain (2025)](https://arxiv.org/abs/2502.14131) | Dual Q + EV networks with Bellman consistency penalty |
+
+### Inverse Q-Learning
+
+Recover reward and policy by learning a single soft Q-function, avoiding adversarial training.
+
+| Algorithm | Paper | Method |
+|-----------|-------|--------|
+| IQ-Learn  | [Garg et al. (2021)](https://arxiv.org/abs/2106.12142) | Inverse soft-Q learning with chi-squared divergence |
 
 ### Adversarial Methods
 
