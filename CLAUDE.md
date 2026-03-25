@@ -28,6 +28,22 @@ Each subdirectory has its own CLAUDE.md with detailed interface documentation. S
 - `src/econirl/simulation/CLAUDE.md` - Data generation, Monte Carlo, counterfactuals
 - `tests/CLAUDE.md` - Test conventions, fixtures, running tests
 
+## Focus Estimators (Replication Priority)
+
+The following estimators are the core focus for real-data replication and benchmarking:
+
+1. **NFXP-NK** — Nested Fixed Point with SA→NK polyalgorithm (Iskhakov et al. 2016). BHHH optimizer, analytical gradient via implicit differentiation. The main structural estimator.
+2. **NNES** — Neural Network Estimation of Structural models (neural version of NFXP)
+3. **SEES** — Simulation-based Estimation of Economic Structural models
+4. **MCE-IRL** — Maximum Causal Entropy IRL (Ziebart 2010). Feature matching with soft Bellman.
+5. **MCE-IRL (Deep)** — Deep MaxEnt with neural reward function
+6. **GLADIUS** — Model-free DDC estimation (Q-network + EV-network)
+7. **TD-CCP** — Temporal Difference CCP (Aguirregabiria & Mira style, neural approximate VI)
+8. **AIRL** — Adversarial IRL (Fu et al. 2018). Reward recovery via discriminator.
+9. **IQL** — Implicit Q-Learning for offline IRL
+
+Each estimator should be validated on at least one real-data replication (Rust bus, Keane-Wolpin, NGSIM, etc.) before being considered production-ready.
+
 ## Critical Implementation Details
 
 ### MCE IRL Expected Features (IMPORTANT)
