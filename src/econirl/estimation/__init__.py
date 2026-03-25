@@ -43,6 +43,9 @@ from econirl.estimation.f_irl import FIRLEstimator
 # SEES
 from econirl.estimation.sees import SEESEstimator
 
+# IQ-Learn
+from econirl.estimation.iq_learn import IQLearnEstimator, IQLearnConfig
+
 __all__ = [
     # Base
     "Estimator",
@@ -84,6 +87,9 @@ __all__ = [
     "FIRLEstimator",
     # SEES
     "SEESEstimator",
+    # IQ-Learn
+    "IQLearnEstimator",
+    "IQLearnConfig",
     # Utilities
     "estimate_transition_probs",
     "estimate_transition_probs_by_group",
