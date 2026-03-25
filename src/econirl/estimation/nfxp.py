@@ -32,7 +32,7 @@ import torch
 from scipy import optimize
 
 from econirl.core.bellman import SoftBellmanOperator
-from econirl.core.solvers import value_iteration, policy_iteration, hybrid_iteration
+from econirl.core.solvers import value_iteration, policy_iteration, hybrid_iteration, backward_induction
 from econirl.core.types import DDCProblem, Panel
 from econirl.estimation.base import BaseEstimator, EstimationResult
 from econirl.inference.standard_errors import SEMethod, compute_numerical_hessian
@@ -311,6 +311,52 @@ class NFXPEstimator(BaseEstimator):
 
         return scores.float(), ll
 
+    def _compute_finite_horizon_ll(
+        self,
+        params: torch.Tensor,
+        panel: Panel,
+        utility: UtilityFunction,
+        operator: SoftBellmanOperator,
+        num_periods: int,
+    ) -> float:
+        """Compute log-likelihood for finite-horizon model.
+
+        Uses backward induction to get time-indexed policies, then
+        evaluates LL using each observation's period-specific policy.
+
+        Args:
+            params: Parameter vector
+            panel: Panel data (trajectories must have period info via index)
+            utility: Utility specification
+            operator: Bellman operator
+            num_periods: Number of decision periods
+
+        Returns:
+            Log-likelihood value
+        """
+        dtype = operator.transitions.dtype
+        flow_utility = utility.compute(params).to(dtype)
+        fh_result = backward_induction(operator, flow_utility, num_periods)
+
+        # Compute log choice probs per period
+        sigma = operator.problem.scale_parameter
+        import torch.nn.functional as F
+        log_policy = F.log_softmax(fh_result.Q / sigma, dim=-1)  # (T, S, A)
+
+        # Evaluate LL: for each observation, use its period's policy
+        ll = 0.0
+        obs_idx = 0
+        for traj in panel.trajectories:
+            T = len(traj.states)
+            for t in range(T):
+                period = min(t, num_periods - 1)  # Clamp to valid range
+                s = traj.states[t].item()
+                a = traj.actions[t].item()
+                ll += log_policy[period, s, a].item()
+            obs_idx += T
+
+        return ll
+
     def _bhhh_optimize(
         self,
         initial_params: torch.Tensor,
@@ -488,8 +534,61 @@ class NFXPEstimator(BaseEstimator):
         transitions_solver = transitions.to(solver_dtype)
         operator = SoftBellmanOperator(problem, transitions_solver)
 
+        # Detect finite vs infinite horizon
+        finite_horizon = problem.num_periods is not None
+
         # Run optimization
-        if self._optimizer == "BHHH" and self._analytical_gradient:
+        if finite_horizon:
+            # Finite-horizon NFXP via backward induction
+            num_periods = problem.num_periods
+            self._log(f"Starting finite-horizon NFXP ({num_periods} periods)")
+
+            total_inner_iterations = 0
+            num_function_evals = 0
+
+            def objective_fh(params_np):
+                nonlocal total_inner_iterations, num_function_evals
+                num_function_evals += 1
+                params = torch.tensor(params_np, dtype=torch.float32)
+                ll = self._compute_finite_horizon_ll(
+                    params, panel, utility, operator, num_periods
+                )
+                total_inner_iterations += num_periods  # backward induction = T steps
+                if self._verbose and num_function_evals % 10 == 0:
+                    self._log(f"Eval {num_function_evals}: LL = {ll:.4f}")
+                return -ll
+
+            def gradient_fh(params_np):
+                grad = np.zeros(len(params_np))
+                for i in range(len(params_np)):
+                    eps_i = max(1e-5, abs(params_np[i]) * 1e-4)
+                    p_plus = params_np.copy()
+                    p_minus = params_np.copy()
+                    p_plus[i] += eps_i
+                    p_minus[i] -= eps_i
+                    grad[i] = (objective_fh(p_plus) - objective_fh(p_minus)) / (2 * eps_i)
+                return grad
+
+            lower, upper = utility.get_parameter_bounds()
+            bounds = list(zip(lower.numpy(), upper.numpy()))
+
+            result = optimize.minimize(
+                objective_fh,
+                initial_params.numpy(),
+                method="L-BFGS-B",
+                jac=gradient_fh,
+                bounds=bounds,
+                options={"maxiter": self._outer_max_iter, "gtol": self._outer_tol},
+            )
+
+            final_params = torch.tensor(result.x, dtype=torch.float32)
+            ll = -result.fun
+            n_iter = result.nit
+            n_evals = num_function_evals
+            n_inner = total_inner_iterations
+            opt_converged = result.success
+
+        elif self._optimizer == "BHHH" and self._analytical_gradient:
             # BHHH with analytical gradient (Iskhakov et al. recommended approach)
             self._log("Starting BHHH optimization with analytical gradient")
 
@@ -579,36 +678,47 @@ class NFXPEstimator(BaseEstimator):
 
         # Compute final value function and policy
         flow_utility = utility.compute(final_params).to(solver_dtype)
-        solver_result = self._solve_inner(operator, flow_utility)
+
+        if finite_horizon:
+            fh_result = backward_induction(operator, flow_utility, problem.num_periods)
+            final_V = fh_result.V[0]  # Period-0 value function
+            final_policy = fh_result.policy[0]  # Period-0 policy
+        else:
+            solver_result = self._solve_inner(operator, flow_utility)
+            final_V = solver_result.V
+            final_policy = solver_result.policy
 
         # Compute Hessian and gradient contributions for standard errors
         hessian = None
         gradient_contributions = None
 
-        if self._compute_hessian:
+        if self._compute_hessian and not finite_horizon:
             self._log("Computing standard errors via analytical score")
 
-            # Per-observation scores (for robust SEs and BHHH Hessian)
             scores, final_ll = self._compute_analytical_score(
                 final_params, panel, utility, operator,
-                solver_result.V, solver_result.policy,
+                final_V, final_policy,
             )
             gradient_contributions = scores
-
-            # Hessian from outer product of scores (BHHH approximation)
-            # or numerical Hessian for exact asymptotic SEs
-            hessian = -(scores.T @ scores)  # Negative because LL Hessian
-            # Add the expected Hessian correction for proper SEs
-            # For BHHH, this is the standard approximation
+            hessian = -(scores.T @ scores)
             ll = final_ll
+        elif self._compute_hessian and finite_horizon:
+            self._log("Computing numerical Hessian for finite-horizon SEs")
+
+            def ll_fn_fh(params):
+                return torch.tensor(self._compute_finite_horizon_ll(
+                    params, panel, utility, operator, problem.num_periods
+                ))
+
+            hessian = compute_numerical_hessian(final_params, ll_fn_fh)
 
         optimization_time = time.time() - start_time
 
         return EstimationResult(
             parameters=final_params,
             log_likelihood=ll,
-            value_function=solver_result.V,
-            policy=solver_result.policy,
+            value_function=final_V,
+            policy=final_policy,
             hessian=hessian,
             gradient_contributions=gradient_contributions,
             converged=opt_converged,

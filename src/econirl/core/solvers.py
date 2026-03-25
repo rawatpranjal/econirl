@@ -456,6 +456,101 @@ def hybrid_iteration(
     )
 
 
+@dataclass
+class FiniteHorizonResult:
+    """Result from solving a finite-horizon dynamic programming problem.
+
+    All tensors are time-indexed: index 0 is the first period, T-1 is the last.
+
+    Attributes:
+        Q: Action-value functions, shape (num_periods, num_states, num_actions)
+        V: Value functions, shape (num_periods, num_states)
+        policy: Choice probabilities, shape (num_periods, num_states, num_actions)
+        num_periods: Number of time periods
+    """
+
+    Q: torch.Tensor
+    V: torch.Tensor
+    policy: torch.Tensor
+    num_periods: int
+
+
+def backward_induction(
+    operator: SoftBellmanOperator,
+    utility: torch.Tensor,
+    num_periods: int,
+    terminal_value: torch.Tensor | None = None,
+) -> FiniteHorizonResult:
+    """Solve finite-horizon DDC by backward induction.
+
+    For t = T-1, T-2, ..., 0:
+        Q_t(s,a) = u(s,a) + β Σ_{s'} P(s'|s,a) V_{t+1}(s')
+        V_t(s) = σ log(Σ_a exp(Q_t(s,a)/σ))
+        π_t(a|s) = softmax(Q_t(s,a)/σ)
+
+    This is the standard finite-horizon solution for DDC models
+    (Keane & Wolpin 1994, Ziebart 2008). No convergence criterion
+    needed — the backward pass is deterministic.
+
+    Args:
+        operator: SoftBellmanOperator instance
+        utility: Flow utility matrix, shape (num_states, num_actions).
+            If time-varying, shape (num_periods, num_states, num_actions).
+        num_periods: Number of decision periods T
+        terminal_value: Terminal value function V_T(s), shape (num_states,).
+            Defaults to zeros (no continuation value after horizon).
+
+    Returns:
+        FiniteHorizonResult with time-indexed Q, V, and policy tensors.
+
+    Example:
+        >>> operator = SoftBellmanOperator(problem, transitions)
+        >>> result = backward_induction(operator, utility, num_periods=10)
+        >>> print(result.policy.shape)  # (10, num_states, num_actions)
+    """
+    num_states = operator.problem.num_states
+    num_actions = operator.problem.num_actions
+    dtype = utility.dtype
+    device = utility.device
+
+    # Time-varying or stationary utility
+    time_varying = utility.dim() == 3
+    if time_varying and utility.shape[0] != num_periods:
+        raise ValueError(
+            f"Time-varying utility has {utility.shape[0]} periods, "
+            f"expected {num_periods}"
+        )
+
+    # Allocate output tensors
+    all_Q = torch.zeros(num_periods, num_states, num_actions, dtype=dtype, device=device)
+    all_V = torch.zeros(num_periods, num_states, dtype=dtype, device=device)
+    all_policy = torch.zeros(num_periods, num_states, num_actions, dtype=dtype, device=device)
+
+    # Terminal value
+    if terminal_value is None:
+        V_next = torch.zeros(num_states, dtype=dtype, device=device)
+    else:
+        V_next = terminal_value.clone()
+
+    # Backward pass: t = T-1, T-2, ..., 0
+    for t in range(num_periods - 1, -1, -1):
+        u_t = utility[t] if time_varying else utility
+        result = operator.apply(u_t, V_next)
+
+        all_Q[t] = result.Q
+        all_V[t] = result.V
+        all_policy[t] = result.policy
+
+        V_next = result.V
+
+    return FiniteHorizonResult(
+        Q=all_Q,
+        V=all_V,
+        policy=all_policy,
+        num_periods=num_periods,
+    )
+
+
 def solve(
     problem: DDCProblem,
     transitions: torch.Tensor,

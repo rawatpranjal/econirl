@@ -41,6 +41,7 @@ class DDCProblem:
     num_actions: int
     discount_factor: float = 0.9999
     scale_parameter: float = 1.0
+    num_periods: int | None = None  # None = infinite horizon, int = finite horizon
     state_dim: int | None = None
     state_encoder: Callable[[torch.Tensor], torch.Tensor] | None = field(
         default=None, hash=False, compare=False
