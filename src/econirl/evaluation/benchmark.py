@@ -573,9 +573,12 @@ def run_single(
             if spec.name == "GCL":
                 # GCL returns cost parameters c(s,a) — negate to get rewards
                 estimated_reward = -summary.parameters.reshape(n_s, n_a)
-            elif spec.name in ("Deep MaxEnt", "f-IRL", "IQ-Learn"):
+            elif spec.name in ("Deep MaxEnt", "f-IRL"):
                 # These return reward matrix R(s,a) directly
                 estimated_reward = summary.parameters.reshape(n_s, n_a)
+            elif (summary.metadata or {}).get("reward_table") is not None:
+                # IQ-Learn: use raw reward table from inverse Bellman
+                estimated_reward = torch.tensor(summary.metadata["reward_table"])
             elif len(summary.parameters) == len(true_params):
                 estimated_reward = torch.einsum(
                     "sak,k->sa", env.feature_matrix, summary.parameters

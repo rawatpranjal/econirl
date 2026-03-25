@@ -130,7 +130,7 @@ class IQLearnEstimator(BaseEstimator):
             **kwargs,
         )
 
-        if self.config.q_type == "linear":
+        if len(result.parameters) == utility.num_parameters:
             param_names = utility.parameter_names
         else:
             param_names = [
@@ -368,9 +368,28 @@ class IQLearnEstimator(BaseEstimator):
             log_probs = torch.log_softmax(Q_table / sigma, dim=1)
             ll = log_probs[expert_states, expert_actions].sum().item()
 
+            # Project reward onto feature space for structural parameters
+            reward_params = None
+            feat = None
+            if hasattr(utility, 'feature_matrix'):
+                feat = utility.feature_matrix.float()
+            elif isinstance(utility, LinearReward) and hasattr(utility, 'state_features'):
+                sf = utility.state_features.float()
+                feat = sf.unsqueeze(1).expand(-1, n_actions, -1)
+
+            if feat is not None:
+                Phi = feat.reshape(-1, feat.shape[2])  # (S*A, K)
+                r_flat = reward_table.flatten()          # (S*A,)
+                # Add constant column to absorb additive offset from shaping
+                Phi_aug = torch.cat([Phi, torch.ones(Phi.shape[0], 1)], dim=1)
+                params_aug = torch.linalg.lstsq(Phi_aug, r_flat).solution
+                reward_params = params_aug[:-1]  # Drop constant term
+
         # Parameters to return
         if self.config.q_type == "linear":
             parameters = theta_opt.float()
+        elif reward_params is not None:
+            parameters = reward_params
         else:
             parameters = reward_table.flatten()
 
@@ -393,6 +412,7 @@ class IQLearnEstimator(BaseEstimator):
                 "alpha": self.config.alpha,
                 "q_table": Q_table.tolist(),
                 "reward_table": reward_table.tolist(),
+                "reward_params": reward_params.tolist() if reward_params is not None else None,
                 "final_objective": final_obj,
             },
         )
