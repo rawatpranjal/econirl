@@ -197,12 +197,13 @@ class CCPEstimator(BaseEstimator):
         num_states = ccps.shape[0]
         num_actions = ccps.shape[1]
 
-        F_pi = torch.zeros((num_states, num_states), dtype=torch.float32)
+        dtype = transitions.dtype
+        F_pi = torch.zeros((num_states, num_states), dtype=dtype)
         for a in range(num_actions):
             # transitions[a] has shape (num_states, num_states)
             # ccps[:, a] has shape (num_states,)
             # We want F_pi[s, s'] += P(a|s) * P(s'|s,a)
-            F_pi += ccps[:, a:a+1] * transitions[a]
+            F_pi += ccps[:, a:a+1].to(dtype) * transitions[a]
 
         return F_pi
 
@@ -240,7 +241,8 @@ class CCPEstimator(BaseEstimator):
         F_pi = self._compute_policy_weighted_transitions(ccps, transitions)
 
         # Compute (I - β·F_π)⁻¹
-        I = torch.eye(num_states, dtype=torch.float32)
+        dtype = F_pi.dtype
+        I = torch.eye(num_states, dtype=dtype)
         inv_matrix = torch.linalg.inv(I - beta * F_pi)
 
         # Compute emax corrections
@@ -248,7 +250,7 @@ class CCPEstimator(BaseEstimator):
 
         # Compute Σ_a P(a) ⊙ e(a) for each state
         # This gives expected emax correction under current policy
-        expected_e = (ccps * e).sum(dim=1)  # shape (num_states,)
+        expected_e = (ccps * e).sum(dim=1).to(inv_matrix.dtype)  # shape (num_states,)
 
         # W_e = (I - β·F_π)⁻¹ · expected_e
         W_e = inv_matrix @ expected_e
@@ -261,7 +263,8 @@ class CCPEstimator(BaseEstimator):
 
             # Compute Σ_a P(a|s) · φ(s,a) for each state
             # expected_features[s, k] = Σ_a P(a|s) · φ(s,a,k)
-            expected_features = torch.einsum('sa,sak->sk', ccps, features)
+            dtype = inv_matrix.dtype
+            expected_features = torch.einsum('sa,sak->sk', ccps.to(dtype), features.to(dtype))
 
             # W_z = (I - β·F_π)⁻¹ · expected_features
             W_z = inv_matrix @ expected_features
@@ -318,29 +321,29 @@ class CCPEstimator(BaseEstimator):
 
             # Compute E[W_z(x') | x, a] for each (x, a)
             # transitions[a, s, s'] = P(s'|s,a), W_z has shape (num_states, num_features)
-            E_W_z = torch.zeros((num_states, num_actions, num_features), dtype=torch.float32)
+            E_W_z = torch.zeros((num_states, num_actions, num_features), dtype=transitions.dtype)
             for a in range(num_actions):
                 E_W_z[:, a, :] = transitions[a] @ W_z  # (num_states, num_features)
 
             # Compute E[W_e(x') | x, a]
-            E_W_e = torch.zeros((num_states, num_actions), dtype=torch.float32)
+            E_W_e = torch.zeros((num_states, num_actions), dtype=transitions.dtype)
             for a in range(num_actions):
                 E_W_e[:, a] = transitions[a] @ W_e
 
             # z̃(a,x) = z(a,x) + β·E[W_z(x') | x, a]
-            z_tilde = features + beta * E_W_z  # (num_states, num_actions, num_features)
+            z_tilde = features.to(E_W_z.dtype) + beta * E_W_z  # (num_states, num_actions, num_features)
 
             # ẽ(a,x) = β·E[W_e(x') | x, a]
             e_tilde = beta * E_W_e  # (num_states, num_actions)
 
             # v(a,x) = z̃(a,x)'θ + ẽ(a,x)
-            v = torch.einsum('sak,k->sa', z_tilde, parameters) + e_tilde
+            v = torch.einsum('sak,k->sa', z_tilde, parameters.to(z_tilde.dtype)) + e_tilde
         else:
             # Fallback for non-linear utility
             flow_utility = utility.compute(parameters)
             W = W_z.squeeze(1) + W_e
 
-            EW = torch.zeros((num_states, num_actions), dtype=torch.float32)
+            EW = torch.zeros((num_states, num_actions), dtype=transitions.dtype)
             for a in range(num_actions):
                 EW[:, a] = transitions[a] @ W
 
@@ -456,6 +459,11 @@ class CCPEstimator(BaseEstimator):
             EstimationResult with optimized parameters
         """
         start_time = time.time()
+
+        # Use float64 for high discount factors (condition number ≈ 1/(1-β))
+        beta = problem.discount_factor
+        if beta > 0.99:
+            transitions = transitions.double()
 
         # Initialize parameters — use data-driven starting values if zeros
         if initial_params is None:

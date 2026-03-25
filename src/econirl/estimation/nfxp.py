@@ -214,8 +214,9 @@ class NFXPEstimator(BaseEstimator):
         start_time = time.time()
 
         # Warn if discount is high but inner_max_iter may be insufficient
+        # (only relevant for value iteration; policy iteration converges in ~10 iters)
         beta = problem.discount_factor
-        if beta > 0.99 and self._inner_max_iter < 50000:
+        if beta > 0.99 and self._inner_max_iter < 50000 and self._inner_solver == "value":
             warnings.warn(
                 f"High discount factor beta={beta} may require inner_max_iter > 50000. "
                 f"Current: {self._inner_max_iter}. Consider increasing for convergence.",
@@ -232,7 +233,12 @@ class NFXPEstimator(BaseEstimator):
                 )
 
         # Create Bellman operator
-        operator = SoftBellmanOperator(problem, transitions)
+        # Use float64 for high discount factors to avoid numerical issues
+        # (condition number of (I - β·P) ≈ 1/(1-β), e.g. 10000 at β=0.9999)
+        use_float64 = beta > 0.99
+        solver_dtype = torch.float64 if use_float64 else torch.float32
+        transitions_solver = transitions.to(solver_dtype)
+        operator = SoftBellmanOperator(problem, transitions_solver)
 
         # Tracking variables
         total_inner_iterations = 0
@@ -245,8 +251,8 @@ class NFXPEstimator(BaseEstimator):
 
             params = torch.tensor(params_np, dtype=torch.float32)
 
-            # Compute flow utility
-            flow_utility = utility.compute(params)
+            # Compute flow utility (upcast for solver precision)
+            flow_utility = utility.compute(params).to(solver_dtype)
 
             # Solve for value function (inner loop)
             solver_result = self._solve_inner(operator, flow_utility)
@@ -309,7 +315,7 @@ class NFXPEstimator(BaseEstimator):
         final_params = torch.tensor(result.x, dtype=torch.float32)
 
         # Compute final value function and policy
-        flow_utility = utility.compute(final_params)
+        flow_utility = utility.compute(final_params).to(solver_dtype)
         solver_result = self._solve_inner(operator, flow_utility)
 
         # Compute Hessian for standard errors
@@ -372,7 +378,9 @@ class NFXPEstimator(BaseEstimator):
         gradients = torch.zeros((n_obs, n_params))
 
         # Pre-compute log probabilities at current params
-        flow_utility = utility.compute(params)
+        # Use operator's dtype (float64 for high-beta problems)
+        solver_dtype = operator.transitions.dtype
+        flow_utility = utility.compute(params).to(solver_dtype)
         solver_result = self._solve_inner(operator, flow_utility)
         log_probs_base = operator.compute_log_choice_probabilities(
             flow_utility, solver_result.V
@@ -385,7 +393,7 @@ class NFXPEstimator(BaseEstimator):
             params_plus = params.clone()
             params_plus[k] += eps_k
 
-            flow_utility_plus = utility.compute(params_plus)
+            flow_utility_plus = utility.compute(params_plus).to(solver_dtype)
             solver_plus = self._solve_inner(operator, flow_utility_plus)
             log_probs_plus = operator.compute_log_choice_probabilities(
                 flow_utility_plus, solver_plus.V
@@ -394,7 +402,7 @@ class NFXPEstimator(BaseEstimator):
             params_minus = params.clone()
             params_minus[k] -= eps_k
 
-            flow_utility_minus = utility.compute(params_minus)
+            flow_utility_minus = utility.compute(params_minus).to(solver_dtype)
             solver_minus = self._solve_inner(operator, flow_utility_minus)
             log_probs_minus = operator.compute_log_choice_probabilities(
                 flow_utility_minus, solver_minus.V
@@ -432,8 +440,10 @@ class NFXPEstimator(BaseEstimator):
         Returns:
             Log-likelihood value
         """
-        operator = SoftBellmanOperator(problem, transitions)
-        flow_utility = utility.compute(params)
+        beta = problem.discount_factor
+        solver_dtype = torch.float64 if beta > 0.99 else torch.float32
+        operator = SoftBellmanOperator(problem, transitions.to(solver_dtype))
+        flow_utility = utility.compute(params).to(solver_dtype)
 
         solver_result = self._solve_inner(operator, flow_utility)
 
