@@ -39,3 +39,7 @@ docs/_build/
 autolab/results/
 autolab/experiment_log.jsonl
 autolab/FINDINGS.md
+
+# Large data files
+data/raw/**/*.hdf5
+data/raw/**/*.h5
