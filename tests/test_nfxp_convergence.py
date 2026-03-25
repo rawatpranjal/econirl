@@ -103,9 +103,10 @@ class TestNFXPConvergence:
         panel = simulate_panel(rust_env, n_individuals=10, n_periods=10, seed=42)
         utility = LinearUtility.from_environment(rust_env)
 
-        # Low inner_max_iter with high beta should trigger warning
+        # Low inner_max_iter with high beta should trigger warning (value iteration only)
         estimator = NFXPEstimator(
             se_method="asymptotic",
+            inner_solver="value",
             inner_max_iter=1000,  # Too low for beta=0.9999
             inner_tol=1e-10,
             verbose=False,
