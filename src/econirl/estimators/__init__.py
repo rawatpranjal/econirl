@@ -61,6 +61,11 @@ try:
 except ImportError:
     NeuralGLADIUS = None
 
+try:
+    from econirl.estimators.neural_airl import NeuralAIRL
+except ImportError:
+    NeuralAIRL = None
+
 __all__ = [
     "NFXP",
     "NNES",
@@ -70,5 +75,6 @@ __all__ = [
     "MaxMarginIRL",
     "MCEIRL",
     "NeuralGLADIUS",
+    "NeuralAIRL",
     "EstimatorProtocol",
 ]
