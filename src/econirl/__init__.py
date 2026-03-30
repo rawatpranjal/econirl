@@ -48,7 +48,9 @@ Legacy API (deprecated, for backward compatibility):
 __version__ = "0.1.0"
 
 # Core types
-from econirl.core.types import DDCProblem, Panel, Trajectory
+from econirl.core.types import DDCProblem, Panel, Trajectory, TrajectoryPanel
+from econirl.core.reward_spec import RewardSpec
+from econirl.core.sufficient_stats import SufficientStats
 
 # Environments
 from econirl.environments.rust_bus import RustBusEnvironment
@@ -60,23 +62,38 @@ from econirl.preferences.linear import LinearUtility
 from econirl.estimation.nfxp import NFXPEstimator
 from econirl.estimation.ccp import CCPEstimator
 
-# Sklearn-style Estimators (recommended)
-from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL, MCEIRL
+# Sklearn-style Estimators (recommended) — lazy imports to avoid broken deps
+try:
+    from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL, MCEIRL, NNES
+except ImportError:
+    pass
 
 # Sklearn-style Utilities
-from econirl.utilities import Utility, LinearCost, make_utility
+try:
+    from econirl.utilities import Utility, LinearCost, make_utility
+except ImportError:
+    pass
 
 # Sklearn-style Transition Estimator
-from econirl.transitions import TransitionEstimator
+try:
+    from econirl.transitions import TransitionEstimator
+except ImportError:
+    pass
 
 # Datasets
 from econirl import datasets
 
 # Preprocessing
-from econirl import preprocessing
+try:
+    from econirl import preprocessing
+except ImportError:
+    pass
 
 # Replication
-from econirl import replication
+try:
+    from econirl import replication
+except ImportError:
+    pass
 
 __all__ = [
     # Version
@@ -93,6 +110,11 @@ __all__ = [
     "MaxEntIRL",
     "MaxMarginIRL",
     "MCEIRL",
+    "NNES",
+    # Core types (new)
+    "RewardSpec",
+    "TrajectoryPanel",
+    "SufficientStats",
     # Sklearn-style Utilities
     "Utility",
     "LinearCost",
