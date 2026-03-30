@@ -14,6 +14,9 @@ IRL Datasets (Inverse Reinforcement Learning):
 - GeoLife: Human mobility GPS trajectories (182 users)
 - Stanford Drone: Campus pedestrian/cyclist trajectories
 - ETH/UCY: Classic pedestrian trajectory benchmark (5 scenes)
+
+Search/Click Datasets (Sequential Choice):
+- Trivago (2019): Hotel search sessions (browse/refine/clickout/abandon)
 """
 
 # DDC datasets
@@ -40,6 +43,15 @@ from econirl.datasets.shanghai_route import (
     build_transition_matrix,
     build_edge_features,
     build_state_action_features,
+)
+from econirl.datasets.trivago_search import (
+    load_trivago_search,
+    load_trivago_sessions,
+    build_trivago_mdp,
+    build_trivago_panel,
+    build_trivago_features,
+    build_trivago_transitions,
+    get_trivago_info,
 )
 
 __all__ = [
@@ -75,4 +87,12 @@ __all__ = [
     "build_transition_matrix",
     "build_edge_features",
     "build_state_action_features",
+    # Trivago hotel search
+    "load_trivago_search",
+    "load_trivago_sessions",
+    "build_trivago_mdp",
+    "build_trivago_panel",
+    "build_trivago_features",
+    "build_trivago_transitions",
+    "get_trivago_info",
 ]
