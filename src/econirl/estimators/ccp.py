@@ -34,8 +34,11 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from econirl.core.reward_spec import RewardSpec
+from econirl.core.types import DDCProblem, Panel, TrajectoryPanel
 from econirl.estimation.ccp import CCPEstimator
 from econirl.estimators.nfxp import NFXP
+from econirl.transitions import TransitionEstimator
 
 
 class CCP(NFXP):
@@ -57,9 +60,10 @@ class CCP(NFXP):
         Number of discrete actions (e.g., keep/replace).
     discount : float, default=0.9999
         Time discount factor (beta).
-    utility : str, default="linear_cost"
-        Utility specification. Currently supports "linear_cost" which
-        implements the Rust bus model: u = -theta_c * s * (1-a) - RC * a
+    utility : str or RewardSpec, default="linear_cost"
+        Utility specification.  Pass ``"linear_cost"`` for the classic Rust
+        bus model (``u = -theta_c * s * (1-a) - RC * a``), or a
+        ``RewardSpec`` for custom features.
     se_method : str, default="robust"
         Method for computing standard errors. Options: "robust", "asymptotic".
     verbose : bool, default=False
@@ -79,12 +83,20 @@ class CCP(NFXP):
         Coefficients as a numpy array (sklearn convention).
     log_likelihood_ : float
         Maximized log-likelihood value.
+    pvalues_ : dict
+        P-values for each parameter (from Wald t-test).
+    policy_ : numpy.ndarray
+        Estimated choice probabilities P(a|s) of shape (n_states, n_actions).
+    value_ : numpy.ndarray
+        Estimated value function V(s) of shape (n_states,).
     value_function_ : numpy.ndarray
-        Estimated value function V(s) for each state.
+        Alias for ``value_`` (backward compatibility).
     transitions_ : numpy.ndarray
         Transition probability matrix (n_states x n_states).
     converged_ : bool
         Whether the optimization converged.
+    reward_spec_ : RewardSpec
+        The reward specification used for estimation.
 
     Examples
     --------
@@ -118,7 +130,7 @@ class CCP(NFXP):
         n_states: int = 90,
         n_actions: int = 2,
         discount: float = 0.9999,
-        utility: Literal["linear_cost"] = "linear_cost",
+        utility: str | RewardSpec = "linear_cost",
         se_method: Literal["robust", "asymptotic"] = "robust",
         verbose: bool = False,
         num_policy_iterations: int = 1,
@@ -133,8 +145,9 @@ class CCP(NFXP):
             Number of discrete actions.
         discount : float, default=0.9999
             Time discount factor (beta).
-        utility : str, default="linear_cost"
-            Utility specification to use.
+        utility : str or RewardSpec, default="linear_cost"
+            Utility specification to use.  Pass ``"linear_cost"`` for the
+            classic Rust bus model, or a ``RewardSpec`` for custom features.
         se_method : str, default="robust"
             Method for computing standard errors.
         verbose : bool, default=False
@@ -156,39 +169,74 @@ class CCP(NFXP):
 
     def fit(
         self,
-        data: pd.DataFrame,
-        state: str,
-        action: str,
-        id: str,
+        data: pd.DataFrame | Panel | TrajectoryPanel,
+        state: str | None = None,
+        action: str | None = None,
+        id: str | None = None,
         transitions: np.ndarray | None = None,
+        reward: RewardSpec | None = None,
     ) -> "CCP":
         """Fit the CCP estimator to data.
 
         Parameters
         ----------
-        data : pandas.DataFrame
-            Panel data with observations. Must contain columns for state,
-            action, and individual id.
-        state : str
-            Column name for the state variable.
-        action : str
-            Column name for the action variable.
-        id : str
-            Column name for the individual identifier.
+        data : pandas.DataFrame or Panel or TrajectoryPanel
+            Panel data with observations.  When a DataFrame is passed,
+            ``state``, ``action``, and ``id`` column names are required.
+            When a Panel/TrajectoryPanel is passed, column names are ignored.
+        state : str, optional
+            Column name for the state variable (required for DataFrame input).
+        action : str, optional
+            Column name for the action variable (required for DataFrame input).
+        id : str, optional
+            Column name for the individual identifier (required for DataFrame
+            input).
         transitions : numpy.ndarray, optional
             Pre-estimated transition matrix of shape (n_states, n_states).
             If None, transitions are estimated from the data.
+        reward : RewardSpec, optional
+            Reward/utility specification.  If provided, overrides the
+            ``utility`` parameter passed at construction time.
 
         Returns
         -------
         self : CCP
             Returns self for method chaining.
         """
-        from econirl.core.types import DDCProblem
-        from econirl.transitions import TransitionEstimator
+        # Resolve reward spec: explicit argument > constructor parameter
+        reward_spec = reward if reward is not None else self.utility
 
-        # Convert DataFrame to Panel
-        self._panel = self._dataframe_to_panel(data, state, action, id)
+        # --- Handle data: DataFrame or Panel/TrajectoryPanel ---
+        if isinstance(data, pd.DataFrame):
+            if state is None or action is None or id is None:
+                raise ValueError(
+                    "state, action, and id column names are required "
+                    "when data is a DataFrame"
+                )
+            self._panel = TrajectoryPanel.from_dataframe(
+                data, state=state, action=action, id=id
+            )
+        elif isinstance(data, (Panel, TrajectoryPanel)):
+            self._panel = data
+        else:
+            raise TypeError(
+                f"data must be a DataFrame, Panel, or TrajectoryPanel, "
+                f"got {type(data)}"
+            )
+
+        # --- Handle reward: RewardSpec or string ---
+        if isinstance(reward_spec, RewardSpec):
+            self.reward_spec_ = reward_spec
+            self._utility_fn = reward_spec.to_linear_utility()
+        elif reward_spec == "linear_cost":
+            self._utility_fn = self._create_utility()
+            # Also create RewardSpec from the utility for consistency
+            self.reward_spec_ = RewardSpec(
+                self._utility_fn.feature_matrix,
+                self._utility_fn.parameter_names,
+            )
+        else:
+            raise ValueError(f"Unknown reward/utility specification: {reward_spec}")
 
         # Estimate transitions if not provided
         if transitions is None:
@@ -211,9 +259,6 @@ class CCP(NFXP):
             discount_factor=self.discount,
             scale_parameter=1.0,
         )
-
-        # Create utility function
-        self._utility_fn = self._create_utility()
 
         # Create the underlying CCP estimator (this is the key difference from NFXP)
         estimator = CCPEstimator(
