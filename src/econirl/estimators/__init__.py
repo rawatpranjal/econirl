@@ -38,10 +38,15 @@ Example:
 """
 
 from econirl.estimators.ccp import CCP
-from econirl.estimators.gcl import GCL
 from econirl.estimators.max_margin_irl import MaxMarginIRL
 from econirl.estimators.maxent_irl import MaxEntIRL
 from econirl.estimators.mce_irl import MCEIRL
 from econirl.estimators.nfxp import NFXP
+from econirl.estimators.protocol import EstimatorProtocol
 
-__all__ = ["NFXP", "CCP", "MaxEntIRL", "MaxMarginIRL", "MCEIRL", "GCL"]
+try:
+    from econirl.estimators.gcl import GCL
+except ImportError:
+    GCL = None
+
+__all__ = ["NFXP", "CCP", "MaxEntIRL", "MaxMarginIRL", "MCEIRL", "EstimatorProtocol"]
