@@ -1,17 +1,19 @@
 """MCEIRLNeural: Neural Maximum Causal Entropy IRL.
 
-Learns R(s) via a neural network reward function and uses soft Bellman
-iteration for the inner loop.  Uses the tabular MCE-IRL algorithm
-(Ziebart 2010) but replaces the linear reward theta*phi with a neural
-network reward_net(state_features) -> R(s).
+Supports two reward parameterizations:
+- ``reward_type="state_action"`` (default): learns R(s,a) via a neural
+  network that takes [state_features, action_onehot] as input.  This is
+  more general and correctly handles environments with action-dependent
+  rewards (e.g., gridworlds where moving has a cost but staying is free).
+- ``reward_type="state"``: learns R(s) only, broadcasting the same reward
+  to all actions (original behaviour).
 
-Training loop:
+Training loop (MCE-IRL objective, Ziebart 2010):
     for epoch in range(max_epochs):
-        1. Compute reward for all states: r(s) = reward_net(state_features)
-        2. Solve soft Bellman with this reward (transitions required for v1)
+        1. Compute reward matrix R(s,a) for all (state, action) pairs
+        2. Solve soft Bellman with this reward (transitions required)
         3. Compute state visitation frequencies via forward pass
-        4. Compute feature matching gradient:
-           grad = E_expert[phi(s)] - E_policy[phi(s)]
+        4. Loss = -E_expert[R] + E_policy[R]  (feature matching)
         5. Backprop through reward network
 
 After training, implied rewards are projected onto features via
@@ -86,6 +88,80 @@ class _StateRewardNetwork(nn.Module):
         return self.net(state_feat).squeeze(-1)
 
 
+class _StateActionRewardNetwork(nn.Module):
+    """R(s,a) reward network.
+
+    Input: concatenation of state features (B, state_dim) and action
+    one-hot encoding (B, n_actions).
+    Output: scalar reward of shape (B,).
+    """
+
+    def __init__(
+        self,
+        state_dim: int,
+        n_actions: int,
+        hidden_dim: int,
+        num_layers: int,
+    ):
+        super().__init__()
+        self._n_actions = n_actions
+        input_dim = state_dim + n_actions
+        layers: list[nn.Module] = []
+        in_dim = input_dim
+        for _ in range(num_layers):
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            layers.append(nn.ReLU())
+            in_dim = hidden_dim
+        layers.append(nn.Linear(in_dim, 1))
+        self.net = nn.Sequential(*layers)
+
+    def forward(
+        self, state_feat: torch.Tensor, action_onehot: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute R(s,a).
+
+        Parameters
+        ----------
+        state_feat : torch.Tensor
+            State features of shape (B, state_dim).
+        action_onehot : torch.Tensor
+            One-hot action encoding of shape (B, n_actions).
+
+        Returns
+        -------
+        torch.Tensor
+            Rewards of shape (B,).
+        """
+        x = torch.cat([state_feat, action_onehot], dim=-1)
+        return self.net(x).squeeze(-1)
+
+    def all_actions(self, state_feat: torch.Tensor) -> torch.Tensor:
+        """Compute R(s,a) for all actions at every state.
+
+        Parameters
+        ----------
+        state_feat : torch.Tensor
+            State features of shape (S, state_dim).
+
+        Returns
+        -------
+        torch.Tensor
+            Reward matrix of shape (S, A).
+        """
+        S = state_feat.shape[0]
+        A = self._n_actions
+        # One-hot action identities: (A, A)
+        eye = torch.eye(A, device=state_feat.device, dtype=state_feat.dtype)
+        # Expand state_feat to (S, A, state_dim)
+        sf = state_feat.unsqueeze(1).expand(-1, A, -1)
+        # Expand actions to (S, A, A)
+        act = eye.unsqueeze(0).expand(S, -1, -1)
+        # Concatenate along last dim -> (S, A, state_dim + A)
+        x = torch.cat([sf, act], dim=-1)
+        # Flatten, forward, reshape
+        return self.net(x.reshape(S * A, -1)).reshape(S, A)
+
+
 # ---------------------------------------------------------------------------
 # MCEIRLNeural estimator
 # ---------------------------------------------------------------------------
@@ -94,14 +170,19 @@ class _StateRewardNetwork(nn.Module):
 class MCEIRLNeural(NeuralEstimatorMixin):
     """Neural Maximum Causal Entropy IRL.
 
-    Learns R(s) via neural network using the MCE-IRL objective:
-    maximize E_expert[R(s)] - log Z(R)
+    Learns a neural reward function using the MCE-IRL objective:
+    maximize E_expert[R] - log Z(R)
 
     where Z(R) is the partition function (soft value at initial state).
 
+    Supports two reward types:
+    - ``reward_type="state_action"`` (default): R(s,a) via a network that
+      takes [state_features, action_onehot].  This is more general and
+      correctly handles action-dependent rewards.
+    - ``reward_type="state"``: R(s) broadcast to all actions (original).
+
     For v1, transitions must be available so that exact soft value iteration
-    and state visitation frequencies can be computed.  The neural reward
-    network replaces the linear theta*phi used in tabular MCE-IRL.
+    and state visitation frequencies can be computed.
 
     Parameters
     ----------
@@ -111,6 +192,9 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         Number of discrete actions.  Inferred from data if None.
     discount : float, default=0.95
         Time discount factor beta.
+    reward_type : str, default="state_action"
+        Type of reward function: ``"state_action"`` for R(s,a) or
+        ``"state"`` for R(s) broadcast to all actions.
     reward_hidden_dim : int, default=64
         Hidden dimension for the reward MLP.
     reward_num_layers : int, default=2
@@ -152,7 +236,8 @@ class MCEIRLNeural(NeuralEstimatorMixin):
     value_ : numpy.ndarray or None
         Estimated value function V(s) of shape (n_states,).
     reward_ : numpy.ndarray or None
-        Neural reward R(s) for each state.
+        Neural reward.  Shape (n_states,) for ``reward_type="state"``
+        or (n_states, n_actions) for ``reward_type="state_action"``.
     projection_r2_ : float or None
         R-squared of the feature projection.
     converged_ : bool or None
@@ -165,11 +250,17 @@ class MCEIRLNeural(NeuralEstimatorMixin):
     >>> from econirl.estimators import MCEIRLNeural
     >>> import numpy as np
     >>>
+    >>> # R(s,a) -- default, more general
     >>> model = MCEIRLNeural(n_states=25, n_actions=4, discount=0.95)
     >>> model.fit(data=df, state="state", action="action", id="agent_id",
     ...           transitions=T)
-    >>> print(model.reward_.shape)  # (25,)
+    >>> print(model.reward_.shape)  # (25, 4)
     >>> print(model.policy_.shape)  # (25, 4)
+    >>>
+    >>> # R(s) -- state-only, backward compatible
+    >>> model = MCEIRLNeural(n_states=25, n_actions=4, reward_type="state")
+    >>> model.fit(...)
+    >>> print(model.reward_.shape)  # (25,)
     """
 
     def __init__(
@@ -177,6 +268,8 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         n_states: int | None = None,
         n_actions: int | None = None,
         discount: float = 0.95,
+        # Reward type
+        reward_type: str = "state_action",
         # Network
         reward_hidden_dim: int = 64,
         reward_num_layers: int = 2,
@@ -194,9 +287,15 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         feature_names: list[str] | None = None,
         verbose: bool = False,
     ):
+        if reward_type not in ("state", "state_action"):
+            raise ValueError(
+                f"reward_type must be 'state' or 'state_action', "
+                f"got '{reward_type}'"
+            )
         self.n_states = n_states
         self.n_actions = n_actions
         self.discount = discount
+        self.reward_type = reward_type
         self.reward_hidden_dim = reward_hidden_dim
         self.reward_num_layers = reward_num_layers
         self.max_epochs = max_epochs
@@ -222,7 +321,7 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         self.n_epochs_: int | None = None
 
         # Internal state
-        self._reward_net: _StateRewardNetwork | None = None
+        self._reward_net: nn.Module | None = None
         self._state_encoder: Callable | None = None
         self._state_dim: int | None = None
         self._n_states: int | None = None
@@ -297,9 +396,19 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         )
 
         # --- Step 4: Build reward network ---
-        self._reward_net = _StateRewardNetwork(
-            self._state_dim, self.reward_hidden_dim, self.reward_num_layers
-        )
+        if self.reward_type == "state_action":
+            self._reward_net = _StateActionRewardNetwork(
+                self._state_dim,
+                n_actions,
+                self.reward_hidden_dim,
+                self.reward_num_layers,
+            )
+        else:
+            self._reward_net = _StateRewardNetwork(
+                self._state_dim,
+                self.reward_hidden_dim,
+                self.reward_num_layers,
+            )
 
         # --- Step 5: Training loop ---
         self._train_mce(
@@ -415,18 +524,23 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         """Run MCE-IRL training with neural reward network.
 
         Training loop:
-        1. Forward: reward_net(all_states) -> R(s) for all states
-        2. Broadcast to R(s,a) (same reward for all actions)
-        3. Solve soft Bellman: V, policy = soft_value_iteration(R, transitions)
-        4. Compute state visitation: D(s) = forward_pass(policy, transitions)
-        5. Expected occupancy: E_policy[sa] = D(s) * pi(a|s)
-        6. Loss: -sum(empirical_sa * R_sa) + sum(D * V) (or feature matching)
-        7. Backprop through reward network
+        1. Forward: compute R(s,a) for all states and actions
+           - state_action: reward_net.all_actions(state_feat)
+           - state: reward_net(state_feat), broadcast to all actions
+        2. Solve soft Bellman: V, policy = soft_value_iteration(R, transitions)
+        3. Compute state visitation: D(s) = forward_pass(policy, transitions)
+        4. Expected occupancy: E_policy[sa] = D(s) * pi(a|s)
+        5. Loss: -sum(empirical_sa * R_sa) + sum(policy_sa * R_sa)
+        6. Backprop through reward network
         """
         optimizer = torch.optim.Adam(
             self._reward_net.parameters(),
             lr=self.lr,
             weight_decay=1e-5,
+        )
+        # LR scheduler for training stability
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", patience=50, factor=0.5
         )
 
         problem = DDCProblem(
@@ -437,24 +551,28 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         )
         bellman = SoftBellmanOperator(problem=problem, transitions=transitions)
 
-        # Compute empirical state occupancy for the gradient
-        empirical_state = empirical_sa.sum(dim=1)  # (n_states,)
-
         best_loss = float("inf")
+        best_state_dict = None
         patience_counter = 0
-        patience = 30
+        patience = 100
 
         all_state_indices = torch.arange(n_states)
 
         for epoch in range(self.max_epochs):
-            # 1. Compute reward for all states
+            # 1. Compute reward matrix R(s,a)
             state_feat = self._state_encoder(all_state_indices)
-            rewards_s = self._reward_net(state_feat)  # (n_states,)
 
-            # 2. Broadcast to R(s,a) -- same reward for all actions
-            reward_matrix = rewards_s.unsqueeze(1).expand(-1, n_actions)  # (S, A)
+            if self.reward_type == "state_action":
+                reward_matrix = self._reward_net.all_actions(
+                    state_feat
+                )  # (S, A)
+            else:
+                rewards_s = self._reward_net(state_feat)  # (S,)
+                reward_matrix = rewards_s.unsqueeze(1).expand(
+                    -1, n_actions
+                )  # (S, A)
 
-            # 3. Solve soft Bellman (detach -- no grad through VI)
+            # 2. Solve soft Bellman (detach -- no grad through VI)
             with torch.no_grad():
                 if self.inner_solver == "hybrid":
                     result = hybrid_iteration(
@@ -471,23 +589,22 @@ class MCEIRLNeural(NeuralEstimatorMixin):
                         max_iter=self.inner_max_iter,
                     )
                 policy = result.policy  # (S, A)
-                V = result.V  # (S,)
 
-            # 4. Compute state visitation frequencies via forward pass
+            # 3. Compute state visitation frequencies via forward pass
             with torch.no_grad():
                 D = self._forward_pass(
                     policy, transitions, n_states, self.discount
                 )
 
-            # 5. Feature matching loss:
-            #    grad_R = empirical_state_occupancy - policy_state_occupancy
-            #    We use the MCE-IRL loss: -E_expert[R] + E_policy[R]
-            #    = -sum_s mu_D(s) * R(s) + sum_s D_pi(s) * R(s)
-            #    This gives gradient: D_pi(s) - mu_D(s) w.r.t. R(s)
-            policy_state = D  # state visitation under current policy
+            # 4. State-action occupancy under current policy
+            policy_sa = D.unsqueeze(1) * policy  # (S, A) = D(s) * pi(a|s)
 
-            loss = -torch.sum(empirical_state * rewards_s) + torch.sum(
-                policy_state * rewards_s
+            # 5. Feature matching loss on (s,a) occupancies:
+            #    L = -sum_{s,a} mu_D(s,a) * R(s,a)
+            #        + sum_{s,a} D_pi(s) * pi(a|s) * R(s,a)
+            #    Gradient w.r.t. R(s,a): policy_sa - empirical_sa
+            loss = -torch.sum(empirical_sa * reward_matrix) + torch.sum(
+                policy_sa * reward_matrix
             )
 
             optimizer.zero_grad()
@@ -499,17 +616,24 @@ class MCEIRLNeural(NeuralEstimatorMixin):
             optimizer.step()
 
             loss_val = loss.item()
+            scheduler.step(loss_val)
+
+            # Monitor feature matching gap
+            feature_diff = torch.norm(empirical_sa - policy_sa).item()
 
             if self.verbose and (epoch + 1) % 50 == 0:
-                feature_diff = torch.norm(empirical_state - policy_state).item()
+                current_lr = optimizer.param_groups[0]["lr"]
                 print(
                     f"  Epoch {epoch + 1}: loss={loss_val:.4f}, "
-                    f"feature_diff={feature_diff:.6f}"
+                    f"feature_diff={feature_diff:.6f}, lr={current_lr:.2e}"
                 )
 
-            # Early stopping
+            # Early stopping with best model checkpoint
             if loss_val < best_loss - 1e-5:
                 best_loss = loss_val
+                best_state_dict = {
+                    k: v.clone() for k, v in self._reward_net.state_dict().items()
+                }
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -517,6 +641,10 @@ class MCEIRLNeural(NeuralEstimatorMixin):
                     if self.verbose:
                         print(f"  Early stopping at epoch {epoch + 1}")
                     break
+
+        # Restore best model
+        if best_state_dict is not None:
+            self._reward_net.load_state_dict(best_state_dict)
 
         self.converged_ = patience_counter >= patience or epoch == self.max_epochs - 1
         self.n_epochs_ = epoch + 1
@@ -582,9 +710,16 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         with torch.no_grad():
             all_state_indices = torch.arange(n_states)
             state_feat = self._state_encoder(all_state_indices)
-            rewards_s = self._reward_net(state_feat)
 
-            reward_matrix = rewards_s.unsqueeze(1).expand(-1, n_actions)
+            if self.reward_type == "state_action":
+                reward_matrix = self._reward_net.all_actions(
+                    state_feat
+                )  # (S, A)
+            else:
+                rewards_s = self._reward_net(state_feat)  # (S,)
+                reward_matrix = rewards_s.unsqueeze(1).expand(
+                    -1, n_actions
+                )  # (S, A)
 
             problem = DDCProblem(
                 num_states=n_states,
@@ -613,7 +748,10 @@ class MCEIRLNeural(NeuralEstimatorMixin):
 
             self.policy_ = result.policy.numpy()
             self.value_ = result.V.numpy()
-            self.reward_ = rewards_s.numpy()
+            if self.reward_type == "state_action":
+                self.reward_ = reward_matrix.numpy()  # (S, A)
+            else:
+                self.reward_ = rewards_s.numpy()  # (S,)
 
     def _project_onto_features(
         self,
@@ -623,32 +761,35 @@ class MCEIRLNeural(NeuralEstimatorMixin):
     ) -> None:
         """Project neural rewards onto features for interpretable theta.
 
-        For state-only reward R(s), we project onto state features:
-            theta = argmin ||Phi @ theta - R(s)||^2
+        For ``reward_type="state_action"``, R(s,a) is projected onto
+        (S*A, K) features:
+            theta = argmin ||Phi_flat @ theta - R_flat||^2
+
+        For ``reward_type="state"``, R(s) is projected onto (S, K) state
+        features (original behaviour).
 
         Parameters
         ----------
         features : RewardSpec or torch.Tensor
-            Feature specification.  RewardSpec provides (S, A, K) matrix;
-            we take features[:, 0, :] since R is state-only.  A Tensor of
-            shape (S, K) is used directly.
+            Feature specification.  RewardSpec provides (S, A, K) matrix.
+            A Tensor of shape (S, K) or (S, A, K) is also accepted.
         n_states : int
             Number of states.
         n_actions : int
             Number of actions.
         """
+        # Extract feature matrix and names
         if isinstance(features, RewardSpec):
-            # Take state features from action 0 (same for all actions
-            # if state-only)
-            feat_matrix = features.feature_matrix[:, 0, :]  # (S, K)
+            feat_3d = features.feature_matrix  # (S, A, K)
             names = features.parameter_names
         elif features.ndim == 3:
-            feat_matrix = features[:, 0, :]
+            feat_3d = features  # (S, A, K)
             names = self.feature_names or [
                 f"f{i}" for i in range(features.shape[-1])
             ]
         elif features.ndim == 2:
-            feat_matrix = features
+            # (S, K) -> broadcast to (S, A, K)
+            feat_3d = features.unsqueeze(1).expand(-1, n_actions, -1)
             names = self.feature_names or [
                 f"f{i}" for i in range(features.shape[-1])
             ]
@@ -658,13 +799,18 @@ class MCEIRLNeural(NeuralEstimatorMixin):
                 f"got {features.ndim}D"
             )
 
-        # Get neural rewards
         rewards = torch.tensor(self.reward_, dtype=torch.float32)
 
-        # Use float32 for projection
-        phi = feat_matrix.float()
+        if self.reward_type == "state_action":
+            # R(s,a) is (S, A) -- project onto flattened (S*A, K)
+            phi = feat_3d.reshape(-1, feat_3d.shape[-1]).float()  # (S*A, K)
+            r_flat = rewards.reshape(-1)  # (S*A,)
+        else:
+            # R(s) is (S,) -- project onto state features from action 0
+            phi = feat_3d[:, 0, :].float()  # (S, K)
+            r_flat = rewards  # (S,)
 
-        theta, se, r2 = self._project_parameters(phi, rewards)
+        theta, se, r2 = self._project_parameters(phi, r_flat)
 
         self.params_ = {n: float(v) for n, v in zip(names, theta)}
         self.se_ = {n: float(v) for n, v in zip(names, se)}
@@ -764,6 +910,7 @@ class MCEIRLNeural(NeuralEstimatorMixin):
             converged=self.converged_,
             discount=self.discount,
             extra_lines=[
+                f"Reward type: {self.reward_type}",
                 f"Reward network: {self.reward_num_layers} layers x {self.reward_hidden_dim} hidden",
                 f"Inner solver: {self.inner_solver}",
             ],

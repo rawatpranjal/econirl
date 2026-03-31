@@ -341,6 +341,7 @@ def run_large_grid():
             n_states=n_states,
             n_actions=n_actions,
             discount=discount,
+            reward_type="state_action",
             reward_hidden_dim=64,
             reward_num_layers=2,
             max_epochs=300,

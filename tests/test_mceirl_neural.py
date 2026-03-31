@@ -112,12 +112,13 @@ def gridworld_df():
 
 @pytest.fixture(scope="module")
 def fitted_model(gridworld_df, transitions):
-    """Fitted MCEIRLNeural model shared across test classes."""
+    """Fitted MCEIRLNeural model shared across test classes (state reward)."""
     features = _make_features()
     model = MCEIRLNeural(
         n_states=_N_STATES,
         n_actions=_N_ACTIONS,
         discount=_DISCOUNT,
+        reward_type="state",
         max_epochs=100,
         lr=1e-2,
         reward_hidden_dim=32,
@@ -137,11 +138,12 @@ def fitted_model(gridworld_df, transitions):
 
 @pytest.fixture(scope="module")
 def fitted_model_no_features(gridworld_df, transitions):
-    """Fitted MCEIRLNeural without feature projection."""
+    """Fitted MCEIRLNeural without feature projection (state reward)."""
     model = MCEIRLNeural(
         n_states=_N_STATES,
         n_actions=_N_ACTIONS,
         discount=_DISCOUNT,
+        reward_type="state",
         max_epochs=50,
         lr=1e-2,
         reward_hidden_dim=32,
@@ -154,6 +156,32 @@ def fitted_model_no_features(gridworld_df, transitions):
         action="action",
         id="agent_id",
         transitions=transitions,
+    )
+    return model
+
+
+@pytest.fixture(scope="module")
+def fitted_model_state_action(gridworld_df, transitions):
+    """Fitted MCEIRLNeural with reward_type='state_action'."""
+    features = _make_features()
+    model = MCEIRLNeural(
+        n_states=_N_STATES,
+        n_actions=_N_ACTIONS,
+        discount=_DISCOUNT,
+        reward_type="state_action",
+        max_epochs=100,
+        lr=1e-2,
+        reward_hidden_dim=32,
+        reward_num_layers=1,
+        verbose=False,
+    )
+    model.fit(
+        gridworld_df,
+        state="state",
+        action="action",
+        id="agent_id",
+        transitions=transitions,
+        features=features,
     )
     return model
 
@@ -171,6 +199,7 @@ class TestBasicFit:
             n_states=_N_STATES,
             n_actions=_N_ACTIONS,
             discount=_DISCOUNT,
+            reward_type="state",
             max_epochs=10,
             verbose=False,
         )
@@ -385,3 +414,104 @@ class TestConfInt:
     def test_conf_int_no_features_raises(self, fitted_model_no_features):
         with pytest.raises(RuntimeError, match="No projected parameters"):
             fitted_model_no_features.conf_int()
+
+
+# ---------------------------------------------------------------------------
+# 9. reward_type="state_action" tests
+# ---------------------------------------------------------------------------
+
+
+class TestStateActionRewardType:
+    """Tests for reward_type='state_action' (R(s,a) network)."""
+
+    def test_reward_shape_state_action(self, fitted_model_state_action):
+        """R(s,a) reward should be (n_states, n_actions)."""
+        assert fitted_model_state_action.reward_ is not None
+        assert fitted_model_state_action.reward_.shape == (
+            _N_STATES,
+            _N_ACTIONS,
+        )
+
+    def test_policy_shape_state_action(self, fitted_model_state_action):
+        """policy_ shape unchanged regardless of reward_type."""
+        assert fitted_model_state_action.policy_ is not None
+        assert fitted_model_state_action.policy_.shape == (
+            _N_STATES,
+            _N_ACTIONS,
+        )
+
+    def test_policy_valid_probabilities_state_action(
+        self, fitted_model_state_action
+    ):
+        policy = fitted_model_state_action.policy_
+        assert (policy >= 0).all()
+        assert (policy <= 1).all()
+        row_sums = policy.sum(axis=1)
+        np.testing.assert_allclose(row_sums, np.ones(_N_STATES), atol=1e-6)
+
+    def test_params_populated_state_action(self, fitted_model_state_action):
+        """params_ populated when features provided with state_action."""
+        assert fitted_model_state_action.params_ is not None
+        assert "linear" in fitted_model_state_action.params_
+        assert "quadratic" in fitted_model_state_action.params_
+
+    def test_projection_r2_state_action(self, fitted_model_state_action):
+        assert fitted_model_state_action.projection_r2_ is not None
+        assert isinstance(fitted_model_state_action.projection_r2_, float)
+
+    def test_value_shape_state_action(self, fitted_model_state_action):
+        assert fitted_model_state_action.value_ is not None
+        assert fitted_model_state_action.value_.shape == (_N_STATES,)
+
+    def test_predict_proba_state_action(self, fitted_model_state_action):
+        proba = fitted_model_state_action.predict_proba(np.array([0, 2, 4]))
+        assert proba.shape == (3, _N_ACTIONS)
+        assert (proba >= 0).all()
+        np.testing.assert_allclose(proba.sum(axis=1), np.ones(3), atol=1e-6)
+
+    def test_summary_state_action(self, fitted_model_state_action):
+        summary = fitted_model_state_action.summary()
+        assert isinstance(summary, str)
+        assert "MCEIRLNeural" in summary
+        assert "state_action" in summary
+
+    def test_conf_int_state_action(self, fitted_model_state_action):
+        ci = fitted_model_state_action.conf_int()
+        assert "linear" in ci
+        for name in fitted_model_state_action.params_:
+            lower, upper = ci[name]
+            est = fitted_model_state_action.params_[name]
+            if np.isfinite(lower) and np.isfinite(upper):
+                assert lower <= est <= upper
+
+    def test_invalid_reward_type_raises(self):
+        with pytest.raises(ValueError, match="reward_type"):
+            MCEIRLNeural(
+                n_states=_N_STATES,
+                n_actions=_N_ACTIONS,
+                reward_type="invalid",
+            )
+
+    def test_default_reward_type_is_state_action(self):
+        model = MCEIRLNeural(n_states=_N_STATES, n_actions=_N_ACTIONS)
+        assert model.reward_type == "state_action"
+
+    def test_state_action_fit_returns_self(self, gridworld_df, transitions):
+        model = MCEIRLNeural(
+            n_states=_N_STATES,
+            n_actions=_N_ACTIONS,
+            discount=_DISCOUNT,
+            reward_type="state_action",
+            max_epochs=10,
+            verbose=False,
+        )
+        result = model.fit(
+            gridworld_df,
+            state="state",
+            action="action",
+            id="agent_id",
+            transitions=transitions,
+        )
+        assert result is model
+        # Without features, reward_ should still be (S, A)
+        assert result.reward_.shape == (_N_STATES, _N_ACTIONS)
