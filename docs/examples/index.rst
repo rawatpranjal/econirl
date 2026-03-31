@@ -10,3 +10,4 @@ Each example demonstrates econirl on a different problem. The estimator choice d
    taxi_gridworld
    shanghai_route
    trivago_search
+   wulfmeier_deep_maxent
