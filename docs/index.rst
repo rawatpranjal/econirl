@@ -21,25 +21,25 @@ econirl recovers structural parameters from sequential choice data. Every estima
 Estimators
 ----------
 
-econirl has two families of estimator. Linear reward estimators learn exact structural parameters from a reward function of the form R(s,a) = theta times phi(s,a). Neural reward estimators learn a nonlinear reward function via neural networks and project onto features for approximate theta.
+Estimators differ along two axes. The first is whether the reward function is linear in parameters or learned by a neural network. Linear reward estimators recover exact structural parameters with valid standard errors. Neural reward estimators learn a flexible reward function and extract approximate parameters by least-squares projection. The projection R-squared tells you how much of the neural reward is explained by your linear features.
+
+The second axis is whether the reward depends only on the state or on both the state and the action. State-only rewards R(s) fit problems where the value comes from where you are, such as route choice on a road network. State-action rewards R(s,a) fit problems where different actions have different costs or benefits at the same state, such as engine replacement or hotel search.
 
 .. list-table::
    :header-rows: 1
+   :widths: 20 40 40
 
    * -
-     - Linear Reward (exact theta)
-     - Neural Reward (projected theta)
-   * - Structural MLE
-     - ``NFXP`` (Rust 1987), ``NNES`` (Nguyen 2025)
-     - ``NeuralGLADIUS`` (Kang et al. 2025)
-   * - Reduced-form DDC
-     - ``CCP`` (Hotz and Miller 1993), ``TDCCP``
-     - ``NeuralAIRL`` (Fu et al. 2018)
-   * - Maximum Entropy IRL
+     - Linear Reward (exact theta, valid SEs)
+     - Neural Reward (projected theta, pseudo-SEs)
+   * - **R(s,a)** state-action
+     - ``NFXP`` (Rust 1987), ``CCP`` (Hotz-Miller 1993), ``NNES`` (Nguyen 2025), ``TDCCP``
+     - ``NeuralGLADIUS`` (Kang et al. 2025), ``NeuralAIRL`` (Fu et al. 2018)
+   * - **R(s)** state-only
      - MCE-IRL (Ziebart 2010, coming soon)
      -
 
-Linear reward estimators approximate the value function with neural networks while keeping the reward linear in parameters. The structural parameters are exact and the standard errors are valid. Neural reward estimators approximate the reward function itself. The structural parameters are extracted by least-squares projection, and the projection R-squared tells you how linear the learned reward actually is. The formal equivalence between maximum entropy IRL and logit DDC was established by Zeng et al. (2025) and Geng et al. (2017).
+All estimators in the R(s,a) row accept a feature tensor of shape (S, A, K) where each state-action pair has its own feature vector. MCE-IRL in the R(s) row accepts a feature tensor of shape (S, K) that is broadcast to all actions. The formal equivalence between maximum entropy IRL and logit DDC was established by Zeng et al. (2025) and Geng et al. (2017). See :doc:`references` for the full list of papers.
 
 .. toctree::
    :maxdepth: 2
