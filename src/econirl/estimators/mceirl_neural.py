@@ -601,21 +601,23 @@ class MCEIRLNeural(NeuralEstimatorMixin):
 
             # 5. Feature matching loss on (s,a) occupancies:
             #    L = -sum_{s,a} mu_D(s,a) * R(s,a)
-            #        + sum_{s,a} D_pi(s) * pi(a|s) * R(s,a)
             #    Gradient w.r.t. R(s,a): policy_sa - empirical_sa
-            loss = -torch.sum(empirical_sa * reward_matrix) + torch.sum(
-                policy_sa * reward_matrix
-            )
+            #    Per Wulfmeier et al. (2016) Algorithm 1 Eq. 11:
+            #    Apply this gradient directly to the reward network via
+            #    backprop, rather than optimizing a scalar loss (which
+            #    causes reward values to grow unboundedly).
+            grad_r = policy_sa - empirical_sa  # (S, A)
 
             optimizer.zero_grad()
-            loss.backward()
+            reward_matrix.backward(gradient=grad_r)
 
             # Gradient clipping
             nn.utils.clip_grad_norm_(self._reward_net.parameters(), 1.0)
 
             optimizer.step()
 
-            loss_val = loss.item()
+            # Monitor feature matching residual as the "loss"
+            loss_val = torch.sum(grad_r ** 2).item()
             scheduler.step(loss_val)
 
             # Monitor feature matching gap
