@@ -1,56 +1,68 @@
 # Estimators
 
-This page presents the theory, mathematical formulations, and selection guide for all econirl estimators using common notation from Rust and Rawat (2026). For worked code examples, see the [examples](examples/index.rst).
+This page covers the theory behind all econirl estimators, their mathematical formulations, and a guide for choosing between them. All notation follows Rust and Rawat (2026). For code examples, see the [examples](examples/index.rst).
 
 ## Theory
 
 ### The Problem
 
-An agent makes sequential decisions under uncertainty. At each period the agent observes a state $s \in \mathcal{S}$, chooses an action $a \in \mathcal{A}(s)$, receives a flow payoff $r(s,a)$, and transitions to a new state $s'$ drawn from $p(s' \mid s,a)$. The agent discounts the future by $\beta \in (0,1)$. The goal of the agent is to maximize the expected discounted sum of payoffs $E\{\sum_{t=0}^\infty \beta^t r(s_t, a_t)\}$.
+Imagine someone making decisions over time. Each period, they see a situation (a "state" $s$), pick an action $a$, get a payoff $r(s,a)$, and move to a new situation $s'$. They care about the future, but not as much as the present, so they discount future payoffs by a factor $\beta$ between 0 and 1. Their goal is to maximize total discounted payoffs $E\{\sum_{t=0}^\infty \beta^t r(s_t, a_t)\}$.
 
-This is a Markov decision process. Its solution is an optimal policy $\delta^*(s) = \arg\max_a Q^*(s,a)$ where $Q^*(s,a) = r(s,a) + \beta \sum_{s'} p(s' \mid s,a) V^*(s')$ is the choice-specific value and $V^*(s) = \max_a Q^*(s,a)$ is the value function. Both satisfy the Bellman equation, a fixed-point condition that balances current payoff against discounted continuation value.
-
-The structural estimation problem is to run this logic in reverse. We observe agents' states and choices but not their preferences. We want to recover the reward function $r$ (or its parameters $\theta$) that rationalizes the observed behavior. This is what the econometrics literature calls the identification and estimation of dynamic discrete choice (DDC) models, and what the machine learning literature calls inverse reinforcement learning (IRL).
-
-### Statistical Degeneracy and Taste Shocks
-
-The optimal policy $\delta^*(s)$ is a deterministic function of the state. But in data, different agents in the same observed state often make different choices. A deterministic model cannot explain this heterogeneity. Rust (1987) resolved this by augmenting the state with unobserved idiosyncratic taste shocks $\varepsilon = (\varepsilon_1, \ldots, \varepsilon_{|\mathcal{A}|})$, one per action, observed by the agent but not by the econometrician. The agent's full state is $(s, \varepsilon)$ and the reward for action $a$ is $r(s,a) + \varepsilon_a$. Even though the agent's decision rule $\delta^*(s, \varepsilon)$ is still deterministic from the agent's standpoint, it appears stochastic from the observer's standpoint because $\varepsilon$ is unobserved.
-
-Following McFadden (1973), assume $\varepsilon$ has a multivariate extreme value type 1 (Gumbel) distribution with scale parameter $\sigma > 0$ and mean zero. Assume also that transitions factor as $p(s', \varepsilon' \mid s, \varepsilon, a) = g(\varepsilon' \mid s') \, p(s' \mid s,a)$, so the taste shocks are conditionally independent across periods. Under these assumptions, the value function $V(s,\varepsilon) = \max_a [Q(s,a) + \varepsilon_a]$ can be integrated analytically over $\varepsilon$.
-
-### Deriving the Soft Bellman Equations
-
-The key property of the EV1 distribution is that the expected maximum has a closed-form expression. Integrating $V(s,\varepsilon)$ over $\varepsilon$ yields the expected value function
+This setup is called a Markov decision process (MDP). The solution is an optimal policy $\delta^*(s) = \arg\max_a Q^*(s,a)$, where $Q^*(s,a)$ is the value of taking action $a$ in state $s$ and then behaving optimally forever after. It satisfies
 
 $$
-V(s) = E_\varepsilon\!\big[\max_a (Q(s,a) + \varepsilon_a)\big] = \sigma \log \sum_{a \in \mathcal{A}(s)} \exp\!\big(Q(s,a)/\sigma\big).
+Q^*(s,a) = r(s,a) + \beta \sum_{s'} p(s' \mid s,a) \, V^*(s'),
 $$
 
-This is the log-sum-exp or "social surplus" function. Substituting back into the Bellman equation, the choice-specific value $Q$ is the unique fixed point of the soft Bellman operator $\Lambda_\sigma$,
+where $V^*(s) = \max_a Q^*(s,a)$. This is the Bellman equation. It says the value of any action equals its immediate payoff plus the discounted value of wherever you end up.
+
+The estimation problem runs this logic backward. We watch people make choices but we do not know their preferences. We want to figure out the payoff function $r$ (or its parameters $\theta$) that explains what we see. Economists call this structural estimation of dynamic discrete choice (DDC) models. Machine learning researchers call it inverse reinforcement learning (IRL). The math is the same.
+
+### Why People in the Same Situation Make Different Choices
+
+The optimal policy $\delta^*(s)$ is deterministic. Everyone in the same state should do the same thing. But in real data, people in the same situation often choose differently. A deterministic model cannot explain this.
+
+Rust (1987) fixed this by adding unobserved "taste shocks" $\varepsilon = (\varepsilon_1, \ldots, \varepsilon_{|\mathcal{A}|})$, one for each action. The agent sees these shocks, but we as researchers do not. The payoff for action $a$ becomes $r(s,a) + \varepsilon_a$. From the agent's perspective, the choice is still deterministic given $(s, \varepsilon)$. But from our perspective, it looks random because we cannot see $\varepsilon$.
+
+Following McFadden (1973), assume the shocks follow an extreme value type 1 (Gumbel) distribution with scale $\sigma > 0$ and mean zero. Also assume the shocks are independent across time periods. These two assumptions buy us closed-form expressions for everything.
+
+### The Soft Bellman Equations
+
+The Gumbel distribution has a remarkable property. When you take the expected maximum over Gumbel-distributed options, you get a simple formula. Averaging $V(s,\varepsilon) = \max_a [Q(s,a) + \varepsilon_a]$ over the shocks gives
+
+$$
+V(s) = \sigma \log \sum_{a \in \mathcal{A}(s)} \exp\!\big(Q(s,a)/\sigma\big).
+$$
+
+This is called the log-sum-exp function. It is a smooth approximation to the max. When $\sigma$ is small, it behaves like a hard maximum. When $\sigma$ is large, it spreads probability more evenly across actions.
+
+Plugging this into the Bellman equation gives the soft Bellman operator $\Lambda_\sigma$,
 
 $$
 \Lambda_\sigma(Q)(s,a) = r(s,a) + \beta \sum_{s'} p(s' \mid s,a) \; \sigma \log \sum_{a'} \exp\!\big(Q(s',a')/\sigma\big).
 $$
 
-The operator $\Lambda_\sigma$ is a $\beta$-contraction on the space of bounded functions, so the fixed point $Q^* = \Lambda_\sigma(Q^*)$ exists and is unique. As $\sigma \to 0$ the soft operator converges to the hard Bellman operator $\max_a Q(s,a)$, recovering the standard MDP.
+This operator is a contraction (it shrinks distances by a factor of $\beta$), so it has a unique fixed point $Q^* = \Lambda_\sigma(Q^*)$.
 
-The probability that the agent chooses action $a$ in state $s$, called the conditional choice probability (CCP) in economics or the policy in reinforcement learning, is the multinomial logit (softmax),
+The probability that someone picks action $a$ in state $s$ is the familiar logit formula,
 
 $$
-\pi(a \mid s) = \frac{\exp\!\big(Q(s,a)/\sigma\big)}{\sum_{b \in \mathcal{A}(s)} \exp\!\big(Q(s,b)/\sigma\big)}.
+\pi(a \mid s) = \frac{\exp\!\big(Q(s,a)/\sigma\big)}{\sum_{b} \exp\!\big(Q(s,b)/\sigma\big)}.
 $$
 
-More generally, with a non-uniform base measure $\mu(a \mid s) > 0$, the CCP becomes $\pi(a \mid s) = \mu(a \mid s) \exp(Q(s,a)/\sigma) / \sum_b \mu(b \mid s) \exp(Q(s,b)/\sigma)$. The uniform case $\mu = 1/|\mathcal{A}|$ is the standard Rust model.
+Actions with higher $Q$-values get chosen more often. The parameter $\sigma$ controls how sensitive choices are to value differences. Small $\sigma$ means nearly deterministic choices. Large $\sigma$ means nearly random choices.
 
-### The Variational Interpretation
+With a non-uniform base measure $\mu(a \mid s) > 0$, the formula becomes $\pi(a \mid s) = \mu(a \mid s) \exp(Q(s,a)/\sigma) / \sum_b \mu(b \mid s) \exp(Q(s,b)/\sigma)$. The uniform case $\mu = 1/|\mathcal{A}|$ is the standard model.
 
-The same equations arise from a completely different starting point. Consider an agent who maximizes expected reward minus a penalty for deviating from a reference policy $\mu$,
+### The Bridge to Reinforcement Learning
+
+The same equations come from a totally different angle. Suppose an agent picks a policy to maximize expected payoff minus a penalty for straying too far from some default behavior $\mu$,
 
 $$
 V(s) = \max_{\pi(\cdot \mid s)} \bigg\{ \sum_a \pi(a \mid s) \, Q(s,a) - \sigma \, \mathrm{KL}\!\big(\pi(\cdot \mid s) \| \mu(\cdot \mid s)\big) \bigg\}.
 $$
 
-By the Fenchel-Moreau (Donsker-Varadhan) duality, the maximum equals the log-sum-exp $V(s) = \sigma \log \sum_a \mu(a \mid s) \exp(Q(s,a)/\sigma)$ and the maximizer is the softmax CCP $\pi(a \mid s)$ above. This establishes a fundamental equivalence. The DDC multinomial logit model with EV1 taste shocks solves the same optimization problem as entropy-regularized reinforcement learning. The temperature $\sigma$ has a dual interpretation. In economics it is the scale of the unobserved taste shocks. In machine learning it is the weight on KL regularization that prevents the policy from collapsing to a deterministic rule. Both interpretations are mathematically identical, as shown in Appendix A of Rust and Rawat (2026).
+The solution to this optimization is the same log-sum-exp value and the same logit policy. So the DDC model with taste shocks and the entropy-regularized RL model with a KL penalty are the same thing. The parameter $\sigma$ plays two roles at once. In economics, it is the spread of unobserved taste shocks. In machine learning, it is the strength of the entropy bonus that keeps the policy from becoming too extreme. Rust and Rawat (2026, Appendix A) prove this equivalence formally.
 
 ### Notation Summary
 
@@ -58,76 +70,80 @@ By the Fenchel-Moreau (Donsker-Varadhan) duality, the maximum equals the log-sum
 |--------|-----------|
 | $s \in \mathcal{S}$, $a \in \mathcal{A}(s)$ | State, action |
 | $\beta \in (0,1)$ | Discount factor |
-| $\sigma > 0$ | EV1 scale parameter (equivalently, KL regularization weight) |
-| $\mu(a \mid s) > 0$ | Base policy with full support |
+| $\sigma > 0$ | Scale of taste shocks (or strength of entropy bonus) |
+| $\mu(a \mid s) > 0$ | Default (base) policy |
 | $\vec{r}(s,a) = (r_1(s,a), \ldots, r_K(s,a))$ | Feature vector |
-| $r_\theta(s,a) = \vec{r}(s,a) \cdot \theta$ | Linear reward parameterized by $\theta \in \mathbb{R}^K$ |
+| $r_\theta(s,a) = \vec{r}(s,a) \cdot \theta$ | Payoff function with parameters $\theta \in \mathbb{R}^K$ |
 | $p(s' \mid s,a)$ | Transition probability |
-| $Q(s,a)$, $V(s)$ | Choice-specific value, expected value |
-| $\pi(a \mid s)$ | Conditional choice probability (CCP) or policy |
+| $Q(s,a)$, $V(s)$ | Action value, state value |
+| $\pi(a \mid s)$ | Choice probability (CCP) or policy |
 | $\mathcal{D} = \{\tau_i\}_{i=1}^N$ | Observed trajectories, $\tau_i = \{(s_{it}, a_{it})\}_{t=0}^{T_i}$ |
-| $R(s,a) \in \mathbb{R}^K$ | Discounted continuation feature vector |
-| $Q_r(s,a)$, $Q_\varepsilon(s,a)$ | Reward component and entropy correction of $Q$ |
+| $R(s,a) \in \mathbb{R}^K$ | Continuation feature vector (discounted future features) |
+| $Q_r(s,a)$, $Q_\varepsilon(s,a)$ | Payoff part and taste-shock part of $Q$ |
 
-### The Q Decomposition
+### Splitting Q into Two Pieces
 
-When the reward is linear in parameters, $r_\theta(s,a) = \vec{r}(s,a) \cdot \theta$, the choice-specific value decomposes as $Q(s,a) = Q_r(s,a) + Q_\varepsilon(s,a)$. The reward component satisfies $Q_r(s,a) = R(s,a)^\top \theta$ where the continuation feature vector $R$ solves
+When the payoff is a weighted sum of features, $r_\theta(s,a) = \vec{r}(s,a) \cdot \theta$, the action value splits neatly into two parts: $Q(s,a) = Q_r(s,a) + Q_\varepsilon(s,a)$.
+
+The first part depends on $\theta$. It equals $Q_r(s,a) = R(s,a)^\top \theta$, where $R$ is the continuation feature vector. Think of $R_k(s,a)$ as "how much of feature $k$ will the agent accumulate, in discounted terms, starting from $(s,a)$." It solves
 
 $$
 R(s,a) = \vec{r}(s,a) + \beta \sum_{s'} p(s' \mid s,a) \sum_{a'} \pi(a' \mid s') \, R(s',a').
 $$
 
-Each element $R_k(s,a)$ is the discounted expected sum of feature $k$ starting from $(s,a)$ under policy $\pi$. The entropy correction $Q_\varepsilon$ captures the expected future value of having choice flexibility,
+The second part, $Q_\varepsilon$, captures the option value of having choices in the future. It depends only on the current policy, not on $\theta$,
 
 $$
 Q_\varepsilon(s,a) = \beta \sum_{s'} p(s' \mid s,a) \sum_{a'} \pi(a' \mid s') \big[-\sigma \log \pi(a' \mid s') + Q_\varepsilon(s',a')\big].
 $$
 
-This decomposition is central to the CCP and TD-CCP estimators. It separates the part of $Q$ that depends on $\theta$ (through $R$) from the part that depends only on the policy (through $Q_\varepsilon$).
+This split is the foundation of the CCP and TD-CCP estimators. It lets us separate what depends on the unknown parameters from what can be estimated directly from data.
 
 ### Likelihood Functions
 
-Suppose we observe trajectories $\mathcal{D} = \{\tau_i\}_{i=1}^N$ where $\tau_i = \{(s_{it}, a_{it})\}_{t=0}^{T_i}$. Parametrize the reward as $r_\theta(s,a) = \vec{r}(s,a) \cdot \theta$. The full likelihood conditions on both choices and transitions,
+We observe trajectories $\mathcal{D} = \{\tau_i\}_{i=1}^N$. The full likelihood includes both choices and transitions,
 
 $$
 \mathcal{L}^f_\mathcal{D}(\theta) = \prod_{i=1}^N \prod_{t=1}^{T_i} \pi_\theta(a_{it} \mid s_{it}) \, p_\theta(s_{it} \mid s_{it-1}, a_{it-1}).
 $$
 
-The partial likelihood conditions on choices only,
+The partial likelihood uses choices only,
 
 $$
 \mathcal{L}^p_\mathcal{D}(\theta) = \prod_{i=1}^N \prod_{t=1}^{T_i} \pi_\theta(a_{it} \mid s_{it}).
 $$
 
-Most estimators maximize the log partial likelihood $\ell^p(\theta) = \log \mathcal{L}^p_\mathcal{D}(\theta)$ because the transition component does not depend on $\theta$ when transitions are estimated nonparametrically.
+Most estimators maximize the partial log-likelihood $\ell^p(\theta) = \log \mathcal{L}^p_\mathcal{D}(\theta)$. The transition part drops out when transitions do not depend on $\theta$.
 
 ### Identification
 
-Rewards are not uniquely identified from observed behavior without additional restrictions. From the softmax CCP, only Q-value differences are recoverable,
+Looking at data alone, we can only tell apart actions whose $Q$-values differ. Specifically,
 
 $$
 \log\!\big(\pi(a \mid s) / \pi(a' \mid s)\big) = \big(Q(s,a) - Q(s,a')\big) / \sigma.
 $$
 
-The level of $Q$ is not identified, so neither is the level of $r$. Ng, Harada, and Russell (1999) showed that the set of observationally equivalent rewards forms an equivalence class. For any function $h \colon \mathcal{S} \to \mathbb{R}$,
+We can read off differences in $Q$ but not its level. And since $Q$ builds on $r$, the level of $r$ is not identified either.
+
+In fact, many different reward functions produce the exact same behavior. Ng, Harada, and Russell (1999) showed that for any function $h(s)$,
 
 $$
 r_h(s,a) = r(s,a) + \beta \sum_{s'} p(s' \mid s,a) \, h(s') - h(s)
 $$
 
-yields $\pi_{r_h} = \pi_r$ under the same dynamics. All rewards in this class generate identical behavior. But under different dynamics $\lambda(s' \mid s,a) \neq p(s' \mid s,a)$, the counterfactual policies diverge. This is why identification matters for policy evaluation.
+gives the same policy as $r$. You can shift rewards by any "potential" $h$ and nothing changes. But if the environment changes, these equivalent rewards start to disagree. This is why getting identification right matters for counterfactual analysis.
 
-Rust and Rawat (2026) adopt two gauges. The state-potential gauge removes the additive state constant, $E_{a \sim \mu(\cdot \mid s)}[r_\theta(s,a)] = 0$ for all $s$. The reference Q-gap fixes the scale, $Q^*_\theta(\bar{s}, a^+) - Q^*_\theta(\bar{s}, a^-) = \Delta^*$ for a chosen reference state and action pair. Together these pin down $\theta$. An alternative is the normalizing (anchor) action assumption used in CCP and GLADIUS, where $r(s, a_s)$ is known for one action $a_s$ in each state.
+To pin down $\theta$, Rust and Rawat (2026) use two rules. First, the average reward across actions is zero in every state: $E_{a \sim \mu}[r_\theta(s,a)] = 0$. Second, the gap between two reference $Q$-values equals a known target: $Q^*_\theta(\bar{s}, a^+) - Q^*_\theta(\bar{s}, a^-) = \Delta^*$. Together these remove the ambiguity. An alternative approach, used in CCP and GLADIUS, is to assume the reward of one "anchor" action is known in each state.
 
 ### Equivalence Theorem
 
-All estimators on this page operate on the same soft Bellman system. Rust and Rawat (2026, Theorem A.6) establish that under the soft-control framework with the gauge normalizations, consistent estimators from different data sources converge to the same policy. If $\hat\theta_{\mathrm{NFXP}}$ (from choice data), $\hat\theta_{\mathrm{IRL}}$ (from expert demonstrations), and $\hat\theta_{\mathrm{RLHF}}$ (from pairwise preferences) each solve their respective objectives, then as sample size grows,
+All estimators on this page share the same soft Bellman foundation. Rust and Rawat (2026, Theorem A.6) show that, with proper identification restrictions, it does not matter what kind of data you start from. Maximum likelihood on choice data (NFXP), feature matching on demonstrations (MCE-IRL), and preference learning on pairwise comparisons (RLHF) all converge to the same policy as the sample grows,
 
 $$
 \pi^*_{\hat\theta_{\mathrm{NFXP}}} = \pi^*_{\hat\theta_{\mathrm{IRL}}} = \pi^*_{\hat\theta_{\mathrm{RLHF}}} \;\longrightarrow\; \pi^*_{\theta^\star}.
 $$
 
-The choice of estimation method does not affect the limiting policy. This equivalence between maximum likelihood (DDC), maximum causal entropy (IRL), and Bradley-Terry preference learning (RLHF) is the central theoretical result unifying the three fields.
+This is the central result connecting structural econometrics, inverse RL, and RLHF.
 
 ---
 
@@ -135,19 +151,19 @@ The choice of estimation method does not affect the limiting policy. This equiva
 
 ### Structural Estimators
 
-Structural estimators recover utility parameters $\theta$ from observed choices, taking the direction $\theta \to \pi$.
+These estimators start from a known payoff specification $r_\theta(s,a)$ and estimate the parameters $\theta$ from observed choices.
 
 #### NFXP
 
-**Motivation.** Rust (1987) faced a fundamental computational challenge. Evaluating the likelihood at any candidate $\theta$ requires knowing the choice probabilities $\pi_\theta(a \mid s)$, which depend on $Q_\theta$, which is defined as the fixed point of the soft Bellman operator. Every trial value of $\theta$ in the optimizer requires solving an entire dynamic programming problem. Rust's insight was to nest this fixed-point computation inside a standard hill-climbing loop, hence the name "nested fixed point." The cost is high but the payoff is exact maximum likelihood with all its statistical guarantees. Iskhakov et al. (2016) improved the inner loop by starting with successive approximation (globally convergent but linearly fast) and switching to Newton-Kantorovich (quadratically convergent but only locally stable) near the fixed point. This polyalgorithm combines safety and speed.
+**Motivation.** To evaluate how well any candidate $\theta$ fits the data, we need the choice probabilities $\pi_\theta$. But computing $\pi_\theta$ requires solving the Bellman equation, which is itself an expensive fixed-point problem. Rust (1987) handled this by nesting the Bellman solve inside the optimizer. For every trial $\theta$, the inner loop solves for $Q_\theta$, the outer loop checks how well the resulting $\pi_\theta$ fits the data, and then tries a better $\theta$. This is expensive but gives exact maximum likelihood with proper standard errors. Iskhakov et al. (2016) sped up the inner loop with a two-phase approach: start with simple iteration (safe but slow), then switch to Newton's method (fast but needs a good starting point) once you are close to the answer.
 
-**Objective.** The NFXP estimator maximizes the exact log-likelihood,
+**Objective.**
 
 $$
 \hat\theta_{\mathrm{NFXP}} = \arg\max_\theta \sum_{(s,a) \in \mathcal{D}} \log \pi^*_\theta(a \mid s),
 $$
 
-where $\pi^*_\theta$ is computed by solving $Q_\theta = \Lambda_\sigma(Q_\theta)$ at each candidate $\theta$. The gradient $\nabla_\theta \ell$ is computed analytically via the implicit function theorem through the Frechet derivative $(I - \beta P_\pi)^{-1}$. The outer loop uses BHHH optimization, which forms a positive-definite Hessian approximation from per-observation score outer products.
+where $\pi^*_\theta$ comes from solving $Q_\theta = \Lambda_\sigma(Q_\theta)$ for each candidate $\theta$. Gradients are computed analytically through the fixed point using the implicit function theorem.
 
 **Pseudocode.**
 
@@ -157,54 +173,52 @@ NFXP(D, r_theta, p, beta, sigma):
   2. Repeat until convergence:
      a. Inner loop — solve for Q_theta:
         Q <- 0
-        Repeat (SA phase):
-          Q <- Lambda_sigma(Q; theta)        # contraction mapping
-        Until ||Q - Lambda_sigma(Q)|| < tol_switch
-        Repeat (NK phase):
-          Q <- Q - (I - beta*P_pi)^{-1} (Q - Lambda_sigma(Q))  # Newton step
-        Until ||Q - Lambda_sigma(Q)|| < tol_inner
-     b. Policy: pi(a|s) = exp(Q(s,a)/sigma) / sum_b exp(Q(s,b)/sigma)
-     c. Log-likelihood: L = sum_{(s,a) in D} log pi(a|s)
-     d. Gradient: dL/dtheta via implicit differentiation through (I - beta*P_pi)^{-1}
-     e. Update theta via BHHH step
-  3. Standard errors: inverse of BHHH Hessian (score outer products)
+        Repeat (simple iteration):
+          Q <- Lambda_sigma(Q; theta)
+        Until close enough, then switch to Newton:
+          Q <- Q - (I - beta*P_pi)^{-1} (Q - Lambda_sigma(Q))
+        Until converged
+     b. Compute policy: pi(a|s) = softmax(Q(s,.)/sigma)
+     c. Compute log-likelihood: L = sum log pi(a|s) over data
+     d. Compute gradient analytically
+     e. Update theta (BHHH step)
+  3. Standard errors from inverse Hessian
   4. Return theta, SEs
 ```
 
-NFXP is the only estimator that delivers statistically efficient maximum likelihood estimates with analytical standard errors. Its cost is $O(|\mathcal{S}|^2 \times \text{inner iterations})$ per outer step, making it intractable for $|\mathcal{S}| > 10{,}000$ or $\beta > 0.995$.
+NFXP gives the best possible estimates (efficient MLE) with reliable standard errors. The downside is cost: $O(|\mathcal{S}|^2)$ per inner solve. It becomes impractical when $|\mathcal{S}|$ exceeds about 10,000.
 
 #### CCP and NPL
 
-**Motivation.** Hotz and Miller (1993) asked whether one could avoid solving the Bellman equation entirely. Their key insight was an inversion lemma. Under the EV1 assumption, the conditional choice probabilities $\pi(a \mid s)$ can be estimated nonparametrically from data, and these empirical CCPs can be directly inverted to recover value differences. The continuation value becomes a known function of the data, not an equilibrium object to be computed. This replaces thousands of Bellman iterations with a single matrix inversion. Aguirregabiria and Mira (2002) then showed that iterating this procedure in CCP space (re-estimating CCPs from updated $\theta$, re-inverting, re-estimating $\theta$) converges to the full MLE, recovering the efficiency that the one-shot Hotz-Miller estimator sacrifices. They called this nested pseudo-likelihood (NPL). The zero Jacobian property at the fixed point ensures that first-stage CCP estimation noise has zero first-order effect on $\hat\theta$, a form of Neyman orthogonality that was only recognized later.
+**Motivation.** Hotz and Miller (1993) found a shortcut. Under the Gumbel shock assumption, you can estimate choice probabilities directly from data (just count how often each action is chosen in each state), and then invert them to recover value differences without ever solving the Bellman equation. This replaces thousands of iterations with a single matrix inversion. The tradeoff is that the one-shot estimator is less precise than full MLE. Aguirregabiria and Mira (2002) showed you can get the precision back by iterating: estimate $\theta$, update the choice probabilities, re-estimate $\theta$, and repeat. They called this nested pseudo-likelihood (NPL). After a few rounds, the estimates match what NFXP would give.
 
-**Objective.** The CCP takes the form
+**Objective.**
 
 $$
 \pi_\theta(a \mid s) = \frac{\exp\!\big(\hat{R}(s,a)^\top \theta + \hat{Q}_\varepsilon(s,a)\big)}{\sum_{a'} \exp\!\big(\hat{R}(s,a')^\top \theta + \hat{Q}_\varepsilon(s,a')\big)},
 $$
 
-where $\hat{R}$ and $\hat{Q}_\varepsilon$ are computed once from nonparametric CCP estimates by solving the linear systems via $(I - \beta F_\pi)^{-1}$, costing $O(|\mathcal{S}|^3)$. The estimator maximizes $\mathcal{L}^p_\mathcal{D}(\theta)$. NPL iterates re-estimate $\hat\pi$ from $\hat\theta$ at each step.
+where $\hat{R}$ and $\hat{Q}_\varepsilon$ come from a single matrix inversion $(I - \beta F_\pi)^{-1}$ using the empirical choice probabilities.
 
 **Pseudocode.**
 
 ```
 CCP(D, features, p, beta, sigma, K_npl):
-  1. Estimate CCPs from data: pi_hat(a|s) = N(s,a) / N(s)
+  1. Count choices: pi_hat(a|s) = N(s,a) / N(s)
   2. For k = 1 to K_npl:
-     a. Solve for R: R = (I - beta*F_pi)^{-1} * features      # one matrix inversion
-     b. Solve for Q_eps: Q_eps = (I - beta*F_pi)^{-1} * e      # e(a|s) = -sigma*log(pi(a|s))
-     c. Form CCP: pi_theta(a|s) = softmax(R(s,a)'*theta + Q_eps(s,a))
-     d. Maximize partial likelihood over theta via L-BFGS
-     e. Update CCPs: pi_hat <- pi_theta(.|.; theta_hat)         # NPL iteration
-  3. Standard errors: inverse Hessian of partial log-likelihood
+     a. One matrix inversion to get R and Q_eps
+     b. Plug into logit formula to get pi_theta
+     c. Maximize partial likelihood over theta
+     d. Update pi_hat from new theta (NPL step)
+  3. Standard errors from inverse Hessian
   4. Return theta, SEs
 ```
 
-One step ($K=1$) gives a consistent but inefficient Hotz-Miller estimate. Five to ten NPL steps typically recover MLE efficiency. At the NPL fixed point, $\partial V / \partial \pi = 0$ ensures first-stage CCP noise does not affect $\hat\theta$ asymptotically.
+One step ($K=1$) is fast and consistent. Five to ten NPL steps recover full MLE efficiency.
 
 #### SEES
 
-**Motivation.** Both NFXP and CCP require enumerating the full state space, either to solve the Bellman equation (NFXP) or to invert the valuation matrix (CCP). When the state space is large or continuous, these tabular methods break down. Luo and Sang (2024) proposed approximating the value function with a sieve basis (Chebyshev polynomials or Fourier terms) rather than solving the inner fixed point. The idea is simple. Parameterize $V(s;\alpha) = \Psi(s)^\top \alpha$ and jointly optimize the structural parameters $\theta$ and the basis coefficients $\alpha$. The penalty term $\lambda \|\alpha\|^2$ gradually enforces Bellman consistency. There is no neural network, no SGD, no mini-batches, and no learning rates. The entire estimation is a single L-BFGS-B call.
+**Motivation.** NFXP and CCP both need to work with the full state space, either solving the Bellman equation or inverting a big matrix. When there are many states (large or continuous), this becomes impossible. Luo and Sang (2024) proposed a simpler idea: approximate the value function with a small set of basis functions (like polynomials), and optimize the basis coefficients alongside $\theta$. There is no neural network involved. The whole thing is one optimization call.
 
 **Objective.**
 
@@ -212,26 +226,25 @@ $$
 (\hat\theta, \hat\alpha) = \arg\max_{\theta, \alpha} \; \ell^f(\theta) - \frac{\lambda}{2} \|\alpha\|^2,
 $$
 
-where $Q(s,a;\theta,\alpha) = r_\theta(s,a) + \beta \sum_{s'} p(s' \mid s,a) \, \Psi(s')^\top \alpha$. Standard errors for $\theta$ use the Schur complement $H_{\theta\theta} - H_{\theta\alpha} H_{\alpha\alpha}^{-1} H_{\alpha\theta}$ to marginalize out $\alpha$.
+where $V(s;\alpha) = \Psi(s)^\top \alpha$ is a polynomial or Fourier approximation and the penalty keeps the basis from overfitting.
 
 **Pseudocode.**
 
 ```
 SEES(D, features, p, beta, sigma, basis_type, M, lambda):
-  1. Construct sieve basis Psi(s) = (psi_1(s), ..., psi_M(s))    # Chebyshev or Fourier
-  2. Define Q(s,a; theta, alpha) = r_theta(s,a) + beta * P(.|s,a)' * Psi * alpha
-  3. Define pi(a|s; theta, alpha) = softmax(Q(s,.; theta, alpha) / sigma)
-  4. Objective: L(theta, alpha) = sum log pi(a|s) - (lambda/2) * ||alpha||^2
-  5. Optimize (theta, alpha) jointly via L-BFGS-B
-  6. Standard errors: Schur complement of joint Hessian
-  7. Return theta, SEs
+  1. Pick a basis: polynomials, Fourier terms, etc., with M terms
+  2. Approximate V(s) = sum of basis functions weighted by alpha
+  3. Compute Q from the approximated V
+  4. Jointly optimize theta and alpha to maximize penalized likelihood
+  5. Standard errors via Schur complement (marginalizes out alpha)
+  6. Return theta, SEs
 ```
 
-Cost is $O(M)$, independent of $|\mathcal{S}|$, making SEES tractable for state spaces exceeding 100,000. The estimator achieves Cramer-Rao efficiency as the sieve dimension $M$ grows with sample size.
+Cost is $O(M)$ regardless of how many states there are. Works for state spaces over 100,000.
 
 #### NNES
 
-**Motivation.** Nguyen (2025) observed that sieve bases work well when the value function is smooth, but can fail when $V$ has complex nonlinear structure. Neural networks are universal approximators, but naively plugging a neural $V_w$ into the likelihood creates a problem. The Hessian $\nabla^2_{ww}$ of the neural network is intractable, making standard error computation impossible. The key theoretical breakthrough was proving that the DDC likelihood has a special orthogonality structure. The score for $\theta$ is orthogonal to errors in $V$ (Neyman orthogonality). This means $\hat\theta$ is $\sqrt{n}$-consistent even when $V_w$ converges at a slower rate. Standard errors from the partial likelihood Hessian are valid without correcting for the neural network's approximation error. The gradient $\nabla_\theta Q$ is computed via equilibrium propagation, sidestepping the intractable Hessian entirely.
+**Motivation.** Basis functions work when the value function is smooth, but can struggle with sharp nonlinearities. Nguyen (2025) replaced the basis with a neural network, which can approximate any shape. The challenge is that neural networks make standard error computation very hard. The breakthrough was proving that the DDC likelihood has a special structure: errors in the neural value function have only a second-order effect on the parameter estimates (Neyman orthogonality). This means the standard errors from the likelihood Hessian are valid even though the neural network is imperfect.
 
 **Objective.**
 
@@ -244,137 +257,111 @@ $$
 ```
 NNES(D, features, p, beta, sigma, hidden_dims, lambda):
   1. Initialize theta, neural network V_w
-  2. For k = 1 to K_outer:
-     a. Phase 1 — train V_w (Bellman residual minimization):
-        For epoch = 1 to E:
-          Sample mini-batch (s, a, s') from D
-          Loss = ||V_w(s) - r_theta(s,a) - beta * V_w(s')||^2
-          Update w via Adam
-     b. Phase 2 — estimate theta (structural MLE):
-        Q(s,a) = r_theta(s,a) + beta * sum_{s'} p(s'|s,a) V_w(s')
-        pi(a|s) = softmax(Q/sigma)
-        theta <- argmax sum log pi(a|s)    # via L-BFGS, gradient by equilibrium propagation
-  3. Standard errors: inverse Hessian of partial log-likelihood (valid by Neyman orthogonality)
+  2. Alternate:
+     a. Train V_w to minimize Bellman residual (mini-batch SGD)
+     b. Estimate theta by maximizing partial likelihood with V_w held fixed
+  3. Standard errors from partial likelihood Hessian (valid by orthogonality)
   4. Return theta, SEs
 ```
 
-NNES achieves the semiparametric efficiency bound, $\sqrt{n}(\hat\theta - \theta_0) \to \mathcal{N}(0, \Sigma^{-1})$, making it the only neural method with theoretically valid standard errors.
+NNES is the only neural method with theoretically valid standard errors.
 
 #### TD-CCP
 
-**Motivation.** Adusumilli and Eckardt (2025) wanted the scalability of neural methods and the structural transparency of CCP, without requiring an explicit transition model. Their key innovation was per-feature decomposition. Instead of approximating a monolithic value function, they learn $K+1$ separate functions via temporal difference learning, one per reward feature $R_k(s,a)$ plus the entropy correction $Q_\varepsilon(s,a)$. This is model-free because it uses observed next-state samples $(s, a, s', a')$ rather than the transition matrix. The per-feature structure provides interpretable diagnostics. If $R_3$ has high approximation error but $R_1$ converges, the third feature's continuation-value structure is the modeling challenge, not the overall algorithm. A third estimation stage applies a debiased (Neyman-orthogonal) score correction to make $\hat\theta$ robust to first-stage noise.
+**Motivation.** Adusumilli and Eckardt (2025) wanted to combine the transparency of CCP with the scalability of neural methods, and to do it without knowing the transition probabilities. Their trick was to learn each piece of the $Q$ decomposition separately using temporal difference (TD) learning on the raw data. For each feature $k$, they train a separate function $R_k$ on observed transitions $(s, a, s', a')$. This is model-free because it never uses $p(s' \mid s,a)$ directly. The per-feature breakdown also helps with debugging: if one component converges but another does not, you know exactly which part of the model is causing trouble.
 
-**Objective.** The TD regression for the continuation features is
+**Objective.**
 
 $$
 \hat\phi = \Big[E_\mathcal{D}\big\{\nu(s,a)\big[\nu(s,a) - \beta \nu(s',a')\big]^\top\big\}\Big]^{-1} E_\mathcal{D}\big\{\nu(s,a) \, \vec{r}(s,a)\big\},
 $$
 
-where $\nu(s,a)$ are basis functions and $E_\mathcal{D}$ is the empirical expectation over observed transitions. Structural parameters $\theta$ are then estimated by maximizing $\mathcal{L}^p_\mathcal{D}(\theta)$ with the CCP form.
+where $\nu(s,a)$ are basis functions and $(s,a,s',a')$ are observed transitions.
 
 **Pseudocode.**
 
 ```
 TD-CCP(D, features, beta, sigma, basis_functions):
-  1. Estimate CCPs from data: pi_hat(a|s) = N(s,a) / N(s)
-  2. For each feature k = 1, ..., K:
-     a. Solve TD regression for R_k:
-        phi_k = [E_D{nu(s,a)[nu(s,a) - beta*nu(s',a')]'}]^{-1} E_D{nu(s,a) r_k(s,a)}
-     b. R_hat_k(s,a) = nu(s,a)' * phi_k
-  3. Solve TD regression for Q_eps similarly (using -sigma*log(pi) as target)
-  4. Form CCP: pi_theta(a|s) = softmax(R_hat(s,a)'*theta + Q_eps_hat(s,a))
+  1. Count choices: pi_hat(a|s) = N(s,a) / N(s)
+  2. For each feature k:
+     Learn R_k from data using TD regression
+  3. Learn Q_eps similarly
+  4. Plug R_hat and Q_eps_hat into the logit formula
   5. Maximize partial likelihood over theta
-  6. Apply Neyman-orthogonal score correction for robustness
+  6. Apply a bias correction for robustness
   7. Return theta, SEs
 ```
 
-TD-CCP is model-free and provides per-feature diagnostics that no other neural method offers.
+TD-CCP is model-free and gives per-feature diagnostics.
 
 ### Inverse Estimators
 
-Inverse estimators recover reward parameters $\theta$ from expert demonstrations, taking the direction $\pi \to \theta$.
+These estimators start from demonstrated behavior and recover the payoff function.
 
 #### MCE-IRL
 
-**Motivation.** Ziebart (2010) framed the IRL problem as a constrained optimization. Many policies are consistent with the observed expert behavior, in the sense that they match the expert's average feature counts. Which one should we pick? The maximum entropy principle (Jaynes 1957) says to choose the policy that is maximally noncommittal, the one with highest entropy subject to the feature-matching constraint. Ziebart's key contribution was using causal entropy $H_c(\pi) = E_\pi\{-\sum_t \beta^t \log \pi(a_t \mid s_t)\}$, which conditions each action only on information available at decision time. Standard Shannon entropy over trajectories includes randomness from state transitions, creating a risk-seeking bias in stochastic environments. The Lagrange multipliers of the constrained problem turn out to be the reward parameters $\theta$, and the KKT conditions yield exactly the softmax Bellman equations from the Theory section. This reveals that MCE-IRL is maximum likelihood estimation under the DDC model, establishing the mathematical equivalence between IRL and structural econometrics.
+**Motivation.** Many different payoff functions can explain the same behavior. Ziebart (2010) proposed a principled way to pick one: among all policies that match the expert's average feature usage, choose the one that is most random (highest entropy). This "maximum entropy" principle avoids over-committing to structure the data does not support. The key refinement was using causal entropy, which only counts randomness in the agent's own decisions and ignores randomness from the environment. The solution turns out to be exactly the logit model from the Theory section, so MCE-IRL is really just maximum likelihood from a different angle.
 
-**Objective.** Let $\mu_\mathcal{D} = \frac{1}{N} \sum_{i=1}^N \sum_{t=0}^{T_i} \beta^t \vec{r}(s_{it}, a_{it})$ be the expert's discounted feature counts. The primal problem is
-
-$$
-\max_\pi H_c(\pi) \quad \text{subject to} \quad E_\pi\bigg\{\sum_{t=0}^T \beta^t \vec{r}(s_t, a_t)\bigg\} = \mu_\mathcal{D}.
-$$
-
-The gradient of the log partial likelihood is the feature matching residual,
+**Objective.** Let $\mu_\mathcal{D}$ be the expert's average discounted feature usage. The problem is
 
 $$
-\nabla_\theta \ell^p(\theta) = \mu_\mathcal{D} - E_{\pi_\theta}\bigg\{\sum_{t=0}^T \beta^t \vec{r}(s_t, a_t)\bigg\}.
+\max_\pi H_c(\pi) \quad \text{subject to} \quad E_\pi\bigg\{\sum_{t} \beta^t \vec{r}(s_t, a_t)\bigg\} = \mu_\mathcal{D}.
 $$
 
-At the optimum, expert and model feature expectations match.
+The gradient is simply the gap between expert and model feature averages:
+
+$$
+\nabla_\theta \ell^p(\theta) = \mu_\mathcal{D} - E_{\pi_\theta}\bigg\{\sum_{t} \beta^t \vec{r}(s_t, a_t)\bigg\}.
+$$
+
+At convergence, the two match.
 
 **Pseudocode.**
 
 ```
 MCE-IRL(D, features, p, beta, sigma):
-  1. Compute expert feature counts: mu_D = (1/N) sum_i sum_t beta^t features(s_it, a_it)
+  1. Compute expert feature averages from data
   2. Initialize theta
   3. Repeat until convergence:
-     a. Backward pass — soft value iteration:
-        Q(s,a) = features(s,a)'*theta + beta * sum_{s'} p(s'|s,a) V(s')
-        V(s) = sigma * log sum_a exp(Q(s,a)/sigma)
-        pi(a|s) = exp(Q(s,a)/sigma) / sum_b exp(Q(s,b)/sigma)
-     b. Forward pass — state visitation frequencies:
-        D(s) = rho_0(s) + beta * sum_{s',a} D(s') pi(a|s') p(s|s',a)
-     c. Expected features: mu_pi = sum_s D(s) sum_a pi(a|s) features(s,a)
-     d. Gradient: g = mu_D - mu_pi
-     e. Update theta via L-BFGS or Adam
-  4. Bootstrap SEs: resample trajectories, re-estimate theta B times
+     a. Backward pass: solve soft Bellman for Q, V, pi
+     b. Forward pass: compute how often each state is visited under pi
+     c. Compute model feature averages
+     d. Gradient = expert averages - model averages
+     e. Update theta
+  4. Bootstrap standard errors by resampling trajectories
   5. Return theta, SEs
 ```
 
-MCE-IRL minimizes worst-case prediction log-loss (Ziebart 2010, Theorem 3), making the recovered policy maximally robust to distribution shift. The deep variant replaces linear reward with a neural network $r_\phi(s,a)$ but loses interpretable parameters and standard errors.
+MCE-IRL also provides a worst-case robustness guarantee (Ziebart 2010, Theorem 3). The deep variant uses a neural network for the payoff but loses interpretability and standard errors.
 
 #### AIRL
 
-**Motivation.** GAIL (Ho and Ermon 2016) showed that IRL can be cast as a GAN, with a discriminator distinguishing expert from policy state-action pairs and a generator (policy) trying to fool it. But GAIL's learned reward $\log D(s,a)$ bakes in the training dynamics. When the environment changes, the reward becomes meaningless and the policy fails. Fu, Luo, and Levine (2018) asked what structure the discriminator must have for the learned reward to transfer. Their answer was the potential-based decomposition from the Theory section. By parameterizing the discriminator logits as $f(s,a,s') = g(s,a) + \beta h(s') - h(s)$, the shaping potential $h$ absorbs all dynamics-dependent value contributions. At optimality, $g$ recovers the intrinsic reward up to a constant. This is the disentanglement theorem. The structural economists will recognize $h$ as the potential function from Ng, Harada, and Russell (1999), and $g$ as the identified component of the reward.
+**Motivation.** GAIL (Ho and Ermon 2016) framed IRL as a GAN: a discriminator tells apart expert and agent behavior, and the agent learns to fool it. But the "reward" that GAIL learns is entangled with the training environment. Move to a new environment and the learned reward stops working. Fu, Luo, and Levine (2018) fixed this by giving the discriminator a special structure. They split its output into a reward piece $g(s,a)$ and a shaping piece $\beta h(s') - h(s)$. The shaping piece absorbs everything that depends on the environment. What remains, $g$, is the true reward, and it transfers to new settings. Economists will recognize this as the potential-based shaping from Ng, Harada, and Russell (1999).
 
-**Objective.** The discriminator logits decompose as
-
-$$
-f_\phi(s,a,s') = g_\phi(s,a) + \beta \, h_\phi(s') - h_\phi(s),
-$$
-
-and the discriminator classifies expert versus policy transitions,
+**Objective.**
 
 $$
-D_\phi(s,a,s') = \frac{\exp(f_\phi(s,a,s'))}{\exp(f_\phi(s,a,s')) + \pi(a \mid s)}.
+f_\phi(s,a,s') = g_\phi(s,a) + \beta \, h_\phi(s') - h_\phi(s), \qquad D_\phi = \frac{\exp(f_\phi)}{\exp(f_\phi) + \pi(a \mid s)}.
 $$
 
 **Pseudocode.**
 
 ```
 AIRL(D_expert, p, beta, sigma, max_rounds):
-  1. Initialize reward g_phi(s,a), shaping h_phi(s), policy pi_w
-  2. For round = 1 to max_rounds:
-     a. Sample expert transitions (s,a,s') from D_expert
-     b. Sample policy transitions (s,a,s') by rolling out pi_w
-     c. Discriminator update:
-        f(s,a,s') = g_phi(s,a) + beta*h_phi(s') - h_phi(s)
-        D = sigmoid(f - log pi_w(a|s))
-        Maximize: E_expert[log D] + E_policy[log(1 - D)]
-        Update (phi) via gradient ascent
-     d. Policy update:
-        Reward signal: r(s,a,s') = f(s,a,s')
-        Update pi_w via policy gradient (REINFORCE or PPO)
-  3. Portable reward: r(s,a) = g_phi(s,a)
-  4. Return g_phi, pi_w
+  1. Initialize reward network g, shaping network h, policy pi
+  2. For each round:
+     a. Collect transitions from expert and from current policy
+     b. Train discriminator D to tell them apart
+     c. Use discriminator signal as reward to improve policy
+  3. Extract portable reward: r(s,a) = g(s,a)
+  4. Return g, pi
 ```
 
-Under deterministic dynamics and state-only $g_\phi(s)$, at optimality $g_\phi(s) = r(s) + \text{const}$ (Theorem 5.1). The reward transfers across environments. Lee, Sudhir, and Wang (2026) show that an economic normalizing action provides an alternative identification strategy for action-dependent rewards.
+Under clean conditions (deterministic transitions, state-only reward), $g$ recovers the true reward up to a constant and transfers across environments (Theorem 5.1).
 
 #### f-IRL
 
-**Motivation.** All previous IRL methods require the practitioner to specify something about the reward structure, either features (MCE-IRL), a neural architecture (deep MCE-IRL), or a discriminator structure (AIRL). Ni et al. (2022) asked whether one could do IRL with zero assumptions about reward structure. Their approach directly minimizes the f-divergence between the expert's state-action occupancy measure and the policy's occupancy measure. The reward is tabular, one free parameter per state-action pair. The choice of f-divergence gives a menu of robustness properties. KL divergence recovers maximum likelihood equivalence. Total variation is robust to outlier demonstrations. Chi-squared is sensitive to variance in occupancy ratios.
+**Motivation.** Every other IRL method asks you to choose something about the reward: features (MCE-IRL), a network architecture (deep MCE-IRL), or a discriminator design (AIRL). Ni et al. (2022) asked: can we do IRL with no assumptions at all? Their approach assigns a free reward parameter to every state-action pair and adjusts these parameters to make the model's behavior match the expert's as closely as possible, measured by an f-divergence. You get to choose the divergence: KL for a maximum-likelihood flavor, total variation for robustness to outliers, or chi-squared for sensitivity to distribution differences.
 
 **Objective.**
 
@@ -382,71 +369,62 @@ $$
 \min_r D_f(\rho_E \| \rho_{\pi_r}),
 $$
 
-where $\rho(s,a) = E_\pi\{\sum_{t=0}^\infty \beta^t \mathbb{I}(s_t = s, a_t = a)\}$ is the discounted occupancy measure. The gradient depends on the divergence: KL gives $\log(\rho_E / \rho_\pi)$, chi-squared gives $(\rho_E / \rho_\pi) - 1$, total variation gives $\mathrm{sign}(\rho_E - \rho_\pi)$.
+where $\rho(s,a)$ measures how often state-action pairs are visited under the discounted policy.
 
 **Pseudocode.**
 
 ```
-f-IRL(D_expert, p, beta, sigma, f_divergence, lr):
-  1. Compute expert occupancy: rho_E(s,a) from D_expert
-  2. Initialize tabular reward r(s,a) = 0
-  3. Repeat until convergence:
-     a. Solve soft Bellman under r -> pi, V, Q
-     b. Compute policy occupancy rho_pi via forward propagation
-     c. Compute divergence gradient:
-        If KL:     g(s,a) = log(rho_E(s,a) / rho_pi(s,a))
-        If chi^2:  g(s,a) = rho_E(s,a) / rho_pi(s,a) - 1
-        If TV:     g(s,a) = sign(rho_E(s,a) - rho_pi(s,a))
-     d. Update: r(s,a) <- r(s,a) - lr * g(s,a)
-  4. Return r (tabular reward)
+f-IRL(D_expert, p, beta, sigma, divergence, lr):
+  1. Estimate how often the expert visits each (s,a)
+  2. Initialize reward r(s,a) = 0 everywhere
+  3. Repeat:
+     a. Solve for optimal policy under current r
+     b. Compute how often this policy visits each (s,a)
+     c. Adjust r to close the gap (gradient depends on chosen divergence)
+  4. Return r (one number per state-action pair)
 ```
 
 ### Model-Free Neural Estimator
 
 #### GLADIUS
 
-**Motivation.** Kang et al. (2025) identified a gap in the existing methods. Occupancy-matching methods like GAIL and IQ-Learn minimize average Bellman error only on the expert's support, leaving the Q-function unidentified off-support. NFXP and CCP require either solving the full Bellman equation or inverting a large matrix. GLADIUS addresses both problems by separately parameterizing $Q$ and the conditional expectation of $V$ with two neural networks, then jointly training them with a max-min formulation. The key insight is that the mean squared TD error decomposes into the Bellman error (what we want to minimize) plus the conditional variance of next-period values (irreducible noise from stochastic transitions). By estimating the variance term separately with the second network, GLADIUS targets the correct Bellman error without requiring $p(s' \mid s,a)$. After training, the reward is recovered from the Bellman identity $r = Q - \beta \, EV$ and projected onto linear features to extract structural parameters.
+**Motivation.** Some previous methods (GAIL, IQ-Learn) only match behavior on states the expert actually visited, leaving the value function undefined elsewhere. Others (NFXP, CCP) need the transition matrix or a big matrix inversion. Kang et al. (2025) built GLADIUS to avoid both problems. It uses two neural networks: one for $Q(s,a)$ and one for the expected next-period value $EV(s,a)$. The key insight is that the standard training objective (TD error) mixes together Bellman error (what we care about) and transition noise (which is irreducible). By using the second network to estimate the noise, GLADIUS isolates the true Bellman error. It needs no transition model. After training, the reward is read off as $r = Q - \beta \cdot EV$, and structural parameters come from projecting this reward onto features.
 
-**Objective.** The outer maximization finds $\phi_1$ to maximize the penalized partial likelihood,
+**Objective.**
 
 $$
-\max_{\phi_1} \bigg[\ell^p(\phi_1) - \lambda \, \rho_{BE}(Q_{\phi_1})\bigg],
+\max_{\phi_1} \bigg[\ell^p(\phi_1) - \lambda \, \rho_{BE}(Q_{\phi_1})\bigg].
 $$
-
-where the Bellman error $\rho_{BE}$ is separated from conditional variance via the inner minimization over $\phi_2$.
 
 **Pseudocode.**
 
 ```
 GLADIUS(D, features, beta, sigma, lambda):
-  1. Initialize Q-network Q_phi1(s,a), EV-network EV_phi2(s,a)
-  2. For epoch = 1 to max_epochs:
-     a. Sample mini-batch (s, a, s') from D
-     b. V(s') = sigma * log sum_{a'} exp(Q_phi1(s',a')/sigma)
-     c. NLL loss = -sum log softmax(Q_phi1(s,.)/sigma)[a]
-     d. Bellman loss = lambda * ||beta * EV_phi2(s,a) - V(s')||^2
-     e. Update phi1 to minimize NLL + Bellman loss      # outer max
-     f. Update phi2 to minimize ||EV_phi2(s,a) - V(s')||^2   # inner min
-  3. Recover reward: r(s,a) = Q_phi1(s,a) - beta * EV_phi2(s,a)
-  4. Project onto features: theta = (Phi'Phi)^{-1} Phi' r
-  5. Projection R^2 measures linear fit quality
-  6. Return theta, r, R^2
+  1. Initialize Q-network and EV-network
+  2. For each training epoch:
+     a. Sample a mini-batch of (s, a, s') from data
+     b. Compute V(s') from Q-network via log-sum-exp
+     c. Loss = choice prediction error + lambda * Bellman error
+     d. Update Q-network to minimize loss
+     e. Update EV-network to track expected V
+  3. Recover reward: r(s,a) = Q(s,a) - beta * EV(s,a)
+  4. Project reward onto features: theta = least-squares fit
+  5. R-squared tells you how linear the learned reward is
+  6. Return theta, r, R-squared
 ```
-
-Under realizability assumptions, GLADIUS achieves global convergence with error $O(1/T) + O(1/N)$.
 
 ### Baseline
 
 #### BC
 
-**Motivation.** Before running any structural or inverse method, you need to know whether the data contains enough signal. Behavioral cloning is the simplest possible estimator. It uses zero MDP structure. There is no reward, no value function, no Bellman equation, and no transition model. It just counts. If a sophisticated estimator cannot beat BC, it has not learned from sequential decision-making structure. Ross, Gordon, and Bagnell (2011) proved that BC error compounds quadratically with the horizon, $O(T^2 \varepsilon)$, while IRL methods that recover the true reward achieve $O(\varepsilon)$ regardless of $T$. This gap quantifies the value of structural estimation.
+**Motivation.** Before trying anything fancy, check whether the data has a signal at all. Behavioral cloning just counts: how often was each action chosen in each state? No model, no optimization, no value function. If a sophisticated estimator cannot beat this, it is not learning anything useful. Ross et al. (2011) showed that BC errors grow as $O(T^2 \varepsilon)$ with horizon length $T$, while methods that recover the true reward achieve $O(\varepsilon)$ regardless of $T$. That gap is why structural estimation matters.
 
 **Pseudocode.**
 
 ```
 BC(D):
-  1. For each state s, count visits N(s) and action counts N(s,a)
-  2. pi(a|s) = N(s,a) / N(s)
+  1. For each state s, count how often each action a was chosen
+  2. pi(a|s) = count(s,a) / count(s)
   3. Return pi
 ```
 
@@ -454,7 +432,7 @@ BC(D):
 
 ## Guide
 
-This section explains when to use each estimator.
+This section helps you choose the right estimator.
 
 ### Decision Flowchart
 
@@ -479,23 +457,23 @@ This section explains when to use each estimator.
 
 ### When to Use Each Estimator
 
-**NFXP-NK** is for publication-grade structural estimates on tabular problems. It is the only estimator with statistically efficient MLE and analytical standard errors. Use it for replication of canonical DDC results (Rust bus, occupational choice) and whenever you need proper confidence intervals, likelihood ratio tests, and information criteria.
+**NFXP-NK** is for when you need the best possible estimates with reliable standard errors on a manageable state space. Think published papers, confidence intervals, hypothesis tests. Use it for classic problems like bus engine replacement or occupational choice.
 
-**CCP** is for rapid specification search, dynamic games, and any setting where the inner-loop cost of NFXP is the bottleneck. It completely avoids the Bellman inner loop by exploiting the Hotz-Miller inversion lemma. One step gives instant consistent estimates. Five to ten NPL steps recover MLE efficiency. It is the only method that works for dynamic games where computing Nash equilibria in the inner loop is infeasible.
+**CCP** is for when NFXP is too slow. It skips the Bellman solve entirely. One step gives quick estimates, five to ten NPL steps match NFXP quality. It is the only option for dynamic games.
 
-**SEES** is for massive state spaces where neural methods are too slow and tabular methods are impossible. The entire estimation is a single L-BFGS-B call over roughly $K + M$ parameters. There is no neural network training. Cost is $O(M)$, independent of $|\mathcal{S}|$.
+**SEES** is for big state spaces without neural networks. One optimization call, no training loops. Scales past 100,000 states.
 
-**NNES** is for high-dimensional continuous states where you need both neural scalability and publication-grade inference. It is the only neural method where standard errors are theoretically valid, thanks to Neyman orthogonality.
+**NNES** is for big state spaces when you need standard errors you can trust. It is the only neural method with theoretically valid inference.
 
-**TD-CCP** is for continuous state variables where you need to understand which value function components drive decisions. The per-feature decomposition provides interpretable diagnostics no other neural method offers. It is model-free.
+**TD-CCP** is for continuous states when you want to see which features are easy or hard to predict. It works without knowing the transition probabilities.
 
-**MCE-IRL** is for recovering reward weights from expert demonstrations. It is the only inverse estimator recovering interpretable linear reward parameters with bootstrap standard errors and a provable robustness guarantee. The deep variant extends to nonlinear rewards.
+**MCE-IRL** is for learning reward weights from demonstrations with standard errors. It is the bridge between IRL and structural econometrics.
 
-**AIRL** is for sim-to-real transfer and anywhere training and deployment dynamics differ. It is the only IRL method with a proven transfer guarantee via the disentanglement theorem.
+**AIRL** is for when the learned reward needs to work in a different environment than the one it was trained in.
 
-**f-IRL** is for exploratory reward recovery when you do not know what features matter. It requires zero assumptions about reward structure.
+**f-IRL** is for exploring what the reward looks like when you have no idea which features matter.
 
-**BC** should always be run first. It tells you whether demonstrations contain enough signal, whether your IRL method is leveraging MDP structure or memorizing frequencies, and provides a calibration target for policy evaluation.
+**BC** should always be your first step. If nothing beats it, the data may not have enough structure for model-based methods.
 
 ### Capability Matrix
 
