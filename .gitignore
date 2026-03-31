@@ -41,5 +41,20 @@ autolab/experiment_log.jsonl
 autolab/FINDINGS.md
 
 # Large data files
-data/raw/**/*.hdf5
-data/raw/**/*.h5
+data/raw/
+data/samples/
+
+# Cache
+cache/
+
+# macOS
+.DS_Store
+
+# Claude Code
+.claude/
+
+# Personal notes
+notes/
+
+# Loose PDFs in root
+/*.pdf
