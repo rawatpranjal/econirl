@@ -6,8 +6,15 @@ Each example demonstrates econirl on a different problem. The estimator choice d
 .. toctree::
    :maxdepth: 1
 
+   landing_demo
    rust_bus
+   mce_irl_bus
+   ddc_irl_equivalence
+   ziebart_mce_irl
    taxi_gridworld
-   shanghai_route
-   trivago_search
    wulfmeier_deep_maxent
+   keane_wolpin
+   ngsim_lane_change
+   shanghai_route
+   beijing_taxi
+   trivago_search
