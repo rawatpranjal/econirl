@@ -7,5 +7,6 @@ Each example demonstrates econirl on a different problem. The estimator choice d
    :maxdepth: 1
 
    rust_bus
+   taxi_gridworld
    shanghai_route
    trivago_search
