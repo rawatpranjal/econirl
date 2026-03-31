@@ -110,7 +110,7 @@ def build_estimators():
     ))
 
     # ── 4. MaxEnt IRL ──
-    from econirl.estimation.maxent_irl import MaxEntIRLEstimator
+    from econirl.contrib.maxent_irl import MaxEntIRLEstimator
     estimators["MaxEnt IRL"] = MaxEntIRLEstimator(
         optimizer="L-BFGS-B", inner_solver="hybrid",
         inner_tol=1e-8, inner_max_iter=100000,
@@ -121,12 +121,12 @@ def build_estimators():
     from econirl.estimation.adversarial.airl import AIRLEstimator, AIRLConfig
     estimators["AIRL"] = AIRLEstimator(config=AIRLConfig(
         reward_type="linear", reward_lr=0.01,
-        max_rounds=50, generator_solver="hybrid",
+        max_rounds=200, generator_solver="hybrid",
         generator_max_iter=100000, verbose=True,
     ))
 
     # ── 6. GAIL ──
-    from econirl.estimation.adversarial.gail import GAILEstimator, GAILConfig
+    from econirl.contrib.gail import GAILEstimator, GAILConfig
     estimators["GAIL"] = GAILEstimator(config=GAILConfig(
         discriminator_type="linear", discriminator_lr=0.01,
         max_rounds=50, generator_solver="hybrid",
@@ -134,7 +134,7 @@ def build_estimators():
     ))
 
     # ── 7. IQ-Learn ──
-    from econirl.estimation.iq_learn import IQLearnEstimator, IQLearnConfig
+    from econirl.contrib.iq_learn import IQLearnEstimator, IQLearnConfig
     estimators["IQ-Learn"] = IQLearnEstimator(config=IQLearnConfig(
         q_type="linear", divergence="chi2",
         optimizer="L-BFGS-B", max_iter=500, verbose=True,
@@ -151,14 +151,16 @@ def build_estimators():
     from econirl.estimation.td_ccp import TDCCPEstimator, TDCCPConfig
     estimators["TD-CCP"] = TDCCPEstimator(config=TDCCPConfig(
         hidden_dim=64, avi_iterations=20,
-        epochs_per_avi=100, verbose=True,
+        epochs_per_avi=100, n_policy_iterations=3,
+        verbose=True,
     ))
 
     # ── 10. NNES ──
     from econirl.estimation.nnes import NNESEstimator
     estimators["NNES"] = NNESEstimator(
         hidden_dim=64, num_layers=2,
-        v_epochs=200, outer_max_iter=100, verbose=True,
+        v_epochs=200, outer_max_iter=100,
+        n_outer_iterations=3, verbose=True,
     )
 
     # ── 11. SEES ──
@@ -169,13 +171,13 @@ def build_estimators():
     )
 
     # ── 12. Max Margin Planning ──
-    from econirl.estimation.max_margin_planning import MaxMarginPlanningEstimator, MMPConfig
+    from econirl.contrib.max_margin_planning import MaxMarginPlanningEstimator, MMPConfig
     estimators["Max Margin"] = MaxMarginPlanningEstimator(config=MMPConfig(
         max_iterations=500, verbose=True,
     ))
 
     # ── 13. Bayesian IRL ──
-    from econirl.estimation.bayesian_irl import BayesianIRLEstimator
+    from econirl.contrib.bayesian_irl import BayesianIRLEstimator
     estimators["Bayesian IRL"] = BayesianIRLEstimator(
         n_samples=200, burnin=50,
         inner_max_iter=100000, verbose=True,

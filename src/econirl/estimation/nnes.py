@@ -223,11 +223,13 @@ class NNESEstimator(BaseEstimator):
         entropy = -(ccps * safe_ccps.log()).sum(dim=1)
 
         # Solve for EV components: ev_k = (I - beta * P_pi)^{-1} flow_k
-        I = torch.eye(n_states, dtype=torch.float32)
+        # Use float64 for numerical stability at high discount factors
+        # (condition number of I - beta*P_pi ~ 1/(1-beta) ~ 10,000 at beta=0.9999)
+        I = torch.eye(n_states, dtype=torch.float64)
         try:
-            M = I - beta * P_pi
-            ev_features = torch.linalg.solve(M, flow_features)  # (S, K)
-            ev_entropy = torch.linalg.solve(M, entropy)  # (S,)
+            M = I - beta * P_pi.double()
+            ev_features = torch.linalg.solve(M, flow_features.double()).float()  # (S, K)
+            ev_entropy = torch.linalg.solve(M, entropy.double()).float()  # (S,)
         except RuntimeError:
             # Fallback: return small positive values
             return torch.full((feature_matrix.shape[2],), 0.01)
@@ -330,11 +332,9 @@ class NNESEstimator(BaseEstimator):
                 s_idx = all_states[idx]
                 with torch.no_grad():
                     v_all = v_net(all_state_feats).detach()
-                ev = torch.einsum(
-                    "ast,t->sa",
-                    transitions[:, s_idx, :].permute(1, 0, 2),
-                    v_all,
-                ).reshape(len(idx), n_actions)
+                # EV[batch_i, a] = sum_s' P(s'|s_idx[i], a) * V(s')
+                # transitions[:, s_idx, :] has shape (A, batch, S)
+                ev = torch.einsum("abs,s->ba", transitions[:, s_idx, :], v_all)
                 q_vals = flow_u[s_idx] + beta * ev
 
                 # Bellman target

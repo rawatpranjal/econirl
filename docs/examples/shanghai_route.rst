@@ -35,22 +35,18 @@ The features describe each road segment. The length feature captures how long th
    * - NFXP
      - -0.74
      - 65.0%
-     - 6s
+     - 8s
    * - CCP
-     - -0.69
-     - 77.8%
+     - -0.82
+     - 61.6%
      - 3s
    * - NNES
-     - -0.63
-     - 69.2%
-     - 35s
+     - -0.64
+     - 69.3%
+     - 25s
    * - TD-CCP
-     - -0.88
-     - 67.3%
-     - 22s
-   * - NeuralGLADIUS
-     - -0.90
-     - 73.8%
-     - 27s
+     - -0.89
+     - 67.2%
+     - 29s
 
-Behavioral cloning wins on pure prediction because 714 states with 18,000 training transitions gives enough data to memorize the empirical choice probabilities. The structural estimators sacrifice in-sample fit for interpretable parameters. All three structural methods agree that drivers prefer shorter road segments and avoid residential streets in favor of primary roads. NeuralGLADIUS uses destination context but its projection R-squared of 0.06 shows that seven linear features capture only 6 percent of the learned neural reward. The remaining 94 percent is nonlinear interaction effects that a linear model cannot represent.
+Behavioral cloning wins on pure prediction because 714 states with 18,000 training transitions gives enough data to memorize the empirical choice probabilities. The structural estimators sacrifice in-sample fit for interpretable parameters. All four structural methods agree that drivers prefer shorter road segments and avoid residential streets in favor of primary roads.
