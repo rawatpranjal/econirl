@@ -64,6 +64,16 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/econirl"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/econirl/",
+    "tests/",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+    "CLAUDE.md",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
