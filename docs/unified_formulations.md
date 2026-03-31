@@ -1,8 +1,8 @@
 # Estimators
 
-This page presents the mathematical formulations of all econirl estimators using common notation from Rust and Rawat (2026). For guidance on choosing an estimator, see the [estimator guide](estimator_guide.md). For worked code examples, see the [examples](examples/index.rst).
+This page presents the theory, mathematical formulations, and selection guide for all econirl estimators using common notation from Rust and Rawat (2026). For worked code examples, see the [examples](examples/index.rst).
 
-## Common Framework
+## Theory
 
 All estimators operate on a single soft Bellman system. The agent chooses action $a \in \mathcal{A}(s)$ in state $s \in \mathcal{S}$ to maximize discounted utility subject to idiosyncratic taste shocks.
 
@@ -87,13 +87,57 @@ $$
 
 Most estimators maximize the log partial likelihood $\ell^p(\theta) = \log \mathcal{L}^p_\mathcal{D}(\theta)$ because the transition component does not depend on $\theta$ when transitions are estimated nonparametrically.
 
+### Identification
+
+Rewards in dynamic discrete choice and IRL models are not uniquely identified from observed behavior without additional restrictions. From the softmax CCP, only Q-value differences are recoverable from choice data,
+
+$$
+\log\!\big(\pi(a \mid s) / \pi(a' \mid s)\big) = \big(Q(s,a) - Q(s,a')\big) / \sigma.
+$$
+
+The level of $Q$ is not identified, so neither is the level of $r$. Ng, Harada, and Russell (1999) showed that the set of observationally equivalent rewards forms an equivalence class under potential-based shaping. For any function $h \colon \mathcal{S} \to \mathbb{R}$,
+
+$$
+r_h(s,a) = r(s,a) + \beta \sum_{s'} p(s' \mid s,a) \, h(s') - h(s)
+$$
+
+yields $\pi_{r_h} = \pi_r$. All rewards in this class generate the same policy under the training dynamics. However, under alternative transitions $\lambda(s' \mid s,a) \neq p(s' \mid s,a)$, the counterfactual policies diverge because $\pi_{r_h} = f(\beta, r_h, \lambda) \neq f(\beta, r, \lambda)$.
+
+Rust and Rawat (2026) adopt two normalizations that together pin down $\theta$. The state-potential gauge removes the additive state constant,
+
+$$
+E_{a \sim \mu(\cdot \mid s)}\big[r_\theta(s,a)\big] = 0 \quad \text{for all } s \in \mathcal{S}.
+$$
+
+The reference Q-gap fixes the scale,
+
+$$
+Q^*_\theta(\bar{s}, a^+) - Q^*_\theta(\bar{s}, a^-) = \Delta^*,
+$$
+
+for a chosen reference state $\bar{s}$ and action pair $(a^+, a^-)$ where $\Delta^*$ is known from calibration or simulation. Under mild conditions, the gap function $\lambda \mapsto \Delta(\lambda)$ is continuous and strictly increasing, so there is a unique scale $\lambda^*$ satisfying $\Delta(\lambda^*) = \Delta^*$.
+
+An alternative identification strategy is the normalizing (anchor) action assumption used in the CCP and GLADIUS estimators. For each state $s$, there exists an action $a_s$ with known reward $r(s, a_s)$. This provides $|\mathcal{S}|$ restrictions, making the remaining $|\mathcal{S}|(|\mathcal{A}|-1)$ unknown rewards exactly identified from the same number of CCP parameters.
+
+### Equivalence
+
+All estimators on this page operate on the same soft Bellman system. Rust and Rawat (2026, Theorem A.6) establish that under the soft-control framework with the gauge normalizations above, consistent estimators from different data sources converge to the same policy. If $\hat\theta_{\mathrm{NFXP}}$ (from choice data), $\hat\theta_{\mathrm{IRL}}$ (from expert demonstrations), and $\hat\theta_{\mathrm{RLHF}}$ (from pairwise preferences) each solve their respective objectives, then as sample size grows,
+
+$$
+\pi^*_{\hat\theta_{\mathrm{NFXP}}} = \pi^*_{\hat\theta_{\mathrm{IRL}}} = \pi^*_{\hat\theta_{\mathrm{RLHF}}} \;\longrightarrow\; \pi^*_{\theta^\star}.
+$$
+
+The choice of estimation method does not affect the limiting policy, provided all methods use the same soft-control framework and apply consistent identification restrictions. This equivalence between maximum likelihood (DDC), maximum causal entropy (IRL), and Bradley-Terry preference learning (RLHF) is the central theoretical result unifying the three fields.
+
 ---
 
-## Structural Estimators
+## Estimators
+
+### Structural Estimators
 
 Structural estimators recover utility parameters $\theta$ from observed choices, taking the direction $\theta \to \pi$.
 
-### NFXP
+#### NFXP
 
 Rust (1987) introduced nested fixed point estimation for dynamic discrete choice. Iskhakov, Jorgensen, Rust, and Schjerning (2016) added the SA-to-NK polyalgorithm for the inner loop.
 
@@ -107,7 +151,7 @@ where $\pi^*_\theta$ is computed by solving the soft Bellman fixed point $Q_\the
 
 NFXP is the only estimator that delivers statistically efficient maximum likelihood estimates with analytical standard errors. Its cost is $O(|\mathcal{S}|^2 \times \text{inner iterations})$ per outer step, making it intractable for $|\mathcal{S}| > 10{,}000$ or $\beta > 0.995$.
 
-### CCP and NPL
+#### CCP and NPL
 
 Hotz and Miller (1993) showed that observed choice probabilities directly invert to value differences without solving the Bellman equation. Aguirregabiria and Mira (2002) introduced the nested pseudo-likelihood (NPL) iteration that recovers MLE efficiency.
 
@@ -121,7 +165,7 @@ where $\hat{R}$ and $\hat{Q}_\varepsilon$ are computed once from nonparametric C
 
 NPL iterates this procedure. At step $k$, it re-estimates the CCPs from $\hat\theta_{k-1}$ and resolves the value function. One step ($K=1$) gives a consistent but inefficient Hotz-Miller estimate. Five to ten steps typically recover MLE efficiency. At the NPL fixed point, $\partial V / \partial \pi = 0$, the zero Jacobian property. This Neyman orthogonality means first-stage CCP noise does not affect $\hat\theta$ asymptotically.
 
-### SEES
+#### SEES
 
 Luo and Sang (2024) introduced a sieve-based estimator that approximates $V(s)$ with a basis expansion rather than solving the Bellman inner loop.
 
@@ -135,7 +179,7 @@ where $Q(s,a;\theta,\alpha) = r_\theta(s,a) + \beta \sum_{s'} p(s' \mid s,a) \, 
 
 SEES requires no neural network training. The basis matrix is deterministic and the entire estimation is a single L-BFGS-B call over roughly $K + M$ parameters. Cost is $O(M)$, independent of $|\mathcal{S}|$, making it tractable for state spaces exceeding 100,000 where neural and tabular methods fail. The estimator achieves Cramer-Rao efficiency as the sieve dimension $M$ grows with sample size.
 
-### NNES
+#### NNES
 
 Nguyen (2025) replaced the sieve basis with a neural network while preserving valid standard errors through Neyman orthogonality.
 
@@ -149,7 +193,7 @@ using NPL-style iteration. The gradient $\nabla_\theta Q$ is computed via equili
 
 The key theoretical result is that the DDC likelihood score is orthogonal to $V$-approximation error (Neyman orthogonality). Specifically, $\partial \ell(\theta_0, \pi^*, V^*) / \partial \pi = 0$ at the true parameters. This means $\hat\theta$ is $\sqrt{n}$-consistent even when $V_w$ converges at the slower rate $o_p(n^{-1/4})$. The estimator achieves the semiparametric efficiency bound, $\sqrt{n}(\hat\theta - \theta_0) \to \mathcal{N}(0, \Sigma^{-1})$, making it the only neural method with theoretically valid standard errors.
 
-### TD-CCP
+#### TD-CCP
 
 Adusumilli and Eckardt (2025) combined temporal difference learning with the CCP estimator to avoid both the Bellman inner loop and explicit transition estimation.
 
@@ -163,13 +207,11 @@ where $E_\mathcal{D}$ denotes the empirical expectation over observed transition
 
 The structural parameters $\theta$ are then estimated by maximizing the partial likelihood $\mathcal{L}^p_\mathcal{D}(\theta)$ using the CCP form with $\hat{R}(s,a) = \nu(s,a)^\top \hat\phi$ substituted for the true continuation features. A third stage applies a Neyman-orthogonal score correction to make $\hat\theta$ robust to first-stage estimation noise in $\hat{R}$ and $\hat{Q}_\varepsilon$. The per-feature decomposition provides interpretable diagnostics. If $R_3$ has high approximation error but $R_1$ converges, the third feature's continuation-value structure is the modeling challenge.
 
----
-
-## Inverse Estimators
+### Inverse Estimators
 
 Inverse estimators recover reward parameters $\theta$ from expert demonstrations, taking the direction $\pi \to \theta$.
 
-### MCE-IRL
+#### MCE-IRL
 
 Ziebart (2010) derived the optimal policy from maximum causal entropy subject to feature matching. Let $\mu_\mathcal{D} = \frac{1}{N} \sum_{i=1}^N \sum_{t=0}^{T_i} \beta^t \vec{r}(s_{it}, a_{it})$ denote the expert's discounted feature counts.
 
@@ -191,7 +233,7 @@ At the optimum, expert and model feature expectations match, confirming that max
 
 MCE-IRL minimizes worst-case prediction log-loss (Ziebart 2010, Theorem 3), making the recovered policy maximally robust to distribution shift while matching observed features. The deep variant replaces the linear reward with a neural network $r_\phi(s,a)$ but loses interpretable parameters and standard errors.
 
-### AIRL
+#### AIRL
 
 Fu, Luo, and Levine (2018) introduced adversarial IRL with a structured discriminator that disentangles reward from dynamics-dependent shaping.
 
@@ -211,7 +253,7 @@ Training alternates between updating the discriminator to distinguish expert fro
 
 Under deterministic dynamics and a true state-only reward with $g_\phi$ restricted to depend only on $s$, Fu et al. prove that at the optimum $g_\phi(s) = r(s) + \text{const}$ and $h_\phi(s) = V(s) + \text{const}$ (Theorem 5.1). The learned reward is disentangled from dynamics and transfers across environments. Without the state-only restriction or under stochastic dynamics, the decomposition is approximate. Lee, Sudhir, and Wang (2026) show that an economic normalizing action (exit option with known payoff zero) provides an alternative identification strategy for action-dependent rewards.
 
-### f-IRL
+#### f-IRL
 
 Ni, Sikchi, Wang, and Bhatt (2022) formulated IRL as f-divergence minimization between state-action occupancy measures, requiring no assumptions about reward structure.
 
@@ -225,11 +267,9 @@ where $D_f$ is an f-divergence. The tabular reward gradient depends on the choic
 
 The algorithm estimates $\rho_E$ empirically from demonstrations, then iterates between solving the soft Bellman system under the current reward to get $\pi_r$ and $\rho_{\pi_r}$, computing the divergence gradient, and updating the tabular reward $r(s,a)$. The choice of f-divergence gives a menu of robustness properties. KL recovers maximum likelihood equivalence. Total variation is robust to outlier demonstrations. Chi-squared is sensitive to variance in occupancy ratios.
 
----
+### Model-Free Neural Estimator
 
-## Model-Free Neural Estimator
-
-### GLADIUS
+#### GLADIUS
 
 Kang et al. (2025) introduced GLADIUS (Gradient-based Learning with Ascent-Descent for Inverse Utility learning from Samples), a model-free estimator using two neural networks.
 
@@ -249,11 +289,9 @@ while the inner minimization finds $\phi_2$ to estimate the conditional variance
 
 After training, the reward is recovered as $r(s,a) = Q_{\hat\phi_1}(s,a) - \beta \, EV_{\hat\phi_2}(s,a)$ via the soft Bellman identity. Structural parameters are extracted by projecting the neural reward onto features, $\hat\theta = (\Phi^\top \Phi)^{-1} \Phi^\top \hat{r}$, where $\Phi$ is the feature matrix. The projection $R^2$ measures how much of the neural reward is explained by the linear specification. Like the CCP estimator, GLADIUS uses a normalizing action for identification. Under realizability assumptions, the estimator achieves global convergence with error $O(1/T) + O(1/N)$.
 
----
+### Baseline
 
-## Baseline
-
-### BC
+#### BC
 
 Pomerleau (1991) introduced behavioral cloning. Ross, Gordon, and Bagnell (2011) characterized its error compounding.
 
@@ -269,56 +307,78 @@ Under distribution shift, BC error compounds quadratically with the horizon, $\t
 
 ---
 
-## Identification
+## Guide
 
-Rewards in dynamic discrete choice and IRL models are not uniquely identified from observed behavior without additional restrictions.
+This section explains why each estimator exists, what theorem makes it unique, and when to use it. Every estimator occupies a point in the capability space that no other method covers.
 
-### CCP Inversion
+### Quick Reference
 
-From the softmax CCP, only Q-value differences are recoverable from choice data,
+| Estimator | Direction | Reward Type | Needs Transitions | Standard Errors | Scales Beyond Tabular | Transfer |
+|-----------|-----------|-------------|-------------------|-----------------|----------------------|----------|
+| NFXP-NK | Forward ($\theta \to \pi$) | Linear | Yes | Analytical (MLE) | No | No |
+| CCP | Forward ($\theta \to \pi$) | Linear | Yes | Hessian | No | No |
+| MCE-IRL | Inverse ($\pi \to \theta$) | Linear / Neural | Yes | Bootstrap | Deep variant only | No |
+| TD-CCP | Forward ($\theta \to \pi$) | Linear | Yes | Hessian | Yes (neural AVI) | No |
+| NNES | Forward ($\theta \to \pi$) | Linear | Yes | Valid (orthogonality) | Yes (neural V) | No |
+| SEES | Forward ($\theta \to \pi$) | Linear | Yes | Marginal Hessian | Yes ($O(1)$ in $|\mathcal{S}|$) | No |
+| AIRL | Inverse ($\pi \to R$) | Linear / Tabular | Yes | No | No | Yes |
+| f-IRL | Inverse ($\pi \to R$) | Tabular | Yes | No | No | No |
+| BC | Imitation | None | No | No | No | No |
 
-$$
-\log\!\big(\pi(a \mid s) / \pi(a' \mid s)\big) = \big(Q(s,a) - Q(s,a')\big) / \sigma.
-$$
+### Decision Flowchart
 
-The level of $Q$ is not identified, so neither is the level of $r$.
+```
+Do you have a parametric utility model u(s,a;θ)?
+├── YES (structural estimation — recover θ)
+│   ├── Tabular state space (|S| < 10K)?
+│   │   ├── Need MLE efficiency + analytical SEs? → NFXP-NK
+│   │   └── Need speed / model selection / games? → CCP (NPL)
+│   └── Large / continuous state space?
+│       ├── Need valid standard errors? → NNES
+│       ├── Need per-feature diagnostics? → TD-CCP
+│       └── Need fastest possible estimation? → SEES
+│
+└── NO (inverse RL — recover reward from demonstrations)
+    ├── Know what features matter?
+    │   ├── Need interpretable linear weights + SEs? → MCE-IRL
+    │   ├── Need nonlinear reward? → MCE-IRL (Deep)
+    │   └── Need reward that transfers across environments? → AIRL
+    ├── Don't know what features matter? → f-IRL
+    └── Just need a baseline? → BC
+```
 
-### Potential-Based Reward Shaping
+### When to Use Each Estimator
 
-Ng, Harada, and Russell (1999) showed that the set of observationally equivalent rewards forms an equivalence class under potential-based shaping. For any function $h \colon \mathcal{S} \to \mathbb{R}$,
+**NFXP-NK** is the structural MLE gold standard (Rust 1987, Iskhakov et al. 2016). It maximizes the exact log-likelihood where choice probabilities come from solving the Bellman equation to machine precision at each outer step. The SA-to-NK polyalgorithm switches from successive approximation to Newton-Kantorovich near the fixed point. Analytical gradients via the implicit function theorem differentiate through the Bellman fixed point without finite differences. NFXP is irreplaceable for publication-grade structural estimates on tabular problems with proper confidence intervals, likelihood ratio tests, and information criteria.
 
-$$
-r_h(s,a) = r(s,a) + \beta \sum_{s'} p(s' \mid s,a) \, h(s') - h(s)
-$$
+**CCP** is fast structural estimation via the Hotz-Miller Inversion Lemma (Hotz and Miller 1993, Aguirregabiria and Mira 2002). Under additive separability and IID private shocks, observed choice probabilities uniquely invert to value differences. Value recovery is a single matrix inversion $O(|\mathcal{S}|^3)$ rather than thousands of Bellman iterations. The Aguirregabiria-Mira NPL iteration recovers MLE efficiency when iterated five to ten steps. CCP is irreplaceable for rapid specification search and dynamic games where computing Nash equilibria in the inner loop is infeasible.
 
-yields $\pi_{r_h} = \pi_r$. All rewards in this class generate the same policy under the training dynamics. However, under alternative transitions $\lambda(s' \mid s,a) \neq p(s' \mid s,a)$, the counterfactual policies diverge because $\pi_{r_h} = f(\beta, r_h, \lambda) \neq f(\beta, r, \lambda)$.
+**MCE-IRL** bridges economics and machine learning (Ziebart 2010). The distribution maximizing causal entropy subject to feature matching has a recursive closed-form solution that is exactly the softmax Bellman equation. The gradient is the feature matching residual. MCE-IRL minimizes worst-case prediction log-loss, making the recovered policy maximally robust to distribution shift. It is the only inverse estimator recovering interpretable linear reward parameters with bootstrap standard errors and a provable robustness guarantee. The deep variant (Wulfmeier et al. 2016) extends to nonlinear rewards via neural networks.
 
-### Gauges for Identification
+**TD-CCP** provides neural approximate value iteration with per-feature decomposition (Adusumilli and Eckardt 2025). Instead of a monolithic value function, TD-CCP learns $K+1$ separate neural networks, one per utility feature plus an entropy network. The feature decomposition provides interpretable per-component diagnostics no other neural method offers. If one component has high loss while another converges, you know which feature's continuation value structure is the modeling challenge. TD-CCP is irreplaceable for continuous state variables where discretization introduces massive approximation error.
 
-Rust and Rawat (2026) adopt two normalizations that together pin down $\theta$. The state-potential gauge removes the additive state constant,
+**NNES** is the neural V-network with valid inference (Nguyen 2025). The DDC likelihood score is orthogonal to $V$-approximation error (Neyman orthogonality), so $\hat\theta$ is $\sqrt{n}$-consistent even when the neural value function converges at a slower rate. The estimator achieves the semiparametric efficiency bound with no bias correction. NNES is irreplaceable as the only neural method where standard errors are theoretically valid.
 
-$$
-E_{a \sim \mu(\cdot \mid s)}\big[r_\theta(s,a)\big] = 0 \quad \text{for all } s \in \mathcal{S}.
-$$
+**SEES** is the fastest scalable estimator (Luo and Sang 2024). The value function is approximated by a sieve basis (Fourier or Chebyshev) and the entire estimation is a single L-BFGS-B call over roughly $K + M$ parameters. There is no neural network training, no SGD, no mini-batches, and no learning rates. Cost is $O(M)$, independent of $|\mathcal{S}|$, scaling to state spaces exceeding 100,000 where neural methods hit memory limits.
 
-The reference Q-gap fixes the scale,
+**AIRL** provides adversarial reward recovery with transfer guarantees (Fu, Luo, and Levine 2018). The discriminator structure forces the learned reward to be state-only by canceling potential-based shaping at optimality. Under deterministic dynamics and state-only rewards, the disentanglement theorem proves that the recovered reward transfers across environments. AIRL is irreplaceable for sim-to-real transfer and anywhere training and deployment dynamics differ.
 
-$$
-Q^*_\theta(\bar{s}, a^+) - Q^*_\theta(\bar{s}, a^-) = \Delta^*,
-$$
+**f-IRL** performs feature-free distribution matching (Ni et al. 2022). It minimizes the f-divergence between state-action occupancy measures, requiring zero assumptions about reward structure. No features to design, no neural architecture to choose, no discriminator to train. The choice of f-divergence gives a menu of robustness properties. f-IRL is irreplaceable for exploratory reward recovery when you do not know what features matter.
 
-for a chosen reference state $\bar{s}$ and action pair $(a^+, a^-)$ where $\Delta^*$ is known from calibration or simulation. Under mild conditions, the gap function $\lambda \mapsto \Delta(\lambda)$ is continuous and strictly increasing, so there is a unique scale $\lambda^*$ satisfying $\Delta(\lambda^*) = \Delta^*$.
+**BC** is the honest baseline (Pomerleau 1991, Ross et al. 2011). It uses zero MDP structure, just the empirical frequency $\hat\pi(a \mid s) = N(s,a)/N(s)$. BC establishes the floor that any method must beat. Error compounds as $O(T^2 \varepsilon)$ under distribution shift, while IRL methods achieve $O(\varepsilon)$ regardless of horizon.
 
-An alternative identification strategy is the normalizing (anchor) action assumption used in the CCP and GLADIUS estimators. For each state $s$, there exists an action $a_s$ with known reward $r(s, a_s)$. This provides $|\mathcal{S}|$ restrictions, making the remaining $|\mathcal{S}|(|\mathcal{A}|-1)$ unknown rewards exactly identified from the same number of CCP parameters.
+### Capability Matrix
 
----
+Each row has at least one unique cell.
 
-## Equivalence
-
-All estimators on this page operate on the same soft Bellman system. Rust and Rawat (2026, Theorem A.6) establish that under the soft-control framework with the gauge normalizations above, consistent estimators from different data sources converge to the same policy. If $\hat\theta_{\mathrm{NFXP}}$ (from choice data), $\hat\theta_{\mathrm{IRL}}$ (from expert demonstrations), and $\hat\theta_{\mathrm{RLHF}}$ (from pairwise preferences) each solve their respective objectives, then as sample size grows,
-
-$$
-\pi^*_{\hat\theta_{\mathrm{NFXP}}} = \pi^*_{\hat\theta_{\mathrm{IRL}}} = \pi^*_{\hat\theta_{\mathrm{RLHF}}} \;\longrightarrow\; \pi^*_{\theta^\star}.
-$$
-
-The choice of estimation method does not affect the limiting policy, provided all methods use the same soft-control framework and apply consistent identification restrictions. This equivalence between maximum likelihood (DDC), maximum causal entropy (IRL), and Bradley-Terry preference learning (RLHF) is the central theoretical result unifying the three fields.
+|  | Efficient MLE | Avoids Bellman | Inverse (demo to reward) | Valid Neural SEs | $O(1)$ in $|\mathcal{S}|$ | Transfer | Feature-Free | Per-Feature Diagnostics | Zero MDP Structure |
+|--|---|---|---|---|---|---|---|---|---|
+| **NFXP** | **Yes** | | | | | | | | |
+| **CCP** | | **Yes** | | | | | | | |
+| **MCE-IRL** | | | **Yes + interpretable** | | | | | | |
+| **TD-CCP** | | | | | | | | **Yes** | |
+| **NNES** | | | | **Yes** | | | | | |
+| **SEES** | | | | | **Yes** | | | | |
+| **AIRL** | | | | | | **Yes** | | | |
+| **f-IRL** | | | | | | | **Yes** | | |
+| **BC** | | | | | | | | | **Yes** |
