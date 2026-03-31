@@ -1,10 +1,11 @@
 """Rust Bus Engine: Complete Post-Estimation Showcase
 
 Demonstrates every post-estimation capability in econirl on the Rust (1987)
-bus engine replacement problem using two structural estimators: NFXP
-(classical nested fixed point) and NNES (neural network estimation).
-Both produce full inference, validation, and counterfactual analysis
-through the same unified pipeline.
+bus engine replacement problem using three estimators spanning structural
+econometrics and inverse reinforcement learning: NFXP (nested fixed point),
+CCP (conditional choice probability), and MCE-IRL (maximum causal entropy
+inverse reinforcement learning). All three produce full inference,
+validation, and counterfactual analysis through the same unified pipeline.
 
 Sections:
     1. Setup and data generation (environment, train/test split, transfer env)
@@ -27,8 +28,9 @@ from econirl.core.bellman import SoftBellmanOperator
 from econirl.core.solvers import _policy_evaluation_matrix, value_iteration
 from econirl.core.types import Panel
 from econirl.environments.rust_bus import RustBusEnvironment
+from econirl.estimation.ccp import CCPEstimator
+from econirl.estimation.mce_irl import MCEIRLEstimator
 from econirl.estimation.nfxp import NFXPEstimator
-from econirl.estimation.nnes import NNESEstimator
 from econirl.inference.identification import diagnose_identification_issues
 from econirl.preferences.linear import LinearUtility
 from econirl.simulation.counterfactual import (
@@ -190,12 +192,15 @@ def main():
             se_method="asymptotic",
             inner_tol=1e-10,
         ),
-        "NNES": NNESEstimator(
-            hidden_dim=64,
-            v_epochs=1000,
-            n_outer_iterations=5,
-            compute_se=True,
+        "CCP": CCPEstimator(
+            num_policy_iterations=20,
+            compute_hessian=True,
             se_method="asymptotic",
+        ),
+        "MCE-IRL": MCEIRLEstimator(
+            compute_se=True,
+            se_method="hessian",
+            inner_solver="hybrid",
         ),
     }
 
@@ -318,8 +323,8 @@ def main():
         se_robust = result_robust.standard_errors[i].item()
         ratio = se_robust / se_asym if se_asym > 0 else float("nan")
         print(f"{pname:<18} {se_asym:>16.6f} {se_robust:>16.6f} {ratio:>10.4f}")
-    print("\nNote: NNES does not produce per-observation gradient contributions,")
-    print("so robust (sandwich) SEs are only available for NFXP.")
+    print("\nNote: CCP and MCE-IRL do not produce per-observation gradient")
+    print("contributions, so robust (sandwich) SEs are only available for NFXP.")
 
     # -----------------------------------------------------------------------
     # Section 4: Validation
@@ -532,10 +537,10 @@ def main():
     print()
 
     print("=" * 72)
-    print("\nTwo estimators, one problem, identical diagnostics.")
+    print("\nThree estimators, one problem, identical diagnostics.")
     print("Every estimator in econirl produces the same post-estimation pipeline:")
     print("inference, validation, and counterfactual simulation.")
-    print("CCP, MCE-IRL, TD-CCP, GLADIUS, and AIRL all use the same interface.")
+    print("NNES, TD-CCP, GLADIUS, and AIRL all use the same interface.")
 
 
 if __name__ == "__main__":

@@ -580,12 +580,20 @@ class CCPEstimator(BaseEstimator):
         if self._compute_hessian:
             self._log("Computing Hessian for standard errors")
 
+            # Use the FULL log-likelihood (re-solve Bellman at each perturbation)
+            # rather than the CCP pseudo-likelihood with fixed CCPs. The pseudo-LL
+            # with fixed CCPs is locally flat in directions that primarily affect
+            # CCPs (like replacement_cost), causing the Hessian to be rank-deficient.
+            operator = SoftBellmanOperator(problem, transitions)
+
             def ll_fn(params):
-                return torch.tensor(
-                    self._compute_log_likelihood(
-                        params, panel, utility, ccps, transitions, problem
-                    )
-                )
+                flow_u = utility.compute(params).to(transitions.dtype)
+                from econirl.core.solvers import value_iteration
+                sol = value_iteration(operator, flow_u, tol=1e-12, max_iter=100_000)
+                log_probs = operator.compute_log_choice_probabilities(flow_u, sol.V)
+                all_states = panel.get_all_states()
+                all_actions = panel.get_all_actions()
+                return log_probs[all_states, all_actions].sum()
 
             hessian = compute_numerical_hessian(current_params, ll_fn)
 

@@ -673,13 +673,21 @@ class MCEIRLEstimator(BaseEstimator):
             if inner_not_converged > 0:
                 self._log(f"Warning: Inner loop did not converge {inner_not_converged} times")
 
+            # Compute Hessian for standard errors if requested
+            hessian = None
+            if self.config.compute_se and self.config.se_method != "bootstrap":
+                self._log(f"Computing numerical Hessian for standard errors")
+                hessian = self._numerical_hessian(
+                    final_params, panel, reward_fn, problem, transitions_f64, initial_dist
+                )
+
             optimization_time = time.time() - start_time
             return EstimationResult(
                 parameters=final_params,
                 log_likelihood=ll,
                 value_function=V,
                 policy=policy,
-                hessian=None,
+                hessian=hessian,
                 gradient_contributions=None,
                 converged=converged,
                 num_iterations=n_function_evals,
