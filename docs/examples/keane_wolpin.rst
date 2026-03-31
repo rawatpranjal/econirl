@@ -1,6 +1,10 @@
 Keane-Wolpin Career Decisions
 =============================
 
+.. image:: /_static/keane_wolpin_careers.png
+   :alt: Career choice tree showing four options at each period and heatmap of schooling probability by state.
+   :width: 100%
+
 This example replicates a simplified version of Keane and Wolpin (1997) on occupational choice data. Young men choose each year between four options: attend school, work white-collar, work blue-collar, or stay home. The decision is forward-looking because schooling and work experience accumulate as human capital that raises future wages.
 
 The state space encodes schooling level (10 to 20 years), white-collar experience (0 to 7 years), and blue-collar experience (0 to 7 years), giving 704 discrete states. Transitions are deterministic: choosing school increments the schooling counter, choosing white-collar work increments the white-collar experience counter, and so on. The model runs for 10 periods corresponding to ages 17 through 26.

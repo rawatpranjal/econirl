@@ -1,6 +1,10 @@
 Beijing Taxi (T-Drive)
 ======================
 
+.. image:: /_static/beijing_taxi.png
+   :alt: Beijing 15 by 15 grid with taxi route heatmap and compass rose showing action distribution across 8 directions.
+   :width: 100%
+
 This example applies MCE IRL and NFXP to real GPS trajectory data from the T-Drive dataset (Yuan et al. 2010). The data contains trajectories from over 10,000 taxis in Beijing, recorded at roughly one-minute intervals. The example discretizes GPS coordinates onto a grid and estimates drivers' route preferences.
 
 The pipeline loads raw trajectories, discretizes them into a grid of configurable size, computes transition matrices from the training data, and fits both MCE IRL and NFXP. The default configuration uses 100 taxis on a 15 by 15 grid with 225 states and 8 compass-direction actions.

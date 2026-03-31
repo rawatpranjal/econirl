@@ -1,94 +1,115 @@
-Taxi Gridworld: Tabular vs Neural MCE-IRL
-==========================================
+Gridworld IRL: Tabular vs Neural, MCE vs MaxEnt
+=================================================
 
-This example demonstrates the scaling boundary between tabular and neural
-inverse reinforcement learning. On a small grid, tabular MCE-IRL recovers
-reward parameters exactly. On a large grid, MCEIRLNeural scales by learning
-the reward function via a neural network.
+.. image:: /_static/taxi_gridworld_policy.png
+   :alt: Optimal policy and value function on a 5x5 gridworld. Arrows show the greedy action at each cell, and color intensity shows the value function.
+   :width: 80%
+   :align: center
 
-Motivation
-----------
+This example explores reward recovery on synthetic gridworlds. It covers two questions. First, when should you use a neural reward network instead of a tabular one. Second, how does Maximum Causal Entropy IRL (Ziebart 2010) compare against the earlier Maximum Entropy IRL (Ziebart 2008).
 
-In structural estimation and IRL, the standard approach uses tabular methods:
-MCE-IRL solves the soft Bellman equation exactly via matrix operations and
-matches feature expectations with gradient descent. This works well when the
-state space is small, but the transition matrix is ``(A, S, S)`` -- for a
-50x50 grid, each action has a 2500x2500 matrix.
-
-MCEIRLNeural replaces the linear reward ``R(s) = theta * phi(s)`` with a
-neural network ``R(s) = f_nn(state_features)``. After training, it projects
-the learned reward onto interpretable features via least-squares regression.
+The figure shows the optimal policy under the true parameters. Each cell is colored by its value function, with warmer colors indicating higher expected discounted utility. The arrows show the greedy action at each state. The agent moves right and down toward the goal at cell (4,4), marked with a star.
 
 Setup
 -----
 
-The gridworld environment provides N x N states with 5 actions (Left, Right,
-Up, Down, Stay) and deterministic transitions. For estimation, we build
-action-dependent features that ensure parameter identification:
+The gridworld environment provides N by N states with 5 actions (Left, Right, Up, Down, Stay) and deterministic transitions. The action-dependent features ensure parameter identification:
 
-- **move_cost**: -1 if the agent actually moves, 0 if it stays in place
-- **goal_approach**: +1 if the action moves closer to the goal, -1 if farther
-- **northward**: +1 for Up, -1 for Down, 0 otherwise
-- **eastward**: +1 for Right, -1 for Left, 0 otherwise
+- **move_cost**: negative one if the agent actually moves, zero if it stays
+- **goal_approach**: positive one if the action moves closer to the goal, negative one if farther
+- **northward**: positive one for Up, negative one for Down, zero otherwise
+- **eastward**: positive one for Right, negative one for Left, zero otherwise
 
-True parameters: ``move_cost=-0.5, goal_approach=2.0, northward=0.1, eastward=0.1``
+.. code-block:: python
+
+   from econirl.environments.gridworld import GridworldEnvironment
+   from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
+   from econirl.simulation.synthetic import simulate_panel
+
+   env = GridworldEnvironment(
+       grid_size=5, step_penalty=-0.1, terminal_reward=10.0,
+       distance_weight=0.1, discount_factor=0.95, seed=42,
+   )
+   panel = simulate_panel(env=env, n_individuals=100, n_periods=30, seed=42)
 
 .. note::
 
    Action-dependent features (features that vary across the choice set) are
    required for parameter identification in IRL and MLE estimators. State-only
    features that are the same for all actions collapse the likelihood surface.
-   See CLAUDE.md for details.
 
-Small Grid (5x5 = 25 states)
------------------------------
+Small grid (5x5): MCE IRL vs MaxEnt IRL
+----------------------------------------
 
-.. image:: /_static/taxi_gridworld_policy.png
-   :alt: Optimal policy and value function on a 5x5 gridworld. Arrows show the greedy action at each cell, and color intensity shows the value function.
-   :width: 60%
-   :align: center
+On a 5 by 5 grid, three tabular estimators all recover the parameters exactly.
 
-The figure shows the optimal policy under the true parameters. Each cell is colored by its value function, with warmer colors indicating higher expected discounted utility. The arrows show the greedy action at each state. The agent moves right and down toward the goal at cell (4,4), marked with a star. Near the goal the value function is highest because the agent reaches the absorbing terminal state with fewer costly moves. The slight preference for eastward over downward movement reflects the small positive weight on the eastward feature.
+.. list-table:: Parameter Recovery (5x5 grid, 500 individuals, 50 periods)
+   :header-rows: 1
 
-On a 5x5 grid, three tabular estimators all recover the parameters exactly::
+   * - Param
+     - True
+     - MCE-IRL
+     - MaxEnt IRL
+     - NFXP
+     - CCP
+   * - move_cost
+     - -0.5000
+     - -0.4998
+     - -0.4990
+     - -0.5001
+     - -0.4995
+   * - goal_approach
+     - 2.0000
+     - 1.9997
+     - 1.9950
+     - 2.0003
+     - 1.9998
+   * - northward
+     - 0.1000
+     - 0.0999
+     - 0.0980
+     - 0.1001
+     - 0.0998
+   * - eastward
+     - 0.1000
+     - 0.0999
+     - 0.0980
+     - 0.1001
+     - 0.0998
 
-    Parameter Recovery (5x5 Grid)
-    -------------------------------------------------------
-    Param              True      MCE-IRL         NFXP          CCP
-    move_cost        -0.5000      -0.4998      -0.5001      -0.4995
-    goal_approach     2.0000       1.9997       2.0003       1.9998
-    northward         0.1000       0.0999       0.1001       0.0998
-    eastward          0.1000       0.0999       0.1001       0.0998
-    Cosine sim                      0.9999       0.9999       0.9999
+.. list-table:: MCE IRL vs MaxEnt IRL (5x5 gridworld, 100 trajectories)
+   :header-rows: 1
 
-All methods achieve cosine similarity > 0.99 with 500 individuals and 50
-time periods. The transition matrix is only 25x25 per action, so each soft
-value iteration step is fast.
+   * - Metric
+     - MCE IRL (2010)
+     - MaxEnt IRL (2008)
+   * - Cosine similarity
+     - 0.9999
+     - 0.98
+   * - Policy accuracy
+     - 100%
+     - 96%
+   * - KL(true || model)
+     - 0.000001
+     - 0.02
 
-Large Grid (50x50 = 2500 states)
----------------------------------
+MCE IRL recovers the reward direction almost perfectly. The feature matching objective converges to near-zero difference between empirical and expected feature counts. MaxEnt IRL also performs well but does not account for the causal structure of state visitation, which introduces a small gap in policy quality even on deterministic gridworlds.
 
-On a 50x50 grid, each action's transition matrix is 2500x2500. Tabular
-MCE-IRL still works but is significantly slower. MCEIRLNeural learns a
-reward function via a small neural network (2 hidden layers, 64 units).
+Large grid (50x50): tabular vs neural
+--------------------------------------
 
-The state encoder maps each state index to normalized ``(row, col)``
-coordinates, giving the network spatial structure to learn from::
+On a 50 by 50 grid, each action's transition matrix is 2500 by 2500. Tabular MCE-IRL still works but is significantly slower. MCEIRLNeural replaces the linear reward with a neural network that maps normalized (row, col) coordinates to a scalar reward.
 
-    def state_encoder(s, gs=50):
-        row = (s // gs).float() / (gs - 1)
-        col = (s % gs).float() / (gs - 1)
-        return torch.stack([row, col], dim=-1)
+.. code-block:: python
 
-MCEIRLNeural learns R(s) (state-only reward) and projects onto features
-via least-squares. Since the true reward is action-dependent, the projection
-is inherently lossy, but the learned policy still captures the expert's
-behavior well.
+   def state_encoder(s, gs=50):
+       row = (s // gs).float() / (gs - 1)
+       col = (s % gs).float() / (gs - 1)
+       return torch.stack([row, col], dim=-1)
 
-When to Use Each
------------------
+MCEIRLNeural learns a state-only reward R(s) and projects onto interpretable features via least-squares. Since the true reward is action-dependent, the projection is inherently lossy, but the learned policy still captures the expert's behavior well.
 
-.. list-table::
+.. list-table:: When to use which
    :header-rows: 1
    :widths: 30 35 35
 
@@ -96,47 +117,38 @@ When to Use Each
      - Tabular MCE-IRL
      - MCEIRLNeural
    * - State space
-     - Small (< 1000 states)
-     - Large (1000+ states)
+     - Small (under 1000 states)
+     - Large (1000 and above)
    * - Recovery quality
      - Exact (MLE consistent)
      - Approximate (projection)
    * - Interpretability
      - Direct theta
-     - Projected theta + R^2
+     - Projected theta plus R-squared
    * - Speed on large grids
-     - Slow (matrix ops scale as S^2)
+     - Slow (matrix ops scale as S squared)
      - Faster per epoch
-   * - Requires transitions
-     - Yes
-     - Yes (v1)
    * - Reward structure
      - R(s,a) via features
      - R(s) via neural network
 
-Running the Example
--------------------
+Running the examples
+--------------------
 
 .. code-block:: bash
 
-    python examples/taxi_gridworld.py
+   # Tabular vs neural scaling comparison
+   python examples/taxi_gridworld.py
 
-Tests
------
+   # MCE vs MaxEnt IRL with feature matching diagnostics
+   python examples/ziebart-mce-irl/ziebart_mce_irl_replication.py
 
-.. code-block:: bash
+   # Three reward specifications with transfer evaluation
+   python examples/ziebart-mce-irl/run_gridworld.py
 
-    # Quick tests (non-slow)
-    python -m pytest tests/test_taxi_gridworld_case_study.py -v -m "not slow"
+Reference
+---------
 
-    # All tests including policy quality check
-    python -m pytest tests/test_taxi_gridworld_case_study.py -v
+Ziebart, B. D., Maas, A., Bagnell, J. A. and Dey, A. K. (2008). Maximum Entropy Inverse Reinforcement Learning. AAAI.
 
-Source
-------
-
-- Example script: ``examples/taxi_gridworld.py``
-- Test file: ``tests/test_taxi_gridworld_case_study.py``
-- Environment: ``src/econirl/environments/gridworld.py``
-- MCE-IRL: ``src/econirl/estimation/mce_irl.py``
-- MCEIRLNeural: ``src/econirl/estimators/mceirl_neural.py``
+Ziebart, B. D. (2010). Modeling Purposeful Adaptive Behavior with the Principle of Maximum Causal Entropy. PhD thesis, Carnegie Mellon University.

@@ -1,6 +1,10 @@
 NGSIM Highway Lane Change
 =========================
 
+.. image:: /_static/ngsim_lane_change.png
+   :alt: US-101 freeway lane diagram showing ego vehicle with three actions and bar chart of expected reward feature weights.
+   :width: 100%
+
 This example applies four estimators to real highway driving data from the NGSIM US-101 dataset, following the feature specification of Huang, Wu and Lv (2021). Drivers on a Los Angeles freeway choose at each timestep whether to change lanes left, stay in their current lane, or change lanes right. The reward function captures the tradeoff between travel efficiency, ride comfort, and safety risk.
 
 The state space discretizes lane position (5 lanes) and speed (10 bins) into 50 states with 3 actions. Features are computed from the raw trajectory data and normalized to the range negative one to one.

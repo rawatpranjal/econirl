@@ -1,6 +1,10 @@
 DDC and MaxEnt IRL Equivalence
 ==============================
 
+.. image:: /_static/ddc_irl_equivalence.png
+   :alt: Two-state MDP diagram and bar chart showing NFXP and MaxEnt IRL recover identical parameters.
+   :width: 100%
+
 This example proves that Dynamic Discrete Choice estimation via NFXP and Maximum Entropy IRL are mathematically equivalent. Both optimize the same maximum likelihood objective over a logit softmax policy.
 
 The demonstration uses a minimal 2-state, 2-action MDP. The states are Good and Bad. The actions are Work and Relax. Working in the Good state keeps things good with 80 percent probability. Relaxing in the Bad state keeps things bad with 80 percent probability. The reward has three free parameters and one fixed anchor for identification.
