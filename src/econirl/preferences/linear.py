@@ -151,22 +151,16 @@ class LinearUtility(BaseUtilityFunction):
         )
 
     def get_parameter_bounds(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return parameter bounds based on feature structure.
+        """Return parameter bounds for all parameters.
 
-        If all features for a parameter are non-positive (indicating a cost),
-        constrain that parameter to be non-negative. This prevents the optimizer
-        from finding spurious solutions with wrong-sign parameters.
+        Returns unbounded (-inf, inf) for all parameters. Estimators that
+        use bounded optimization (e.g., L-BFGS-B in CCP) will use these
+        bounds. Users can override by passing explicit bounds to the
+        estimator.
         """
         n_params = self.num_parameters
         lower = torch.full((n_params,), float("-inf"))
         upper = torch.full((n_params,), float("inf"))
-
-        for k in range(n_params):
-            features_k = self._feature_matrix[:, :, k]
-            if (features_k <= 0).all():
-                # All features are non-positive → this is a cost parameter
-                lower[k] = 0.0
-
         return lower, upper
 
     @classmethod
