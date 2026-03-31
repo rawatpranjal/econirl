@@ -1,5 +1,5 @@
-Gridworld IRL: Tabular vs Neural, MCE vs MaxEnt
-=================================================
+Gridworld Tabular and Neural Estimation
+========================================
 
 .. image:: /_static/taxi_gridworld_policy.png
    :alt: Optimal policy and value function on a 5x5 gridworld. Arrows show the greedy action at each cell, and color intensity shows the value function.

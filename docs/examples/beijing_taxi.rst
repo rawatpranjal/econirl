@@ -1,5 +1,5 @@
-Beijing Taxi (T-Drive)
-======================
+Beijing Taxi Trajectories
+=========================
 
 .. image:: /_static/beijing_taxi.png
    :alt: Beijing 15 by 15 grid with taxi route heatmap and compass rose showing action distribution across 8 directions.

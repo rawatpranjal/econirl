@@ -1,5 +1,5 @@
-Deep MaxEnt IRL: Objectworld and Binaryworld
-=============================================
+Objectworld Deep MaxEnt IRL
+===========================
 
 .. image:: /_static/wulfmeier_environments.png
    :alt: Objectworld and Binaryworld environments showing reward maps and optimal policy arrows. Blue cells have reward plus one, red cells minus one, and grey cells zero.
