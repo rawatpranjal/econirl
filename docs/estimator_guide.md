@@ -1,4 +1,4 @@
-# Estimator Selection Guide
+# Guide
 
 This guide explains why each of econirl's 9 core estimators exists, what theorem makes it unique, and when to use it. Every estimator occupies a point in the capability space that no other method covers.
 
