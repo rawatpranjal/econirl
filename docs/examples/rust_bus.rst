@@ -55,3 +55,9 @@ NFXP supports counterfactual policy simulation. The question is what happens to 
    print(cf.policy[50, :])  # P(keep|mileage=50), P(replace|mileage=50)
 
 With the higher replacement cost, the manager keeps engines running longer. The probability of replacement at mileage 50 drops from 12 percent to 3 percent.
+
+.. image:: /_static/rust_bus_counterfactual.png
+   :alt: Counterfactual analysis showing replacement probability and value function under different replacement costs.
+   :width: 100%
+
+The left panel shows how the replacement probability shifts across mileage levels when the replacement cost changes. Halving the cost makes the manager replace earlier. Doubling it makes the manager delay replacement until higher mileage. The right panel shows the corresponding value function. A lower replacement cost raises the value at every mileage level because the manager has a cheaper exit option.

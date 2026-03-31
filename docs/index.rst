@@ -30,16 +30,16 @@ econirl has two families of estimator. Linear reward estimators learn exact stru
      - Linear Reward (exact theta)
      - Neural Reward (projected theta)
    * - Structural MLE
-     - ``NFXP``, ``NNES``
-     - ``NeuralGLADIUS``
+     - ``NFXP`` (Rust 1987), ``NNES`` (Nguyen 2025)
+     - ``NeuralGLADIUS`` (Kang et al. 2025)
    * - Reduced-form DDC
-     - ``CCP``, ``TDCCP``
-     - ``NeuralAIRL``
+     - ``CCP`` (Hotz and Miller 1993), ``TDCCP``
+     - ``NeuralAIRL`` (Fu et al. 2018)
    * - Maximum Entropy IRL
-     - MCE-IRL (coming soon)
+     - MCE-IRL (Ziebart 2010, coming soon)
      -
 
-Linear reward estimators approximate the value function with neural networks while keeping the reward linear in parameters. The structural parameters are exact and the standard errors are valid. Neural reward estimators approximate the reward function itself. The structural parameters are extracted by least-squares projection, and the projection R-squared tells you how linear the learned reward actually is.
+Linear reward estimators approximate the value function with neural networks while keeping the reward linear in parameters. The structural parameters are exact and the standard errors are valid. Neural reward estimators approximate the reward function itself. The structural parameters are extracted by least-squares projection, and the projection R-squared tells you how linear the learned reward actually is. The formal equivalence between maximum entropy IRL and logit DDC was established by Zeng et al. (2025) and Geng et al. (2017).
 
 .. toctree::
    :maxdepth: 2
@@ -49,3 +49,4 @@ Linear reward estimators approximate the value function with neural networks whi
    quickstart
    examples/index
    api/index
+   references

@@ -1,5 +1,25 @@
 # CLAUDE.md - Project Context for Claude Code
 
+## Writing Rules
+
+Write in complete sentences. Do not use em dashes, colons, semicolons, plus signs, equals signs, or brackets in prose. Do not write lists or bullet points in documentation prose. Every paragraph should read as flowing English. Do not overload sentences with multiple ideas. Say one thing per sentence.
+
+Do not repeat what a table already shows. Prose should interpret and explain, not describe or restate. If something is not important enough to call out specifically, cut it. Do not add hedging language or qualifications unless they change the meaning.
+
+Do not use jargon in user-facing documentation. Technical terms belong in code comments and appendices. The case study pages are for practitioners, not developers.
+
+When reporting results, write the number into the sentence naturally. Do not use shorthand like "+1.6%" or "r=0.77" in prose. Write "the lift is 1.6 percent" or "the correlation is 0.77".
+
+Write heavy code comments in the code itself as you refine your understanding, with sources from papers in the repo.
+
+## Benchmarking and Case Studies
+
+When running ML benchmarks across datasets, use 5-fold cross-validation as the definitive estimate. Single holdout splits overfit at small N and produce inflated lifts. Always report in-sample versus out-of-sample metrics so overfitting is visible. When a result does not replicate under CV, say so honestly.
+
+Start with 250 users to verify the pipeline works end to end. Then scale to 2000 for quick results. Only run full scale after the code is stable. Save results per dataset in JSON files so runs can be resumed and nothing is lost.
+
+When the numbers say the lift is zero, say the lift is zero. Do not dress up a null result. A null result with interpretable features is more useful than a positive result with opaque ones.
+
 ## Project Overview
 
 **econirl** is a Python library for structural estimation and inverse reinforcement learning (IRL) in dynamic discrete choice models. It bridges econometrics (NFXP, CCP) with machine learning (MaxEnt IRL, MCE IRL, GAIL, AIRL).
