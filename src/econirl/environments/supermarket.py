@@ -213,6 +213,38 @@ class SupermarketEnvironment(DDCEnvironment):
         probs = self._transitions_np[action, state]
         return self._np_random.choice(N_STATES, p=probs)
 
+    def _state_to_record(self, state: int, action: int) -> dict:
+        inv_bin, lagged_promo = state_to_components(state)
+        promo, ordered = action_to_components(action)
+        return {
+            "inventory_bin": inv_bin,
+            "lagged_promotion": lagged_promo,
+            "inventory_label": INVENTORY_LABELS[inv_bin],
+            "promo_label": PROMO_LABELS[lagged_promo],
+            "promotion": promo,
+            "ordered": ordered,
+            "action_label": ACTION_LABELS[action],
+        }
+
+    @classmethod
+    def info(cls) -> dict:
+        return {
+            "name": "Supermarket Pricing/Inventory",
+            "description": (
+                "Supermarket pricing and inventory DDC. "
+                "10 states (inventory bin x lagged promotion), "
+                "4 actions (promotion x order decision)."
+            ),
+            "source": "Aguirregabiria (1999) REStud",
+            "n_states": N_STATES,
+            "n_actions": N_ACTIONS,
+            "n_features": N_FEATURES,
+            "state_description": "Inventory quintile bin x lagged promotion status",
+            "action_description": "No promo+no order / No promo+order / Promo+no order / Promo+order",
+            "ground_truth": False,
+            "use_case": "Retail IO, pricing dynamics, inventory management",
+        }
+
     def describe(self) -> str:
         return f"""Supermarket Pricing/Inventory Environment
 {'=' * 45}

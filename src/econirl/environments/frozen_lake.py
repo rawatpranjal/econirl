@@ -314,6 +314,30 @@ class FrozenLakeEnvironment(DDCEnvironment):
         """Convert state index to (row, col)."""
         return state // self._ncol, state % self._ncol
 
+    def _state_to_record(self, state: int, action: int) -> dict:
+        row, col = self.state_to_grid_position(state)
+        return {
+            "row": row,
+            "col": col,
+            "at_hole": state in self._holes,
+            "at_goal": state == self._goal,
+        }
+
+    @classmethod
+    def info(cls) -> dict:
+        return {
+            "name": "FrozenLake (Gymnasium-style)",
+            "description": "Classic 4x4 frozen lake with slippery transitions",
+            "source": "Hardcoded from Gymnasium FrozenLake-v1 (no dependency)",
+            "n_states": 16,
+            "n_actions": 4,
+            "n_features": 3,
+            "state_description": "4x4 grid: S=start, F=frozen, H=hole, G=goal",
+            "action_description": "Left/Down/Right/Up",
+            "ground_truth": True,
+            "use_case": "Minimal stochastic IRL benchmark with parameter recovery",
+        }
+
     def describe(self) -> str:
         N = self._nrow
         return f"""FrozenLake Environment ({N}x{N})

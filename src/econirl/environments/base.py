@@ -14,14 +14,15 @@ Key additions over standard Gym environments:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, SupportsFloat
+from typing import Any, SupportsFloat, Union
 
 import gymnasium as gym
 import jax.numpy as jnp
 import numpy as np
+import pandas as pd
 from gymnasium import spaces
 
-from econirl.core.types import DDCProblem
+from econirl.core.types import DDCProblem, Panel
 
 
 class DDCEnvironment(gym.Env, ABC):
@@ -284,3 +285,79 @@ class DDCEnvironment(gym.Env, ABC):
         """Render the current state (optional)."""
         if self._state is not None:
             print(f"Period {self._current_period}: State = {self._state}")
+
+    # --- Synthetic data generation ---
+
+    def generate_panel(
+        self,
+        n_individuals: int = 1000,
+        n_periods: int = 100,
+        seed: int = 42,
+        as_dataframe: bool = False,
+    ) -> Union[Panel, pd.DataFrame]:
+        """Generate synthetic panel data from this environment.
+
+        Computes the optimal policy from the true parameters and
+        simulates trajectories for multiple individuals.
+
+        Args:
+            n_individuals: Number of individuals to simulate.
+            n_periods: Number of time periods per individual.
+            seed: Random seed for reproducibility.
+            as_dataframe: If True, return a DataFrame with
+                human-readable columns via _state_to_record().
+
+        Returns:
+            Panel object, or DataFrame if as_dataframe=True.
+        """
+        from econirl.simulation.synthetic import simulate_panel
+
+        panel = simulate_panel(
+            self,
+            n_individuals=n_individuals,
+            n_periods=n_periods,
+            seed=seed,
+        )
+
+        if not as_dataframe:
+            return panel
+
+        records = []
+        for traj in panel.trajectories:
+            tid = traj.individual_id
+            for t in range(len(traj.states)):
+                s = int(traj.states[t])
+                a = int(traj.actions[t])
+                ns = int(traj.next_states[t])
+                record = {
+                    "individual_id": tid,
+                    "period": t,
+                    "state": s,
+                    "action": a,
+                    "next_state": ns,
+                }
+                record.update(self._state_to_record(s, a))
+                records.append(record)
+
+        return pd.DataFrame(records)
+
+    def _state_to_record(self, state: int, action: int) -> dict[str, Any]:
+        """Convert a state-action pair to human-readable record fields.
+
+        Subclasses override this to add domain-specific columns like
+        profit_bin, incumbent_status, etc. The base implementation
+        returns an empty dict.
+        """
+        return {}
+
+    @classmethod
+    def info(cls) -> dict:
+        """Return metadata about this environment.
+
+        Subclasses should override this to provide name, description,
+        source, n_states, n_actions, parameter details, etc.
+        """
+        return {
+            "name": cls.__name__,
+            "description": cls.__doc__.split("\n")[0] if cls.__doc__ else "",
+        }

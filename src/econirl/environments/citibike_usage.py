@@ -211,6 +211,35 @@ class CitibikeUsageEnvironment(DDCEnvironment):
         next_dt = 0 if self._np_random.random() < 5.0 / 7.0 else 1
         return components_to_state(next_dt, new_ub)
 
+    def _state_to_record(self, state: int, action: int) -> dict:
+        dt, ub = state_to_components(state)
+        return {
+            "day_type": dt,
+            "usage_bucket": ub,
+            "day_label": DAY_LABELS[dt],
+            "usage_label": USAGE_LABELS[ub],
+            "rode": action == 1,
+        }
+
+    @classmethod
+    def info(cls) -> dict:
+        return {
+            "name": "Citibike Daily Usage Frequency",
+            "description": (
+                "NYC Citibike member daily ride/no-ride decisions. "
+                "8 states (day type x recent usage bucket), "
+                "2 actions (ride/no ride)."
+            ),
+            "source": "Synthetic (calibrated to Citibike System Data)",
+            "n_states": N_STATES,
+            "n_actions": N_ACTIONS,
+            "n_features": N_FEATURES,
+            "state_description": "Day type (weekday/weekend) x recent usage bucket",
+            "action_description": "No ride (0) / Ride (1)",
+            "ground_truth": True,
+            "use_case": "Transportation DDC, habitual behavior, usage frequency",
+        }
+
     def describe(self) -> str:
         return f"""Citibike Usage Frequency Environment
 {'=' * 40}

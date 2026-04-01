@@ -15,10 +15,9 @@ Quick start
 .. code-block:: python
 
    from econirl.environments.instacart import InstacartEnvironment
-   from econirl.datasets.instacart import load_instacart
 
    env = InstacartEnvironment(discount_factor=0.95)
-   panel = load_instacart(n_individuals=2000, n_periods=52, as_panel=True)
+   panel = env.generate_panel(n_individuals=2000, n_periods=52)
 
 Estimation
 ----------

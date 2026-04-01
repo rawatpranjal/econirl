@@ -251,6 +251,37 @@ class EntryExitEnvironment(DDCEnvironment):
         next_status = 1 if action == 1 else 0
         return components_to_state(next_pb, next_status)
 
+    def _state_to_record(self, state: int, action: int) -> dict:
+        pb, status = state_to_components(state)
+        return {
+            "profit_bin": pb,
+            "incumbent_status": status,
+            "profit_label": PROFIT_LABELS[pb],
+            "status_label": STATUS_LABELS[status],
+            "is_active": action == 1,
+            "entered": status == 0 and action == 1,
+            "exited": status == 1 and action == 0,
+        }
+
+    @classmethod
+    def info(cls) -> dict:
+        return {
+            "name": "Dixit Entry/Exit (Synthetic)",
+            "description": (
+                "Synthetic firm entry/exit DDC from the Dixit (1989) model. "
+                "20 states (profit bin x incumbent status), 2 actions "
+                "(inactive/active). Sunk entry and exit costs create hysteresis."
+            ),
+            "source": "Synthetic (Abbring-Klein teaching package)",
+            "n_states": N_STATES,
+            "n_actions": N_ACTIONS,
+            "n_features": N_FEATURES,
+            "state_description": "Profit bin x incumbent status",
+            "action_description": "Inactive (0) / Active (1)",
+            "ground_truth": True,
+            "use_case": "Firm dynamics, entry/exit hysteresis, industrial organization",
+        }
+
     def describe(self) -> str:
         return f"""Dixit Entry/Exit Environment
 {'=' * 40}

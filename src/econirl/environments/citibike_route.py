@@ -250,6 +250,33 @@ class CitibikeRouteEnvironment(DDCEnvironment):
             next_tb = tb
         return components_to_state(dest, next_tb)
 
+    def _state_to_record(self, state: int, action: int) -> dict:
+        oc, tb = state_to_components(state)
+        return {
+            "origin_cluster": oc,
+            "dest_cluster": action,
+            "time_bucket": tb,
+        }
+
+    @classmethod
+    def info(cls) -> dict:
+        return {
+            "name": "Citibike Route Choice",
+            "description": (
+                "NYC Citibike station-to-station destination choice. "
+                "80 states (20 station clusters x 4 time buckets), "
+                "20 actions (destination clusters)."
+            ),
+            "source": "Synthetic (calibrated to Citibike System Data)",
+            "n_states": N_STATES,
+            "n_actions": N_ACTIONS,
+            "n_features": N_FEATURES,
+            "state_description": "Origin station cluster x time-of-day bucket",
+            "action_description": "Destination station cluster (0-19)",
+            "ground_truth": True,
+            "use_case": "Route choice IRL, urban mobility",
+        }
+
     def describe(self) -> str:
         return f"""Citibike Route Choice Environment
 {'=' * 40}

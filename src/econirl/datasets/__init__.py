@@ -1,39 +1,47 @@
 """
 Built-in datasets for econirl.
 
-This module provides access to classic datasets used in the dynamic discrete
-choice and inverse reinforcement learning literature.
+This module provides loaders for real-world datasets used in dynamic discrete
+choice and inverse reinforcement learning research. Synthetic data generation
+lives on the environment classes via env.generate_panel().
 
-DDC Datasets (Structural Econometrics):
-- Rust (1987): Bus engine replacement (simple, 1 state, 2 actions)
-- Keane & Wolpin (1994): Career decisions (complex, 3+ states, 4 actions)
-- Robinson Crusoe: Production/leisure (pedagogical, synthetic)
+Real DDC Datasets:
+- Rust (1987): Bus engine replacement
+- Keane & Wolpin (1994): Career decisions
+- Aguirregabiria (1999): Supermarket pricing/inventory
+- ICU-Sepsis: Clinical treatment decisions (abstracted MDP)
 
-IRL Datasets (Inverse Reinforcement Learning):
-- T-Drive: Beijing taxi GPS trajectories (MaxEnt IRL on road networks)
-- GeoLife: Human mobility GPS trajectories (182 users)
+Real IRL / Trajectory Datasets:
+- T-Drive: Beijing taxi GPS trajectories
+- GeoLife: Human mobility GPS trajectories
 - Stanford Drone: Campus pedestrian/cyclist trajectories
-- ETH/UCY: Classic pedestrian trajectory benchmark (5 scenes)
+- ETH/UCY: Pedestrian trajectory benchmark
+- NGSIM: Highway lane-change vehicle trajectories
+- Shanghai: Taxi route-choice on road network
 
-Search/Click Datasets (Sequential Choice):
-- Trivago (2019): Hotel search sessions (browse/refine/clickout/abandon)
+Real Sequential Choice Datasets:
+- Trivago (2019): Hotel search sessions
+- Foursquare: Venue check-in sequences
+
+Hybrid Datasets (real data with synthetic fallback):
+- Citibike Route: Station-to-station destination choice
+- Citibike Usage: Daily ride/no-ride member panel
 """
 
-# DDC datasets
+# Real DDC datasets
 from econirl.datasets.rust_bus import load_rust_bus
 from econirl.datasets.occupational_choice import load_occupational_choice
-from econirl.datasets.icu_sepsis import load_icu_sepsis, load_icu_sepsis_mdp, get_icu_sepsis_info
-from econirl.datasets.citibike_route import load_citibike_route, get_citibike_route_info
-from econirl.datasets.citibike_usage import load_citibike_usage, get_citibike_usage_info
-from econirl.datasets.entry_exit import load_entry_exit, get_entry_exit_info
-from econirl.datasets.frozen_lake import load_frozen_lake, get_frozen_lake_info
-from econirl.datasets.supermarket import load_supermarket, get_supermarket_info
-from econirl.datasets.instacart import load_instacart, get_instacart_info
-from econirl.datasets.keane_wolpin import load_keane_wolpin, get_keane_wolpin_info
 from econirl.datasets.robinson_crusoe import load_robinson_crusoe, get_robinson_crusoe_info
 from econirl.datasets.equipment_replacement import load_equipment_replacement
+from econirl.datasets.icu_sepsis import load_icu_sepsis, load_icu_sepsis_mdp, get_icu_sepsis_info
+from econirl.datasets.supermarket import load_supermarket, get_supermarket_info
+from econirl.datasets.keane_wolpin import load_keane_wolpin, get_keane_wolpin_info
 
-# IRL datasets
+# Hybrid datasets (real data + synthetic fallback)
+from econirl.datasets.citibike_route import load_citibike_route, get_citibike_route_info
+from econirl.datasets.citibike_usage import load_citibike_usage, get_citibike_usage_info
+
+# Real IRL / trajectory datasets
 from econirl.datasets.tdrive import load_tdrive, get_tdrive_info
 from econirl.datasets.geolife import load_geolife, get_geolife_info
 from econirl.datasets.stanford_drone import load_stanford_drone, get_stanford_drone_info
@@ -62,35 +70,26 @@ from econirl.datasets.trivago_search import (
 )
 
 __all__ = [
-    # DDC Datasets
+    # Real DDC Datasets
     "load_rust_bus",
+    # Legacy synthetic generators (pending conversion to environments)
     "load_occupational_choice",
-    "load_keane_wolpin",
-    "get_keane_wolpin_info",
     "load_robinson_crusoe",
     "get_robinson_crusoe_info",
     "load_equipment_replacement",
-    # Urban Mobility Datasets
-    "load_citibike_route",
-    "get_citibike_route_info",
-    "load_citibike_usage",
-    "get_citibike_usage_info",
-    # IO / Firm Dynamics Datasets
-    "load_entry_exit",
-    "get_entry_exit_info",
-    # Retail IO Datasets
+    "load_keane_wolpin",
+    "get_keane_wolpin_info",
     "load_supermarket",
     "get_supermarket_info",
     # Healthcare Datasets
     "load_icu_sepsis",
     "load_icu_sepsis_mdp",
     "get_icu_sepsis_info",
-    # Benchmark Environments
-    "load_frozen_lake",
-    "get_frozen_lake_info",
-    # Consumer/Marketing Datasets
-    "load_instacart",
-    "get_instacart_info",
+    # Hybrid Datasets
+    "load_citibike_route",
+    "get_citibike_route_info",
+    "load_citibike_usage",
+    "get_citibike_usage_info",
     # IRL Datasets
     "load_tdrive",
     "get_tdrive_info",

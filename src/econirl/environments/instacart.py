@@ -203,6 +203,35 @@ class InstacartEnvironment(DDCEnvironment):
             new_pb = min(pb + 1, N_PURCHASE_BUCKETS - 1)
             return buckets_to_state(new_pb, 0)
 
+    def _state_to_record(self, state: int, action: int) -> dict:
+        pb, rb = state_to_buckets(state)
+        return {
+            "purchase_bucket": pb,
+            "recency_bucket": rb,
+            "purchase_label": PURCHASE_LABELS[pb],
+            "recency_label": RECENCY_LABELS[rb],
+            "reordered": action == 1,
+        }
+
+    @classmethod
+    def info(cls) -> dict:
+        return {
+            "name": "Instacart Grocery Reorder (Synthetic)",
+            "description": (
+                "Synthetic repeat-purchase DDC calibrated to Instacart-style "
+                "grocery reorder patterns. 20 states (purchase frequency x recency), "
+                "2 actions (skip/reorder)."
+            ),
+            "source": "Synthetic (calibrated to Kaggle 2017 data)",
+            "n_states": N_STATES,
+            "n_actions": N_ACTIONS,
+            "n_features": 3,
+            "state_description": "Purchase frequency bucket x recency bucket",
+            "action_description": "Skip (0) / Reorder (1)",
+            "ground_truth": True,
+            "use_case": "Repeat purchase DDC, state dependence in brand choice",
+        }
+
     def describe(self) -> str:
         return f"""Instacart Grocery Reorder Environment
 {'=' * 40}

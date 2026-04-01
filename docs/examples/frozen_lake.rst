@@ -15,10 +15,9 @@ Quick start
 .. code-block:: python
 
    from econirl.environments.frozen_lake import FrozenLakeEnvironment
-   from econirl.datasets.frozen_lake import load_frozen_lake
 
    env = FrozenLakeEnvironment(discount_factor=0.99)
-   panel = load_frozen_lake(n_individuals=500, n_periods=100, as_panel=True)
+   panel = env.generate_panel(n_individuals=500, n_periods=100)
 
 Estimation
 ----------

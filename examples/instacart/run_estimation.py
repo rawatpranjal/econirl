@@ -13,7 +13,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from econirl.core.types import DDCProblem, Panel
-from econirl.datasets.instacart import load_instacart
 from econirl.environments.instacart import InstacartEnvironment
 from econirl.estimation.ccp import CCPEstimator
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
@@ -31,7 +30,7 @@ def main():
     print("=" * 65)
 
     env = InstacartEnvironment(discount_factor=0.95)
-    panel = load_instacart(n_individuals=2000, n_periods=52, as_panel=True, seed=42)
+    panel = env.generate_panel(n_individuals=2000, n_periods=52, seed=42)
 
     cutoff = int(panel.num_individuals * 0.8)
     train = Panel(trajectories=panel.trajectories[:cutoff])

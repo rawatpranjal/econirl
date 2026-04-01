@@ -15,10 +15,9 @@ Quick start
 .. code-block:: python
 
    from econirl.environments.entry_exit import EntryExitEnvironment
-   from econirl.datasets.entry_exit import load_entry_exit
 
    env = EntryExitEnvironment(discount_factor=0.95)
-   panel = load_entry_exit(n_individuals=2000, n_periods=100, as_panel=True)
+   panel = env.generate_panel(n_individuals=2000, n_periods=100)
 
 Estimation
 ----------

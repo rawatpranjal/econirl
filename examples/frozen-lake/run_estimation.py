@@ -10,7 +10,6 @@ Usage:
 import numpy as np
 
 from econirl.environments.frozen_lake import FrozenLakeEnvironment
-from econirl.datasets.frozen_lake import load_frozen_lake
 from econirl.estimation.nfxp import NFXPEstimator
 from econirl.estimation.ccp import CCPEstimator
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
@@ -21,7 +20,7 @@ from econirl.preferences.linear import LinearUtility
 # ---------------------------------------------------------------------------
 
 env = FrozenLakeEnvironment(discount_factor=0.99)
-panel = load_frozen_lake(n_individuals=500, n_periods=100, as_panel=True, seed=42)
+panel = env.generate_panel(n_individuals=500, n_periods=100, seed=42)
 
 utility = LinearUtility(
     feature_matrix=env.feature_matrix,
