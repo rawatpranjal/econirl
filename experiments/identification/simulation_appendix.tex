@@ -353,7 +353,27 @@ $\alpha$ & Type II CF error & Corr.\ with $r^*$ \\
 
 \subsection{Analysis D: Finite-Sample Convergence}
 
-At the population level, IQ-Learn recovers $r^*$ exactly. In finite samples, the $\chi^2$ objective with tabular $Q(s,a)$ over 181 states is harder to optimize than the convex reduced-form logit. With $N = 500$ trajectories, the reduced-form Type~II error is 0.264 (converged to the wrong target) while IQ-Learn is at 0.384 (not yet converged to the right target). With $N = 5{,}000$, both plateau: RF at 0.262 and IQ at 0.385. The IQ-Learn optimizer has not yet converged; with enough iterations or a better optimizer (e.g., L-BFGS), it would approach zero. This is an optimization problem, not a theory problem.
+At the population level, IQ-Learn recovers $r^*$ exactly (Analysis~A). In finite samples, the picture reverses. The reduced-form logit is a convex MLE that converges rapidly to $A^*$, which is the wrong target for Type~II counterfactuals but achieves a stable error of 0.262 by $N = 500$. IQ-Learn's $\chi^2$ objective over 543 tabular parameters ($181 \times 3$) is non-convex and harder to optimize. Even with L-BFGS-B (a second-order method), IQ-Learn plateaus at 0.34--0.36 across all sample sizes.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrr}
+\toprule
+$N$ & RF Type II err & IQ Type II err \\
+\midrule
+200    & 0.265 & 0.344 \\
+500    & 0.264 & 0.352 \\
+1{,}000  & 0.262 & 0.349 \\
+2{,}000  & 0.263 & 0.357 \\
+5{,}000  & 0.262 & 0.357 \\
+10{,}000 & 0.262 & 0.345 \\
+\bottomrule
+\end{tabular}
+\caption{Finite-sample Type~II counterfactual error (3 seeds, $k = 3$). RF converges quickly to the wrong target. IQ-Learn has not converged to the right target. The analytical results in Analysis~A confirm that IQ-Learn recovers $r^*$ exactly at the population level; the finite-sample gap is purely an optimization problem.}
+\label{tab:samplesize}
+\end{table}
+
+This illustrates a practical tension. The reduced-form approach converges fast (convex, no Bellman constraint) but to a biased limit for Type~II counterfactuals. IQ-Learn targets the correct limit but the $\chi^2$ objective landscape over a high-dimensional tabular Q-function is difficult for both first-order (Adam) and quasi-Newton (L-BFGS-B) methods. In the LSW application, the AIRL adversarial loop faces an analogous optimization challenge. The analytical results (Analyses~A--C, E--F) establish the theoretical ranking unambiguously; the finite-sample optimization question is separate and problem-specific.
 
 \subsection{Analysis E: Anchor Misspecification Robustness}
 

@@ -184,27 +184,37 @@ def estimate_rf(data, nS, nA, n_iter=3000, lr=0.1):
     return {'A': A, 'pi': jax.nn.softmax(Q, axis=1)}
 
 
-def estimate_iq(data, mdp, n_iter=5000, lr=0.03):
+def estimate_iq(data, mdp, n_iter=5000, lr=0.03, warmup=500):
+    """IQ-Learn with chi-squared divergence via L-BFGS-B.
+
+    Uses scipy L-BFGS-B (second-order) instead of Adam (first-order)
+    for reliable convergence on the tabular 181-state problem.
+    """
+    from scipy.optimize import minimize as sp_minimize
+
     nS, nA = mdp['n_states'], mdp['cfg'].n_actions
     beta, P, ABS = mdp['cfg'].beta, mdp['P'], mdp['ABS']
     nR = mdp['n_regular']
     s, a, sp = data['s'], data['a'], data['sp']
-    Q = jnp.zeros((nS, nA))
-    opt = optax.adam(lr)
-    state = opt.init(Q)
 
-    @jax.jit
-    def step(Q, state):
-        def loss(Q):
-            V = logsumexp(Q, axis=1).at[ABS].set(0.0)
-            rQ = Q[s, a] - beta * V[sp]
-            return -(jnp.mean(rQ - 0.5 * rQ**2) - (1 - beta) * jnp.mean(V[:nR]))
-        l, g = jax.value_and_grad(loss)(Q)
-        u, state2 = opt.update(g, state)
-        return optax.apply_updates(Q, u), state2, l
+    def loss_fn(Q_flat):
+        Q = jnp.array(Q_flat.reshape(nS, nA))
+        V = logsumexp(Q, axis=1).at[ABS].set(0.0)
+        rQ = Q[s, a] - beta * V[sp]
+        return -(jnp.mean(rQ - 0.5 * rQ**2) - (1 - beta) * jnp.mean(V[:nR]))
 
-    for _ in range(n_iter):
-        Q, state, loss = step(Q, state)
+    loss_and_grad = jax.jit(jax.value_and_grad(loss_fn))
+
+    def scipy_wrapper(Q_flat):
+        l, g = loss_and_grad(Q_flat)
+        return float(l), np.array(g, dtype=np.float64)
+
+    Q0 = np.zeros(nS * nA)
+    result = sp_minimize(
+        scipy_wrapper, Q0, method='L-BFGS-B', jac=True,
+        options={'maxiter': n_iter, 'ftol': 1e-12, 'gtol': 1e-8},
+    )
+    Q = jnp.array(result.x.reshape(nS, nA))
 
     V = logsumexp(Q, axis=1).at[ABS].set(0.0)
     EV = jnp.einsum('ijk,k->ij', P, V)
@@ -281,17 +291,24 @@ def main():
         results['C'][str(alpha)] = {'error': round(err, 3), 'corr': round(corr, 3)}
 
     # --- D: Sample size (RF vs IQ-Learn) ---
-    print("\nAnalysis D: Sample size")
-    sample_sizes = [500, 1000, 2000, 5000]
+    print("\nAnalysis D: Sample size (giving estimators time to converge)")
+    sample_sizes = [200, 500, 1000, 2000, 5000, 10000]
+    n_seeds = 3
     results['D'] = {}
     for N in sample_sizes:
-        data = generate_data(mdp, sol, N, jr.PRNGKey(42 + N))
-        rf = estimate_rf(data, mdp['n_states'], cfg.n_actions, n_iter=2000, lr=0.1)
-        iq = estimate_iq(data, mdp, n_iter=3000, lr=0.03)
-        rf_err = cf_error(Pt3, rf['A'], r_true, beta, ABS, nR)
-        iq_err = cf_error(Pt3, iq['r'], r_true, beta, ABS, nR)
-        print(f"  N={N}: RF={rf_err:.4f}, IQ={iq_err:.4f}")
-        results['D'][str(N)] = {'rf': round(rf_err, 4), 'iq': round(iq_err, 4)}
+        rf_errs, iq_errs = [], []
+        for seed in range(n_seeds):
+            data = generate_data(mdp, sol, N, jr.PRNGKey(seed * 1000 + N))
+            rf = estimate_rf(data, mdp['n_states'], cfg.n_actions, n_iter=5000, lr=0.05)
+            iq = estimate_iq(data, mdp, n_iter=5000)
+            rf_err = cf_error(Pt3, rf['A'], r_true, beta, ABS, nR)
+            iq_err = cf_error(Pt3, iq['r'], r_true, beta, ABS, nR)
+            rf_errs.append(rf_err)
+            iq_errs.append(iq_err)
+        rf_mean = np.mean(rf_errs)
+        iq_mean = np.mean(iq_errs)
+        print(f"  N={N:>5}: RF={rf_mean:.4f}, IQ={iq_mean:.4f}  (avg over {n_seeds} seeds)")
+        results['D'][str(N)] = {'rf': round(rf_mean, 4), 'iq': round(iq_mean, 4)}
 
     # --- E: Anchor misspecification ---
     print("\nAnalysis E: Anchor misspecification")
