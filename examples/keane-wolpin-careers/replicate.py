@@ -25,8 +25,8 @@ Usage:
 
 import time
 
+import jax.numpy as jnp
 import numpy as np
-import torch
 
 from econirl.core.bellman import SoftBellmanOperator
 from econirl.core.solvers import backward_induction
@@ -65,7 +65,7 @@ def decode_state(state: int) -> tuple[int, int, int]:
     return s_idx + SCHOOL_MIN, exp_wc, exp_bc
 
 
-def build_transition_matrix() -> torch.Tensor:
+def build_transition_matrix() -> jnp.ndarray:
     """Build deterministic transition matrices for KW model.
 
     Choice 0 (school): schooling += 1 (capped at SCHOOL_MAX)
@@ -73,7 +73,7 @@ def build_transition_matrix() -> torch.Tensor:
     Choice 2 (BC work): exp_bc += 1 (capped at EXP_BC_MAX)
     Choice 3 (home): no state change
     """
-    trans = torch.zeros(N_ACTIONS, N_STATES, N_STATES, dtype=torch.float64)
+    trans = np.zeros((N_ACTIONS, N_STATES, N_STATES), dtype=np.float64)
 
     for s in range(N_STATES):
         school, exp_wc, exp_bc = decode_state(s)
@@ -93,10 +93,10 @@ def build_transition_matrix() -> torch.Tensor:
         # Choice 3: home -> no change
         trans[3, s, s] = 1.0
 
-    return trans
+    return jnp.array(trans)
 
 
-def build_feature_matrix() -> torch.Tensor:
+def build_feature_matrix() -> jnp.ndarray:
     """Build feature matrix for linear utility specification.
 
     Features capture returns to schooling, experience, and fixed costs:
@@ -109,7 +109,7 @@ def build_feature_matrix() -> torch.Tensor:
     - home_value: value of home production
     """
     n_features = 7
-    features = torch.zeros(N_STATES, N_ACTIONS, n_features)
+    features = np.zeros((N_STATES, N_ACTIONS, n_features))
 
     for s in range(N_STATES):
         school, exp_wc, exp_bc = decode_state(s)
@@ -131,7 +131,7 @@ def build_feature_matrix() -> torch.Tensor:
         # Home production (action 3)
         features[s, 3, 6] = 1.0  # home value
 
-    return features
+    return jnp.array(features)
 
 
 def load_data_as_panel() -> Panel:
@@ -142,13 +142,13 @@ def load_data_as_panel() -> Panel:
     for ind_id in sorted(df["id"].unique()):
         ind_data = df[df["id"] == ind_id].sort_values("period")
 
-        states = torch.tensor(
+        states = jnp.array(
             [encode_state(int(r["schooling"]), int(r["exp_white_collar"]), int(r["exp_blue_collar"]))
              for _, r in ind_data.iterrows()],
-            dtype=torch.long,
+            dtype=jnp.int32,
         )
-        actions = torch.tensor(ind_data["choice"].values, dtype=torch.long)
-        next_states = torch.cat([states[1:], states[-1:]])
+        actions = jnp.array(ind_data["choice"].values, dtype=jnp.int32)
+        next_states = jnp.concatenate([states[1:], states[-1:]])
 
         trajectories.append(Trajectory(
             states=states, actions=actions, next_states=next_states,
@@ -161,7 +161,7 @@ def load_data_as_panel() -> Panel:
 class KWUtility:
     """Linear utility specification for KW model."""
 
-    def __init__(self, feature_matrix: torch.Tensor):
+    def __init__(self, feature_matrix: jnp.ndarray):
         self._features = feature_matrix
         self.num_parameters = feature_matrix.shape[2]
         self.parameter_names = [
@@ -173,15 +173,15 @@ class KWUtility:
     def feature_matrix(self):
         return self._features
 
-    def compute(self, params: torch.Tensor) -> torch.Tensor:
-        return torch.einsum("sak,k->sa", self._features, params)
+    def compute(self, params: jnp.ndarray) -> jnp.ndarray:
+        return jnp.einsum("sak,k->sa", self._features, params)
 
-    def get_initial_parameters(self) -> torch.Tensor:
-        return torch.zeros(self.num_parameters)
+    def get_initial_parameters(self) -> jnp.ndarray:
+        return jnp.zeros(self.num_parameters)
 
-    def get_parameter_bounds(self) -> tuple[torch.Tensor, torch.Tensor]:
-        lower = torch.full((self.num_parameters,), -20.0)
-        upper = torch.full((self.num_parameters,), 20.0)
+    def get_parameter_bounds(self) -> tuple[jnp.ndarray, jnp.ndarray]:
+        lower = jnp.full((self.num_parameters,), -20.0)
+        upper = jnp.full((self.num_parameters,), 20.0)
         return lower, upper
 
 
@@ -218,7 +218,6 @@ def main():
     nfxp = NFXPEstimator(
         optimizer="L-BFGS-B",
         inner_solver="policy",
-        analytical_gradient=False,
         compute_hessian=True,
         verbose=True,
         outer_tol=1e-6,
@@ -233,7 +232,7 @@ def main():
     # Interpret parameters
     print("\nParameter Interpretation:")
     print("-" * 50)
-    for name, val in zip(utility.parameter_names, result.parameters.numpy()):
+    for name, val in zip(utility.parameter_names, np.asarray(result.parameters)):
         print(f"  {name:<20} {val:>8.4f}")
 
     print(f"\nNote: Uses logit shocks (not MV normal from paper).")

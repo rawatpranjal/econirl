@@ -7,11 +7,11 @@ the econirl package. Demonstrates reward recovery, feature matching,
 and policy comparison between MCE IRL and MaxEnt IRL.
 """
 
-import torch
+import jax.numpy as jnp
 import numpy as np
 from econirl.environments.gridworld import GridworldEnvironment
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
-from econirl.estimation.maxent_irl import MaxEntIRLEstimator
+from econirl.contrib.maxent_irl import MaxEntIRLEstimator
 from econirl.simulation.synthetic import simulate_panel
 from econirl.preferences.action_reward import ActionDependentReward
 from econirl.core.bellman import SoftBellmanOperator
@@ -103,11 +103,11 @@ def run_replication():
         print(f"  {name:<20} {true_params[i].item():>10.4f} {est_params[i].item():>10.4f}")
 
     # Normalized comparison (reward direction)
-    true_norm = true_params / torch.norm(true_params)
-    est_norm = est_params / torch.norm(est_params)
-    cos_sim = torch.nn.functional.cosine_similarity(
-        est_params.unsqueeze(0), true_params.unsqueeze(0)
-    ).item()
+    true_norm = true_params / jnp.linalg.norm(true_params)
+    est_norm = est_params / jnp.linalg.norm(est_params)
+    cos_sim = (jnp.dot(est_params, true_params) / (
+        jnp.linalg.norm(est_params) * jnp.linalg.norm(true_params)
+    )).item()
     print(f"\n  Normalized direction (true):  {true_norm.tolist()}")
     print(f"  Normalized direction (est):   {est_norm.tolist()}")
     print(f"  Cosine similarity: {cos_sim:.6f}")
@@ -154,14 +154,14 @@ def run_replication():
     maxent_policy = maxent_result.policy
 
     eps = 1e-10
-    kl_mce = (true_policy * torch.log((true_policy + eps) / (mce_policy + eps))).sum(dim=1).mean().item()
-    kl_maxent = (true_policy * torch.log((true_policy + eps) / (maxent_policy + eps))).sum(dim=1).mean().item()
+    kl_mce = (true_policy * jnp.log((true_policy + eps) / (mce_policy + eps))).sum(axis=1).mean().item()
+    kl_maxent = (true_policy * jnp.log((true_policy + eps) / (maxent_policy + eps))).sum(axis=1).mean().item()
 
-    true_best = true_policy.argmax(dim=1)
-    mce_best = mce_policy.argmax(dim=1)
-    maxent_best = maxent_policy.argmax(dim=1)
-    mce_acc = (true_best == mce_best).float().mean().item() * 100
-    maxent_acc = (true_best == maxent_best).float().mean().item() * 100
+    true_best = true_policy.argmax(axis=1)
+    mce_best = mce_policy.argmax(axis=1)
+    maxent_best = maxent_policy.argmax(axis=1)
+    mce_acc = (true_best == mce_best).astype(jnp.float32).mean().item() * 100
+    maxent_acc = (true_best == maxent_best).astype(jnp.float32).mean().item() * 100
 
     print(f"\n  {'Metric':<30} {'MCE IRL':>12} {'MaxEnt IRL':>12}")
     print(f"  {'-'*54}")

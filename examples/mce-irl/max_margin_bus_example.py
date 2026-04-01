@@ -16,12 +16,12 @@ Note: For the original Rust bus problem with unnormalized features
 (theta_c=0.001, RC=3.0), both IRL methods struggle due to scale mismatch.
 """
 
-import torch
+import jax.numpy as jnp
 import numpy as np
 
 from econirl.environments.rust_bus import RustBusEnvironment
 from econirl.preferences.action_reward import ActionDependentReward
-from econirl.estimation.max_margin_irl import MaxMarginIRLEstimator
+from econirl.contrib.max_margin_irl import MaxMarginIRLEstimator
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
 from econirl.simulation import simulate_panel
 
@@ -55,8 +55,8 @@ def main():
 
     # Create reward function
     reward = ActionDependentReward.from_rust_environment(env)
-    true_params = torch.tensor([original_theta_c, original_RC], dtype=torch.float32)
-    true_params_normalized = true_params / torch.norm(true_params)
+    true_params = jnp.array([original_theta_c, original_RC], dtype=jnp.float32)
+    true_params_normalized = true_params / jnp.linalg.norm(true_params)
 
     print(f"True parameters: {dict(zip(reward.parameter_names, true_params.tolist()))}")
     print(f"True normalized: {dict(zip(reward.parameter_names, true_params_normalized.tolist()))}")
@@ -100,8 +100,8 @@ def main():
     print()
 
     # Cosine similarity
-    cos_sim = torch.dot(true_params_normalized, estimated_params) / (
-        torch.norm(true_params_normalized) * torch.norm(estimated_params)
+    cos_sim = jnp.dot(true_params_normalized, estimated_params) / (
+        jnp.linalg.norm(true_params_normalized) * jnp.linalg.norm(estimated_params)
     )
     print(f"Cosine similarity: {cos_sim.item():.4f}")
     print()
@@ -146,7 +146,7 @@ def main():
     )
 
     estimated_anchor = result_anchor.parameters
-    true_relative = torch.tensor([original_theta_c / original_RC, 1.0], dtype=torch.float32)
+    true_relative = jnp.array([original_theta_c / original_RC, 1.0], dtype=jnp.float32)
 
     print("Results (relative to RC=1):")
     print("-" * 50)

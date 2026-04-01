@@ -19,13 +19,13 @@ Usage:
 import argparse
 import time
 
+import jax.numpy as jnp
 import numpy as np
-import torch
 
 from econirl.core.bellman import SoftBellmanOperator
 from econirl.core.solvers import hybrid_iteration
 from econirl.core.types import DDCProblem, Panel
-from econirl.estimation.maxent_irl import MaxEntIRLEstimator
+from econirl.contrib.maxent_irl import MaxEntIRLEstimator
 from econirl.estimation.mce_irl import MCEIRLConfig, MCEIRLEstimator
 from econirl.estimation.nfxp import NFXPEstimator
 from econirl.preferences.action_reward import ActionDependentReward
@@ -39,7 +39,7 @@ from econirl.simulation.synthetic import simulate_panel_from_policy
 def _build_transitions(grid_size):
     """Deterministic 5-action gridworld transitions."""
     n_states = grid_size * grid_size
-    transitions = torch.zeros(5, n_states, n_states)
+    transitions = np.zeros((5, n_states, n_states))
     deltas = [(1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)]  # N,S,E,W,Stay
     for s in range(n_states):
         r, c = s // grid_size, s % grid_size
@@ -47,7 +47,7 @@ def _build_transitions(grid_size):
             nr, nc = r + dr, c + dc
             ns = (nr * grid_size + nc) if (0 <= nr < grid_size and 0 <= nc < grid_size) else s
             transitions[a, s, ns] = 1.0
-    return transitions
+    return jnp.array(transitions)
 
 
 def build_case1_state_action(grid_size, discount):
@@ -58,7 +58,7 @@ def build_case1_state_action(grid_size, discount):
     deltas = [(1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)]
 
     names = ["move_cost", "goal_approach", "northward", "eastward"]
-    F = torch.zeros(n_states, 5, 4)
+    F = np.zeros((n_states, 5, 4))
     for s in range(n_states):
         r, c = s // grid_size, s % grid_size
         d = abs(r - goal_r) + abs(c - goal_c)
@@ -71,7 +71,8 @@ def build_case1_state_action(grid_size, discount):
             F[s, a, 2] = 1.0 if a == 0 else (-1.0 if a == 1 else 0.0)
             F[s, a, 3] = 1.0 if a == 2 else (-1.0 if a == 3 else 0.0)
 
-    theta = torch.tensor([-0.5, 2.0, 0.1, 0.1])
+    F = jnp.array(F)
+    theta = jnp.array([-0.5, 2.0, 0.1, 0.1])
     prob = DDCProblem(num_states=n_states, num_actions=5, discount_factor=discount)
     rfn = ActionDependentReward(feature_matrix=F, parameter_names=names)
     return prob, transitions, rfn, names, theta
@@ -87,7 +88,7 @@ def build_case2_rust_style(grid_size, discount):
     goal_r, goal_c = grid_size - 1, grid_size - 1
 
     names = ["operating_cost", "move_cost"]
-    F = torch.zeros(n_states, 5, 2)
+    F = np.zeros((n_states, 5, 2))
     for s in range(n_states):
         r, c = s // grid_size, s % grid_size
         dist = (abs(r - goal_r) + abs(c - goal_c)) / (2.0 * grid_size)
@@ -99,7 +100,8 @@ def build_case2_rust_style(grid_size, discount):
                 F[s, a, 0] = 0.0
                 F[s, a, 1] = -1.0
 
-    theta = torch.tensor([2.0, 0.3])
+    F = jnp.array(F)
+    theta = jnp.array([2.0, 0.3])
     prob = DDCProblem(num_states=n_states, num_actions=5, discount_factor=discount)
     rfn = ActionDependentReward(feature_matrix=F, parameter_names=names)
     return prob, transitions, rfn, names, theta
@@ -114,7 +116,7 @@ def build_case3_state_only(grid_size, discount):
     goal_r, goal_c = grid_size - 1, grid_size - 1
 
     names = ["goal_dist", "center_dist"]
-    F = torch.zeros(n_states, 5, 2)
+    F = np.zeros((n_states, 5, 2))
     for s in range(n_states):
         r, c = s // grid_size, s % grid_size
         goal_d = -(abs(r - goal_r) + abs(c - goal_c)) / (2.0 * grid_size)
@@ -123,7 +125,8 @@ def build_case3_state_only(grid_size, discount):
             F[s, a, 0] = goal_d
             F[s, a, 1] = center_d
 
-    theta = torch.tensor([3.0, 0.5])
+    F = jnp.array(F)
+    theta = jnp.array([3.0, 0.5])
     prob = DDCProblem(num_states=n_states, num_actions=5, discount_factor=discount)
     rfn = ActionDependentReward(feature_matrix=F, parameter_names=names)
     return prob, transitions, rfn, names, theta
@@ -136,7 +139,7 @@ def build_case3_state_only(grid_size, discount):
 def generate_data(prob, trans, rfn, theta, n_traj, n_periods, seed):
     op = SoftBellmanOperator(prob, trans)
     sol = hybrid_iteration(op, rfn.compute(theta), tol=1e-10)
-    init = torch.zeros(prob.num_states); init[0] = 1.0
+    init = jnp.zeros(prob.num_states).at[0].set(1.0)
     panel = simulate_panel_from_policy(prob, trans, sol.policy, init,
                                        n_individuals=n_traj, n_periods=n_periods, seed=seed)
     return panel, sol.policy
@@ -149,7 +152,7 @@ def eval_on_panel(params, rfn, prob, trans, panel):
     ll = lp[panel.get_all_states(), panel.get_all_actions()].sum().item()
     n = panel.num_observations
     pred = sol.policy.argmax(1)[panel.get_all_states()]
-    acc = (pred == panel.get_all_actions()).float().mean().item() * 100
+    acc = (pred == panel.get_all_actions()).astype(jnp.float32).mean().item() * 100
     return {"ll_per_obs": ll / n, "accuracy": acc}
 
 
@@ -188,8 +191,8 @@ def run_case(case_name, prob, trans, rfn, names, theta, n_traj, n_periods, seed,
     print(f"  Train: {train.num_observations} obs, Test: {test.num_observations} obs")
 
     # Transfer: stochastic transitions (10% noise)
-    noise = torch.rand_like(trans)
-    noise = noise / noise.sum(dim=2, keepdim=True)
+    rng_key = jnp.array(np.random.RandomState(seed).rand(*trans.shape))
+    noise = rng_key / rng_key.sum(axis=2, keepdims=True)
     noisy = 0.9 * trans + 0.1 * noise
     noisy_prob = DDCProblem(num_states=prob.num_states, num_actions=prob.num_actions,
                             discount_factor=prob.discount_factor)
@@ -205,8 +208,8 @@ def run_case(case_name, prob, trans, rfn, names, theta, n_traj, n_periods, seed,
             kw["true_params"] = theta
         result = estimator.estimate(**kw)
         p = result.parameters
-        cos = torch.nn.functional.cosine_similarity(p.unsqueeze(0), theta.unsqueeze(0)).item()
-        rmse = torch.sqrt(torch.mean((p - theta) ** 2)).item()
+        cos = (jnp.dot(p, theta) / (jnp.linalg.norm(p) * jnp.linalg.norm(theta))).item()
+        rmse = jnp.sqrt(jnp.mean((p - theta) ** 2)).item()
         est[ename] = {"params": p, "cos": cos, "rmse": rmse, "time": time.time() - t0,
                        "converged": result.converged}
 

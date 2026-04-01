@@ -21,8 +21,8 @@ Usage:
 
 import time
 
+import jax.numpy as jnp
 import numpy as np
-import torch
 
 from econirl.datasets import load_rust_bus
 from econirl.environments.rust_bus import RustBusEnvironment
@@ -39,7 +39,6 @@ def run_nfxp(panel, utility, problem, transitions, verbose=False):
         inner_solver="policy",
         inner_tol=1e-12,
         inner_max_iter=200,
-        analytical_gradient=True,
         compute_hessian=True,
         outer_tol=1e-3,
         verbose=verbose,
@@ -68,8 +67,8 @@ def run_mce_irl(panel, utility, problem, transitions, verbose=False):
 
 def cosine_sim(a, b):
     """Cosine similarity between two parameter vectors."""
-    a, b = torch.as_tensor(a, dtype=torch.float64), torch.as_tensor(b, dtype=torch.float64)
-    return (a @ b / (a.norm() * b.norm())).item()
+    a, b = jnp.asarray(a, dtype=jnp.float64), jnp.asarray(b, dtype=jnp.float64)
+    return (a @ b / (jnp.linalg.norm(a) * jnp.linalg.norm(b))).item()
 
 
 def compare_results(title, result_nfxp, result_mce, param_names, true_params=None):
@@ -126,7 +125,7 @@ def compare_results(title, result_nfxp, result_mce, param_names, true_params=Non
     print(f"  {'MCE-IRL converged':<30} {str(result_mce.converged):>15}")
 
     if true_params is not None:
-        true_t = torch.as_tensor(true_params, dtype=torch.float64)
+        true_t = jnp.asarray(true_params, dtype=jnp.float64)
         cos_nfxp = cosine_sim(p_nfxp, true_t)
         cos_mce = cosine_sim(p_mce, true_t)
         print(f"\n  {'Cosine to true (NFXP)':<30} {cos_nfxp:>15.6f}")
