@@ -48,6 +48,7 @@ from econirl.estimators.maxent_irl import MaxEntIRL
 from econirl.estimators.mce_irl import MCEIRL
 from econirl.estimators.nfxp import NFXP
 from econirl.estimators.nnes import NNES
+from econirl.estimators.sees import SEES
 from econirl.estimators.tdccp import TDCCP
 from econirl.estimators.protocol import EstimatorProtocol
 
@@ -75,6 +76,7 @@ __all__ = [
     "NFXP",
     "NNES",
     "CCP",
+    "SEES",
     "TDCCP",
     "MaxEntIRL",
     "MaxMarginIRL",

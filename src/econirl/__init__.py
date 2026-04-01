@@ -64,7 +64,7 @@ from econirl.estimation.ccp import CCPEstimator
 
 # Sklearn-style Estimators — lazy imports (still on PyTorch, pending migration)
 try:
-    from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL, MCEIRL, NNES, TDCCP
+    from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL, MCEIRL, NNES, SEES, TDCCP
 except (ImportError, SyntaxError):
     pass
 
@@ -126,6 +126,7 @@ __all__ = [
     "MaxMarginIRL",
     "MCEIRL",
     "NNES",
+    "SEES",
     "TDCCP",
     "NeuralGLADIUS",
     "NeuralAIRL",

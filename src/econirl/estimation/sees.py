@@ -146,23 +146,23 @@ class SEESEstimator(BaseEstimator):
 
         if self._basis_type == "fourier":
             # Fourier basis: [1, cos(pi*s), sin(pi*s), cos(2pi*s), sin(2pi*s), ...]
-            basis = jnp.zeros(n_states, self._basis_dim)
-            basis[:, 0] = 1.0  # Constant term
+            basis = jnp.zeros((n_states, self._basis_dim))
+            basis = basis.at[:, 0].set(1.0)  # Constant term
             for k in range(1, self._basis_dim):
                 freq = (k + 1) // 2
                 if k % 2 == 1:
-                    basis[:, k] = jnp.cos(freq * np.pi * s_norm)
+                    basis = basis.at[:, k].set(jnp.cos(freq * np.pi * s_norm))
                 else:
-                    basis[:, k] = jnp.sin(freq * np.pi * s_norm)
+                    basis = basis.at[:, k].set(jnp.sin(freq * np.pi * s_norm))
             return basis
 
         elif self._basis_type == "polynomial":
             # Polynomial basis: [1, s, s^2, s^3, ...]
             # Use Chebyshev-normalized states for numerical stability
             s_cheb = 2 * s_norm - 1  # Map to [-1, 1]
-            basis = jnp.zeros(n_states, self._basis_dim)
+            basis = jnp.zeros((n_states, self._basis_dim))
             for k in range(self._basis_dim):
-                basis[:, k] = s_cheb ** k
+                basis = basis.at[:, k].set(s_cheb ** k)
             return basis
 
         else:
@@ -194,9 +194,9 @@ class SEESEstimator(BaseEstimator):
 
         # Precompute E[Psi(s') | s, a] = transitions[a] @ basis
         # Shape: (n_actions, n_states, basis_dim)
-        expected_basis = jnp.zeros(n_actions, n_states, n_alpha)
+        expected_basis = jnp.zeros((n_actions, n_states, n_alpha))
         for a in range(n_actions):
-            expected_basis[a] = transitions[a] @ basis  # (S, basis_dim)
+            expected_basis = expected_basis.at[a].set(transitions[a] @ basis)
 
         if initial_params is None:
             initial_params = utility.get_initial_parameters()
@@ -214,9 +214,9 @@ class SEESEstimator(BaseEstimator):
             flow_u = jnp.einsum("sak,k->sa", feature_matrix, theta)
 
             # Continuation: beta * transitions[a] @ (basis @ alpha)
-            continuation = jnp.zeros(n_states, n_actions)
+            continuation = jnp.zeros((n_states, n_actions))
             for a in range(n_actions):
-                continuation[:, a] = beta * (expected_basis[a] @ alpha)
+                continuation = continuation.at[:, a].set(beta * (expected_basis[a] @ alpha))
 
             q_vals = flow_u + continuation
             log_probs = jax.nn.log_softmax(q_vals / sigma, axis=1)
@@ -251,13 +251,13 @@ class SEESEstimator(BaseEstimator):
         lower_theta, upper_theta = utility.get_parameter_bounds()
         lower = jnp.concatenate([lower_theta, jnp.full((n_alpha,), -50.0)])
         upper = jnp.concatenate([upper_theta, jnp.full((n_alpha,), 50.0)])
-        bounds = list(zip(lower.numpy(), upper.numpy()))
+        bounds = list(zip(np.asarray(lower), np.asarray(upper)))
 
         self._log(f"SEES: {n_theta} structural + {n_alpha} basis params")
 
         result = optimize.minimize(
             objective,
-            x0.numpy(),
+            np.asarray(x0),
             method="L-BFGS-B",
             jac=gradient,
             bounds=bounds,
@@ -272,14 +272,14 @@ class SEESEstimator(BaseEstimator):
         alpha_opt = x_opt[n_theta:]
         ll_opt = -result.fun
 
-        self._log(f"theta: {theta_opt.numpy()}")
-        self._log(f"alpha: {alpha_opt.numpy()}")
+        self._log(f"theta: {np.asarray(theta_opt)}")
+        self._log(f"alpha: {np.asarray(alpha_opt)}")
 
         # Compute final policy
         flow_u = jnp.einsum("sak,k->sa", feature_matrix, theta_opt)
-        continuation = jnp.zeros(n_states, n_actions)
+        continuation = jnp.zeros((n_states, n_actions))
         for a in range(n_actions):
-            continuation[:, a] = beta * (expected_basis[a] @ alpha_opt)
+            continuation = continuation.at[:, a].set(beta * (expected_basis[a] @ alpha_opt))
 
         q_vals = flow_u + continuation
         policy = jax.nn.softmax(q_vals / sigma, axis=1)

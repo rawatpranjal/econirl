@@ -150,8 +150,9 @@ def _simulate_trajectory(
     for t in range(n_periods):
         states.append(state)
 
-        # Sample action from policy
-        action_probs = policy[state]
+        # Sample action from policy (normalize for float32 rounding)
+        action_probs = np.asarray(policy[state], dtype=np.float64)
+        action_probs = action_probs / action_probs.sum()
         action = rng.choice(num_actions, p=action_probs)
         actions.append(action)
 
