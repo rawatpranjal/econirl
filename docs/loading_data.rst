@@ -10,7 +10,7 @@ econirl ships with datasets from the structural econometrics and inverse reinfor
 
 .. code-block:: python
 
-   from econirl.datasets import load_rust_bus, load_keane_wolpin
+   from econirl.datasets import load_rust_bus
 
    df = load_rust_bus()
    print(df.columns.tolist())
@@ -67,6 +67,10 @@ Every loader accepts an ``as_panel=True`` flag that returns a Panel object inste
    panel = load_rust_bus(as_panel=True)
    print(f"{panel.num_individuals} buses, {panel.num_observations} observations")
 
+.. code-block:: text
+
+   90 buses, 9410 observations
+
 Your own data
 -------------
 
@@ -89,8 +93,6 @@ If your state variable is continuous, discretize it first.
 
    df["mileage_bin"] = discretize_mileage(df["mileage"], bin_width=5000, max_bins=90)
 
-   df["income_bin"] = discretize_state(df["income"], method="quantile", n_bins=20)
-
 ``discretize_mileage`` follows the Rust (1987) convention where each bin is 5,000 miles wide. ``discretize_state`` supports both uniform (equal-width) and quantile (equal-count) binning for arbitrary continuous variables.
 
 The Panel object
@@ -110,11 +112,20 @@ Under the hood, every estimator converts your DataFrame into a Panel. A Panel is
        individual_id="bus_001",
    )
    panel = Panel(trajectories=[traj])
+   print(f"{panel.num_individuals} individual, {panel.num_observations} observations")
+
+.. code-block:: text
+
+   1 individual, 4 observations
 
 You rarely need to construct these by hand. Use ``Panel.from_dataframe`` to convert from a DataFrame or ``Panel.from_numpy`` to convert from arrays.
 
 .. code-block:: python
 
+   from econirl.datasets import load_rust_bus
+   from econirl.core.types import Panel
+
+   df = load_rust_bus()
    panel = Panel.from_dataframe(
        df,
        state="mileage_bin",
@@ -123,6 +134,11 @@ You rarely need to construct these by hand. Use ``Panel.from_dataframe`` to conv
    )
    print(f"{panel.num_individuals} individuals")
    print(f"{panel.num_observations} total observations")
+
+.. code-block:: text
+
+   90 individuals
+   9410 total observations
 
 If you omit the ``next_state`` column, ``from_dataframe`` infers next states from sequential rows within each individual. If you have explicit next-state data, pass it as the ``next_state`` argument.
 
@@ -152,28 +168,43 @@ If your data is already in NumPy arrays, use ``from_numpy``.
    ids = np.array([0, 0, 0, 1, 1, 1])
 
    panel = Panel.from_numpy(states, actions, next_states, individual_ids=ids)
+   print(f"{panel.num_individuals} individuals, {panel.num_observations} observations")
+
+.. code-block:: text
+
+   2 individuals, 6 observations
 
 Transition matrices
 -------------------
 
-Most estimators need a transition matrix in addition to the panel data. The transition matrix has shape ``(n_actions, n_states, n_states)`` where ``transitions[a, s, s']`` is the probability of moving from state s to state s' when action a is taken.
-
-You can estimate transition probabilities directly from the data.
+Most estimators need a transition matrix. For the Rust bus model, ``estimate_transition_probs`` estimates the mileage increment distribution from the data. It returns the probabilities of incrementing by 0, 1, or 2 bins per period.
 
 .. code-block:: python
 
+   from econirl.datasets import load_rust_bus
    from econirl.estimation import estimate_transition_probs
-   from econirl.core.types import DDCProblem
 
-   problem = DDCProblem(num_states=90, num_actions=2, discount_factor=0.9999)
-   transitions = estimate_transition_probs(panel, problem)
-   print(transitions.shape)
+   df = load_rust_bus()
+   theta = estimate_transition_probs(df)
+   print(f"theta = ({theta[0]:.4f}, {theta[1]:.4f}, {theta[2]:.4f})")
 
 .. code-block:: text
 
-   (2, 90, 90)
+   theta = (0.3888, 0.5973, 0.0139)
 
-The rows of each ``transitions[a]`` matrix sum to 1. If some state-action pairs have zero observations, the corresponding row falls back to a uniform distribution with epsilon smoothing.
+For the general case, ``sufficient_stats`` computes the full transition matrix with shape ``(n_actions, n_states, n_states)`` where ``transitions[a, s, s']`` is the probability of moving from state s to state s' when action a is taken. The rows of each action slice sum to 1.
+
+.. code-block:: python
+
+   panel = Panel.from_dataframe(df, state="mileage_bin", action="replaced", id="bus_id")
+   stats = panel.sufficient_stats(n_states=90, n_actions=2)
+   print(f"Transition matrix shape: {stats.transitions.shape}")
+
+.. code-block:: text
+
+   Transition matrix shape: (2, 90, 90)
+
+If some state-action pairs have zero observations, the corresponding row falls back to a uniform distribution with epsilon smoothing.
 
 Validating your data
 --------------------
@@ -184,6 +215,7 @@ Before estimation, check that your data has the expected structure. Common issue
 
    from econirl.preprocessing import check_panel_structure
 
+   df = load_rust_bus()
    result = check_panel_structure(
        df,
        id_col="bus_id",
@@ -193,8 +225,18 @@ Before estimation, check that your data has the expected structure. Common issue
    )
    print(f"Valid: {result.valid}")
    print(f"Balanced: {result.is_balanced}")
+   print(f"Individuals: {result.n_individuals}")
+   print(f"Observations: {result.n_observations}")
    if result.warnings:
        print("Warnings:", result.warnings)
+
+.. code-block:: text
+
+   Valid: True
+   Balanced: False
+   Individuals: 90
+   Observations: 9410
+   Warnings: ['Unbalanced panel: 80-120 periods per individual']
 
 Feature normalization
 ---------------------
@@ -204,10 +246,28 @@ IRL estimators are sensitive to feature scale. If your features span different o
 .. code-block:: python
 
    from econirl.preprocessing import RunningNorm
+   import numpy as np
 
-   norm = RunningNorm(size=n_features)
-   norm.update(feature_matrix.reshape(-1, n_features))
-   normalized_features = norm.normalize(feature_matrix)
+   features = np.array([
+       [0.001, 3.0, 100.0],
+       [0.002, 5.0, 200.0],
+       [0.003, 7.0, 300.0],
+       [0.001, 4.0, 150.0],
+   ])
+   norm = RunningNorm(size=3)
+   norm.update(features)
+   print(f"Mean: {norm.mean}")
+   print(f"Std:  {norm.std}")
+   normalized = norm.normalize(features)
+   print(f"Normalized mean: {[round(float(x), 1) for x in np.asarray(normalized).mean(axis=0)]}")
+   print(f"Normalized std:  {[round(float(x), 1) for x in np.asarray(normalized).std(axis=0)]}")
+
+.. code-block:: text
+
+   Mean: [1.750e-03 4.750e+00 1.875e+02]
+   Std:  [8.29e-04 1.48e+00 7.40e+01]
+   Normalized mean: [0.0, 0.0, 0.0]
+   Normalized std:  [1.0, 1.0, 1.0]
 
 For simpler cases, scaling features to the range negative 1 to 1 is usually sufficient.
 
@@ -218,11 +278,17 @@ After constructing a panel, you can save it to disk as a compressed NumPy archiv
 
 .. code-block:: python
 
-   panel.save_npz("my_panel.npz")
-   loaded = Panel.load_npz("my_panel.npz")
-   assert loaded.num_observations == panel.num_observations
+   panel.save_npz("rust_bus_panel.npz")
+   loaded = Panel.load_npz("rust_bus_panel.npz")
+   print(f"Saved: {panel.num_observations} observations")
+   print(f"Loaded: {loaded.num_observations} observations, {loaded.num_individuals} individuals")
 
-The ``.npz`` format stores states, actions, next states, trajectory lengths, and individual IDs. It is compact and does not require pickle.
+.. code-block:: text
+
+   Saved: 9410 observations
+   Loaded: 9410 observations, 90 individuals
+
+The ``.npz`` format stores states, actions, next states, trajectory lengths, and individual IDs. The Rust bus panel compresses to 9.7 KB.
 
 Converting back to DataFrame
 -----------------------------
@@ -233,10 +299,17 @@ If you need a DataFrame from a Panel for plotting or further analysis, use ``to_
 
    df_out = panel.to_dataframe()
    print(df_out.columns.tolist())
+   print(df_out.head())
 
 .. code-block:: text
 
    ['id', 'period', 'state', 'action', 'next_state']
+      id  period  state  action  next_state
+   0   1       0      0       0           0
+   1   1       1      0       0           1
+   2   1       2      1       0           1
+   3   1       3      1       0           1
+   4   1       4      1       0           1
 
 Sufficient statistics
 ---------------------
@@ -246,17 +319,17 @@ For tabular estimators that operate on counts rather than raw observations, Pane
 .. code-block:: python
 
    stats = panel.sufficient_stats(n_states=90, n_actions=2)
-   print(stats.state_action_counts.shape)
-   print(stats.empirical_ccps.shape)
-   print(stats.transitions.shape)
-   print(stats.initial_distribution.shape)
+   print(f"state_action_counts: {stats.state_action_counts.shape}")
+   print(f"empirical_ccps:      {stats.empirical_ccps.shape}")
+   print(f"transitions:         {stats.transitions.shape}")
+   print(f"initial_distribution:{stats.initial_distribution.shape}")
 
 .. code-block:: text
 
-   (90, 2)
-   (90, 2)
-   (2, 90, 90)
-   (90,)
+   state_action_counts: (90, 2)
+   empirical_ccps:      (90, 2)
+   transitions:         (2, 90, 90)
+   initial_distribution:(90,)
 
 This avoids redundant computation when multiple estimators are run on the same data.
 
@@ -267,9 +340,17 @@ For neural estimators that train with SGD, Panel supports shuffled mini-batch it
 
 .. code-block:: python
 
+   count = 0
    for states, actions, next_states in panel.iter_transitions(batch_size=512, seed=0):
-       # Each batch is a tuple of JAX arrays with shape (B,)
-       pass
+       count += 1
+       if count == 1:
+           print(f"First batch: {states.shape[0]} transitions")
+   print(f"Total batches: {count}")
+
+.. code-block:: text
+
+   First batch: 512 transitions
+   Total batches: 19
 
 Bootstrap resampling
 --------------------
@@ -279,4 +360,10 @@ For bootstrap standard errors, Panel can resample individuals (trajectories) wit
 .. code-block:: python
 
    boot_panel = panel.resample_individuals(seed=42)
-   print(f"Resampled: {boot_panel.num_individuals} individuals")
+   print(f"Original:  {panel.num_individuals} individuals, {panel.num_observations} observations")
+   print(f"Resampled: {boot_panel.num_individuals} individuals, {boot_panel.num_observations} observations")
+
+.. code-block:: text
+
+   Original:  90 individuals, 9410 observations
+   Resampled: 90 individuals, 9355 observations
