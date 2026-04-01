@@ -1,25 +1,34 @@
 #!/usr/bin/env python3
 """
-SCANIA Component X Replacement -- NFXP Estimation
-==================================================
+SCANIA Component X Replacement -- Structural Estimation
+========================================================
 
 Estimates the structural parameters of a component replacement model
-using the SCANIA Component X dataset (or synthetic data if the real
-data is not available). This is a Rust (1987) style model where
-degradation replaces mileage as the state variable.
+using real data from the SCANIA IDA 2024 Industrial Challenge. The
+model treats component degradation as a Rust-style optimal stopping
+problem with right censoring.
 
 The pipeline:
-    1. Load SCANIA data (synthetic fallback if no data_dir provided)
-    2. Build environment and estimate transition probabilities
+    1. Load SCANIA data (real or synthetic fallback)
+    2. PCA-based state construction from 105 sensor features
     3. Estimate structural parameters via NFXP
-    4. Cross-validate with CCP-NPL
-    5. Report results
+    4. Estimate via NNES (neural V-network) for comparison
+    5. Report results and diagnostics
+
+The real dataset has 23,550 vehicles, 1,122,452 observations, and
+105 operational readout features. PCA reduces these to a single
+degradation index (PC1 explains 97% of variance), which is then
+discretized into 50 bins for tabular estimation.
 
 Usage:
+    # With real SCANIA data (download from Kaggle first):
+    python examples/scania-component/scania_nfxp.py --data-dir data/scania/Dataset/
+
+    # Synthetic fallback:
     python examples/scania-component/scania_nfxp.py
 
-    # With real SCANIA data:
-    python examples/scania-component/scania_nfxp.py --data-dir /path/to/scania/
+    # Quick test:
+    python examples/scania-component/scania_nfxp.py --data-dir data/scania/Dataset/ --max-vehicles 1000
 
 Reference:
     SCANIA Component X dataset, IDA 2024 Industrial Challenge.
@@ -32,10 +41,6 @@ import time
 import numpy as np
 
 from econirl.datasets import load_scania
-from econirl.environments.scania import ScaniaComponentEnvironment
-from econirl.estimation.nfxp import NFXPEstimator, estimate_transitions_from_panel
-from econirl.estimation.ccp import CCPEstimator
-from econirl.preferences.linear import LinearUtility
 
 
 def print_header(title: str) -> None:
@@ -51,7 +56,7 @@ def print_section(title: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="NFXP estimation on SCANIA Component X data"
+        description="Structural estimation on SCANIA Component X data"
     )
     parser.add_argument(
         "--data-dir",
@@ -65,9 +70,15 @@ def main():
         default=None,
         help="Limit number of vehicles (for quick testing)",
     )
+    parser.add_argument(
+        "--discount",
+        type=float,
+        default=0.99,
+        help="Discount factor (default 0.99 for irregular time steps)",
+    )
     args = parser.parse_args()
 
-    print_header("SCANIA Component X Replacement -- NFXP Estimation")
+    print_header("SCANIA Component X -- Structural Estimation")
 
     # =========================================================================
     # Step 1: Load Data
@@ -81,121 +92,91 @@ def main():
         data_dir=args.data_dir,
         max_vehicles=args.max_vehicles,
     )
-    panel = load_scania(
-        data_dir=args.data_dir,
-        as_panel=True,
-        max_vehicles=args.max_vehicles,
-    )
 
     n_obs = len(df)
     n_vehicles = df["vehicle_id"].nunique()
     n_replace = df["replaced"].sum()
     replace_rate = df["replaced"].mean()
-    periods_min = df.groupby("vehicle_id")["period"].count().min()
-    periods_max = df.groupby("vehicle_id")["period"].count().max()
+    n_bins = df["degradation_bin"].nunique()
+    obs_per_v = df.groupby("vehicle_id")["period"].count()
 
     print(f"  Observations:     {n_obs:,}")
-    print(f"  Vehicles:         {n_vehicles}")
-    print(f"  Replacements:     {n_replace} ({replace_rate:.2%})")
-    print(f"  Periods/vehicle:  {periods_min}-{periods_max}")
-    print(f"  Degradation bins: 0-{df['degradation_bin'].max()}")
+    print(f"  Vehicles:         {n_vehicles:,}")
+    print(f"  Replacements:     {n_replace} ({replace_rate:.2%} per period)")
+    print(f"  Periods/vehicle:  median={obs_per_v.median():.0f}, "
+          f"min={obs_per_v.min()}, max={obs_per_v.max()}")
+    print(f"  Degradation bins: {n_bins}")
     print(f"  Mean degradation: bin {df['degradation_bin'].mean():.1f}")
 
-    # =========================================================================
-    # Step 2: Set Up Environment and Estimate Transitions
-    # =========================================================================
-    print_section("Step 2: Estimate Transition Probabilities")
-
-    num_states = 50
-    env = ScaniaComponentEnvironment(
-        num_degradation_bins=num_states,
-        discount_factor=0.9999,
-    )
-    utility = LinearUtility.from_environment(env)
-    problem = env.problem_spec
-    transitions = estimate_transitions_from_panel(
-        panel, num_states=num_states, max_increment=2
-    )
-
-    # Extract empirical transition probabilities
-    trans_keep = np.array(transitions[0])
-    p_stay = np.mean([trans_keep[s, s] for s in range(num_states - 2)])
-    p_plus1 = np.mean([trans_keep[s, s + 1] for s in range(num_states - 2)])
-    p_plus2 = np.mean([trans_keep[s, s + 2] for s in range(num_states - 2)])
-    print(f"  Estimated P(+0): {p_stay:.4f}")
-    print(f"  Estimated P(+1): {p_plus1:.4f}")
-    print(f"  Estimated P(+2): {p_plus2:.4f}")
+    rep_deg = df.loc[df["replaced"] == 1, "degradation_bin"]
+    keep_deg = df.loc[df["replaced"] == 0, "degradation_bin"]
+    if len(rep_deg) > 0:
+        print(f"  Degradation at replace: mean={rep_deg.mean():.1f}")
+        print(f"  Degradation at keep:    mean={keep_deg.mean():.1f}")
 
     # =========================================================================
-    # Step 3: NFXP Estimation
+    # Step 2: NFXP Estimation
     # =========================================================================
-    print_section("Step 3: NFXP Estimation")
+    print_section("Step 2: NFXP Estimation")
 
-    nfxp = NFXPEstimator(
-        optimizer="BHHH",
-        inner_solver="policy",
-        inner_tol=1e-12,
-        inner_max_iter=200,
-        compute_hessian=True,
-        outer_tol=1e-3,
-        verbose=True,
-    )
+    from econirl import NFXP
 
     t0 = time.time()
-    result_nfxp = nfxp.estimate(panel, utility, problem, transitions)
+    nfxp = NFXP(n_states=n_bins, discount=args.discount).fit(
+        df, state="degradation_bin", action="replaced", id="vehicle_id"
+    )
     t_nfxp = time.time() - t0
-
-    op_cost = result_nfxp.parameters[0].item()
-    rc = result_nfxp.parameters[1].item()
-
-    print(f"\n  Time: {t_nfxp:.1f}s")
-    print(result_nfxp.summary())
+    print(nfxp.summary())
+    print(f"  Time: {t_nfxp:.1f}s")
 
     # =========================================================================
-    # Step 4: Cross-Validate with NPL
+    # Step 3: NNES Estimation (Neural)
     # =========================================================================
-    print_section("Step 4: Cross-Validate with CCP-NPL")
+    print_section("Step 3: NNES Estimation (Neural V-network)")
 
-    npl = CCPEstimator(
-        num_policy_iterations=20,
-        compute_hessian=True,
-        verbose=False,
-    )
+    from econirl import NNES
 
     t0 = time.time()
-    result_npl = npl.estimate(panel, utility, problem, transitions)
-    t_npl = time.time() - t0
-
-    npl_op = result_npl.parameters[0].item()
-    npl_rc = result_npl.parameters[1].item()
-
-    print(f"  NPL:  operating_cost = {npl_op:.6f}, RC = {npl_rc:.4f}, LL = {result_npl.log_likelihood:.4f}  ({t_npl:.1f}s)")
-    print(f"  NFXP: operating_cost = {op_cost:.6f}, RC = {rc:.4f}, LL = {result_nfxp.log_likelihood:.4f}  ({t_nfxp:.1f}s)")
-    print(f"  Agreement: |dLL| = {abs(result_nfxp.log_likelihood - result_npl.log_likelihood):.4f}")
+    nnes = NNES(
+        n_states=n_bins, discount=args.discount, bellman="npl",
+        v_epochs=300, n_outer_iterations=2,
+    ).fit(
+        df, state="degradation_bin", action="replaced", id="vehicle_id"
+    )
+    t_nnes = time.time() - t0
+    print(nnes.summary())
+    print(f"  Time: {t_nnes:.1f}s")
 
     # =========================================================================
-    # Summary
+    # Comparison
     # =========================================================================
-    print_header("Estimation Summary")
+    print_header("Results Comparison")
 
-    se_op = result_nfxp.standard_errors[0] if result_nfxp.standard_errors is not None else float("nan")
-    se_rc = result_nfxp.standard_errors[1] if result_nfxp.standard_errors is not None else float("nan")
+    print(f"\n  {'Estimator':<12} {'theta_c':>10} {'RC':>10} "
+          f"{'SE(theta_c)':>12} {'SE(RC)':>10} {'LL':>12} {'Time':>8}")
+    print("  " + "-" * 74)
 
+    for name, model, t in [("NFXP", nfxp, t_nfxp), ("NNES", nnes, t_nnes)]:
+        pv = list(model.params_.values())
+        sv = list((model.se_ or {}).values())
+        ll = model.log_likelihood_ if hasattr(model, "log_likelihood_") and model.log_likelihood_ is not None else float("nan")
+        tc = pv[0] if len(pv) > 0 else float("nan")
+        rc = pv[1] if len(pv) > 1 else float("nan")
+        se_tc = sv[0] if len(sv) > 0 else float("nan")
+        se_rc = sv[1] if len(sv) > 1 else float("nan")
+        print(f"  {name:<12} {tc:>10.4f} {rc:>10.4f} "
+              f"{se_tc:>12.4f} {se_rc:>10.4f} {ll:>12.2f} {t:>7.1f}s")
+
+    print_header("Summary")
     print(f"""
-  Model: SCANIA Component X Replacement (Rust-style DDC)
-  Data:  {n_obs:,} observations, {n_vehicles} vehicles ({data_source})
+  Model:  SCANIA Component X (single-spell optimal stopping)
+  Data:   {n_obs:,} observations, {n_vehicles:,} vehicles ({data_source})
+  State:  {n_bins} degradation bins (PCA-based, PC1 = 97% variance)
+  Beta:   {args.discount}
 
-  NFXP Estimates:
-    operating_cost  = {op_cost:.6f}  (SE {se_op:.6f})
-    replacement_cost = {rc:.4f}  (SE {se_rc:.4f})
-    Log-likelihood  = {result_nfxp.log_likelihood:.4f}
-
-  Cross-validation (NFXP vs NPL):
-    |dLL| = {abs(result_nfxp.log_likelihood - result_npl.log_likelihood):.4f}
-
-  Algorithm: Iskhakov et al. (2016) SA->NK polyalgorithm
-    Inner solver: Policy iteration
-    Outer solver: BHHH with analytical gradient
+  NFXP and NNES estimate the operating cost and replacement cost of
+  Component X. The operating cost grows linearly with degradation.
+  The replacement cost is the fixed utility penalty for replacing.
 """)
 
 

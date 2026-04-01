@@ -1,31 +1,43 @@
 """SCANIA Component X replacement dataset.
 
 This module provides a loader for the SCANIA Component X dataset from
-the IDA 2024 Industrial Challenge. The original dataset tracks over
-23,000 heavy trucks with 14 anonymized operational readout variables
-and records whether Component X was repaired during the study period.
+the IDA 2024 Industrial Challenge. The original dataset tracks 23,550
+heavy trucks with 105 anonymized operational readout features grouped
+under 14 sensor families and records whether Component X was repaired
+during each vehicle's observation window.
 
 The loader converts the raw survival-style data into a DDC panel
-suitable for econirl estimators. Each vehicle-period observation has
-a discretized degradation state (derived from the operational readouts)
-and a binary replacement action.
+suitable for econirl estimators. The 105 operational features are
+reduced to a scalar degradation index via PCA. The first principal
+component explains 97 percent of variance across all 105 features,
+which means the sensor readings are nearly collinear and a single
+degradation axis captures almost all useful signal. The PC1 score
+is then discretized into bins to produce a finite state space for
+tabular estimators like NFXP and CCP.
+
+This is a single-spell optimal stopping model with right censoring,
+not a renewal replacement problem like Rust (1987). Each vehicle is
+observed from entry until either repair or end of study. Vehicles
+that are not repaired during the study window are right-censored.
+After a repair event, no further observations are recorded for that
+vehicle.
 
 When the real SCANIA data is not available locally, the loader falls
 back to a synthetic dataset that mimics the structure and replacement
 rate of the original data.
 
 To use the real data, download the SCANIA Component X dataset from
-Kaggle and place the CSV files in a directory. Then pass that path
-to load_scania(data_dir=...).
+Kaggle (tapanbatla/scania-component-x-dataset-2025) and pass the
+directory path to load_scania(data_dir=...).
 
 Expected files in data_dir:
-    train_operational_readouts.csv  (vehicle_id, time_step, op_var_1..14)
+    train_operational_readouts.csv  (vehicle_id, time_step, 105 features)
     train_tte.csv                   (vehicle_id, length_of_study_time_step,
                                      in_study_repair)
-    train_truck_specification.csv   (vehicle_id, spec_var_1..8)  [optional]
 
 Reference:
     SCANIA Component X dataset, IDA 2024 Industrial Challenge.
+    Kaggle: tapanbatla/scania-component-x-dataset-2025
 """
 
 from __future__ import annotations
@@ -47,15 +59,14 @@ def load_scania(
 
     If data_dir is provided and contains the real SCANIA CSV files,
     loads and transforms the real data into a DDC panel. Otherwise,
-    generates a synthetic dataset that mimics the SCANIA data structure
-    with approximately 10 percent replacement rate.
+    generates a synthetic dataset that mimics the SCANIA data structure.
 
-    The real data transformation works as follows. For each vehicle,
-    a degradation index is computed as the mean of the 14 normalized
-    operational readout variables at each time step. This scalar is
-    then discretized into bins. The replacement action is set to 1 at
-    the vehicle's final observed time step if in_study_repair is 1,
-    and 0 at all other time steps.
+    The real data transformation computes a degradation index via PCA
+    on the 105 operational readout features. The first principal
+    component captures 97 percent of variance and is discretized
+    into percentile-based bins. The replacement action is set to 1
+    at the vehicle's final observed time step if in_study_repair is
+    1, and 0 at all other time steps.
 
     Args:
         data_dir: Path to directory containing SCANIA CSV files.
@@ -70,11 +81,11 @@ def load_scania(
     Returns:
         DataFrame with columns:
             - vehicle_id: Unique vehicle identifier
-            - period: Time step (0-indexed)
-            - degradation: Raw degradation index (mean of normalized ops)
+            - period: Observation index within each vehicle (0-indexed)
+            - time_step: Original continuous time stamp
+            - degradation: PC1 score (continuous degradation index)
             - degradation_bin: Discretized degradation state
             - replaced: 1 if component replaced this period, 0 otherwise
-            - n_periods: Total study length for this vehicle
 
         Or Panel if as_panel=True.
 
@@ -84,8 +95,8 @@ def load_scania(
         >>> print(f"Vehicles: {df['vehicle_id'].nunique()}")
         >>> print(f"Replacement rate: {df['replaced'].mean():.2%}")
 
-        >>> # With real data
-        >>> df = load_scania(data_dir="path/to/scania_data/")
+        >>> # With real data from Kaggle
+        >>> df = load_scania(data_dir="data/scania/Dataset/")
     """
     if data_dir is not None:
         data_dir = Path(data_dir)
@@ -99,8 +110,9 @@ def load_scania(
         else:
             raise FileNotFoundError(
                 f"Expected SCANIA data files in {data_dir}. "
-                "Need at least train_operational_readouts.csv and "
-                "train_tte.csv. Download from Kaggle IDA 2024 challenge."
+                "Need train_operational_readouts.csv and train_tte.csv. "
+                "Download: kaggle datasets download -d "
+                "tapanbatla/scania-component-x-dataset-2025"
             )
     else:
         df = _generate_synthetic_scania(num_degradation_bins, max_vehicles)
@@ -118,69 +130,73 @@ def _load_real_scania(
 ) -> pd.DataFrame:
     """Load and transform real SCANIA data into DDC panel format.
 
-    Reads the operational readouts and time-to-event files, computes
-    a degradation index from the operational variables, discretizes
-    it, and constructs replacement actions from the repair indicator.
+    The pipeline:
+    1. Load 1.1M operational readout rows (105 features per row)
+    2. Clip outliers at 1st/99th percentile per feature
+    3. Standardize with robust scaling (median/IQR)
+    4. PCA to extract first principal component as degradation index
+    5. Discretize PC1 into percentile-based bins
+    6. Construct replacement action from time-to-event data
     """
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import RobustScaler
+
     readouts = pd.read_csv(data_dir / "train_operational_readouts.csv")
     tte = pd.read_csv(data_dir / "train_tte.csv")
 
-    # Identify operational variable columns
-    op_cols = [c for c in readouts.columns if c.startswith("op_var_")]
+    # Identify feature columns (everything except vehicle_id and time_step)
+    feature_cols = [c for c in readouts.columns
+                    if c not in ("vehicle_id", "time_step")]
 
-    # Normalize each operational variable to [0, 1] across all vehicles
-    for col in op_cols:
-        col_min = readouts[col].min()
-        col_max = readouts[col].max()
-        if col_max > col_min:
-            readouts[col] = (readouts[col] - col_min) / (col_max - col_min)
-        else:
-            readouts[col] = 0.0
+    # Fill missing values
+    readouts[feature_cols] = readouts[feature_cols].fillna(0)
 
-    # Compute degradation index as mean of normalized ops
-    readouts["degradation"] = readouts[op_cols].mean(axis=1)
+    # Clip outliers at 1st/99th percentile per feature
+    for col in feature_cols:
+        lo, hi = readouts[col].quantile([0.01, 0.99])
+        if hi > lo:
+            readouts[col] = readouts[col].clip(lo, hi)
 
-    # Merge with time-to-event data
-    merged = readouts.merge(tte, on="vehicle_id", how="inner")
+    # Robust standardization (median/IQR, resistant to remaining outliers)
+    scaler = RobustScaler()
+    X_scaled = scaler.fit_transform(readouts[feature_cols].values)
+
+    # PCA: first component captures ~97% of variance
+    pca = PCA(n_components=1)
+    pc1 = pca.fit_transform(X_scaled).ravel()
+    readouts["degradation"] = pc1
+
+    # Percentile-based binning (equal-count bins, not equal-width)
+    readouts["degradation_bin"] = pd.qcut(
+        readouts["degradation"],
+        q=num_degradation_bins,
+        labels=False,
+        duplicates="drop",
+    )
 
     if max_vehicles is not None:
-        vehicle_ids = merged["vehicle_id"].unique()[:max_vehicles]
-        merged = merged[merged["vehicle_id"].isin(vehicle_ids)]
+        vehicle_ids = readouts["vehicle_id"].unique()[:max_vehicles]
+        readouts = readouts[readouts["vehicle_id"].isin(vehicle_ids)]
 
-    # Discretize degradation into bins
-    merged["degradation_bin"] = pd.cut(
-        merged["degradation"],
-        bins=num_degradation_bins,
-        labels=False,
-        include_lowest=True,
-    ).fillna(0).astype(int)
+    # Merge with time-to-event data
+    merged = readouts[["vehicle_id", "time_step", "degradation",
+                        "degradation_bin"]].copy()
+    merged = merged.merge(tte, on="vehicle_id", how="left")
+    merged = merged.sort_values(["vehicle_id", "time_step"])
 
-    # Construct replacement action:
-    # a_t = 1 only at the final observed time step if in_study_repair == 1
+    # Replacement action: a_t = 1 at the last observation if repaired
     merged["replaced"] = 0
-    mask = (
-        (merged["in_study_repair"] == 1)
-        & (merged["time_step"] == merged["length_of_study_time_step"])
-    )
-    merged.loc[mask, "replaced"] = 1
+    last_ts = merged.groupby("vehicle_id")["time_step"].transform("max")
+    merged.loc[
+        (merged["time_step"] == last_ts) & (merged["in_study_repair"] == 1),
+        "replaced"
+    ] = 1
 
-    # Build clean panel
-    records = []
-    for vid in merged["vehicle_id"].unique():
-        vdata = merged[merged["vehicle_id"] == vid].sort_values("time_step")
-        n_periods = int(vdata["length_of_study_time_step"].iloc[0])
+    # Period index within each vehicle
+    merged["period"] = merged.groupby("vehicle_id").cumcount()
 
-        for _, row in vdata.iterrows():
-            records.append({
-                "vehicle_id": int(row["vehicle_id"]),
-                "period": int(row["time_step"]) - 1,  # 0-indexed
-                "degradation": float(row["degradation"]),
-                "degradation_bin": int(row["degradation_bin"]),
-                "replaced": int(row["replaced"]),
-                "n_periods": n_periods,
-            })
-
-    return pd.DataFrame(records)
+    return merged[["vehicle_id", "period", "time_step", "degradation",
+                    "degradation_bin", "replaced"]].reset_index(drop=True)
 
 
 def _generate_synthetic_scania(
@@ -190,15 +206,13 @@ def _generate_synthetic_scania(
     """Generate synthetic data matching SCANIA structure.
 
     Creates a dataset with roughly 500 vehicles observed over
-    varying time horizons (40-80 periods). The replacement rate
-    is approximately 10 percent, matching the real SCANIA data.
-    Parameters are set so that the forward-looking agent replaces
-    the component when degradation is high enough that the expected
-    future operating costs exceed the one-time replacement cost.
+    varying time horizons (40-80 periods). Parameters are set
+    so that the forward-looking agent replaces the component
+    when degradation is high enough that expected future operating
+    costs exceed the one-time replacement cost.
     """
     rng = np.random.default_rng(2024)
 
-    # Model parameters matching ScaniaComponentEnvironment defaults
     theta_c = 0.002
     rc = 4.0
     p_degradation = np.array([0.35, 0.55, 0.10])
@@ -209,15 +223,12 @@ def _generate_synthetic_scania(
     vid = 1
 
     for _ in range(n_vehicles):
-        # Each vehicle has a different study length (40-80 periods)
         n_periods = rng.integers(40, 81)
         degradation_bin = 0
 
         for t in range(n_periods):
-            # Compute degradation as a continuous value from the bin
             degradation = degradation_bin / max(num_degradation_bins - 1, 1)
 
-            # Logit replacement probability
             v_keep = -theta_c * degradation_bin
             v_replace = -rc
             prob_replace = 1.0 / (1.0 + np.exp(v_keep - v_replace))
@@ -227,13 +238,12 @@ def _generate_synthetic_scania(
             records.append({
                 "vehicle_id": vid,
                 "period": t,
+                "time_step": float(t),
                 "degradation": degradation,
                 "degradation_bin": degradation_bin,
                 "replaced": replaced,
-                "n_periods": n_periods,
             })
 
-            # State transition
             if replaced:
                 degradation_bin = 0
             else:
