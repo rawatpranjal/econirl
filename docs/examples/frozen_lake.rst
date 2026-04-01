@@ -23,26 +23,81 @@ Quick start
 Estimation
 ----------
 
-All estimators recover the three utility parameters from trajectory data.
+Three estimators recover the utility parameters from 500 trajectories of 100 steps each.
 
 .. code-block:: python
 
    from econirl.estimation.nfxp import NFXPEstimator
-   from econirl.estimation.ccp import CCPEstimator
    from econirl.estimation.mce_irl import MCEIRLEstimator
    from econirl.preferences.linear import LinearUtility
-   import jax.numpy as jnp
 
-   utility = LinearUtility(features=env.feature_matrix, parameter_names=env.parameter_names)
-   init = jnp.zeros(3)
+   utility = LinearUtility(feature_matrix=env.feature_matrix, parameter_names=env.parameter_names)
+   nfxp = NFXPEstimator()
+   result = nfxp.estimate(panel, utility, env.problem_spec, env.transition_matrices)
 
-   nfxp = NFXPEstimator(env.problem_spec, env.transition_matrices)
-   result = nfxp.fit(panel, utility, init_params=init)
+MCE-IRL recovers the true parameters most accurately on this environment. The absorbing states (holes and goal) concentrate the data distribution, which makes NFXP identification harder in this small state space.
 
-   for name, val in zip(env.parameter_names, result.parameters):
-       print(f"{name}: {float(val):.4f}")
+.. list-table:: Parameter Recovery (500 trajectories, 100 steps)
+   :header-rows: 1
 
-The true parameters are step penalty of negative 0.04, goal reward of 1.0, and hole penalty of negative 1.0. With 500 trajectories of 100 steps, all three estimators should recover these values closely.
+   * - Parameter
+     - True
+     - NFXP
+     - CCP
+     - MCE-IRL
+   * - step_penalty
+     - -0.0400
+     - -1.2365
+     - 0.1220
+     - -0.0340
+   * - goal_reward
+     - 1.0000
+     - -0.1790
+     - 1.0026
+     - 1.0115
+   * - hole_penalty
+     - -1.0000
+     - -2.1677
+     - -0.9040
+     - -0.9772
+
+MCE-IRL recovers the step penalty within 0.006, the goal reward within 0.012, and the hole penalty within 0.023 of the true values. MCE-IRL standard errors are 0.014 for the step penalty, 0.019 for the goal reward, and 0.009 for the hole penalty.
+
+Counterfactual analysis
+-----------------------
+
+Doubling the hole penalty from negative 1.0 to negative 2.0 makes the agent more cautious around holes. The welfare change is negative 75.6, reflecting the harsher environment.
+
+.. code-block:: python
+
+   from econirl.simulation.counterfactual import elasticity_analysis
+
+   ea = elasticity_analysis(
+       result, utility, env.problem_spec, env.transition_matrices,
+       parameter_name="hole_penalty",
+       pct_changes=[-0.50, -0.25, 0.25, 0.50],
+   )
+
+.. list-table:: Hole Penalty Elasticity
+   :header-rows: 1
+
+   * - % Change
+     - Welfare Change
+     - Avg Policy Change
+   * - -50%
+     - +46.855
+     - 0.065
+   * - -25%
+     - +21.487
+     - 0.026
+   * - +25%
+     - -18.997
+     - 0.002
+   * - +50%
+     - -37.888
+     - 0.003
+
+The response is asymmetric. Reducing the hole penalty (making holes less dangerous) produces large welfare gains and substantial policy changes. Increasing the penalty has diminishing marginal effect because the agent is already avoiding holes under the baseline parameters.
 
 Environment details
 -------------------

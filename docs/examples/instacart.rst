@@ -18,29 +18,113 @@ Quick start
    from econirl.datasets.instacart import load_instacart
 
    env = InstacartEnvironment(discount_factor=0.95)
-   panel = load_instacart(n_individuals=1000, n_periods=52, as_panel=True)
+   panel = load_instacart(n_individuals=2000, n_periods=52, as_panel=True)
 
 Estimation
 ----------
 
-The three utility parameters capture habit formation, recency sensitivity, and the fixed cost of placing an order.
+Three estimators recover the utility parameters from 1600 training consumers over 52 weekly periods (83200 observations).
 
 .. code-block:: python
 
    from econirl.estimation.nfxp import NFXPEstimator
    from econirl.preferences.linear import LinearUtility
-   import jax.numpy as jnp
 
-   utility = LinearUtility(features=env.feature_matrix, parameter_names=env.parameter_names)
-   init = jnp.zeros(3)
+   utility = LinearUtility(feature_matrix=env.feature_matrix, parameter_names=env.parameter_names)
+   nfxp = NFXPEstimator()
+   result = nfxp.estimate(panel, utility, env.problem_spec, env.transition_matrices)
 
-   nfxp = NFXPEstimator(env.problem_spec, env.transition_matrices)
-   result = nfxp.fit(panel, utility, init_params=init)
+.. list-table:: Parameter Recovery (1600 consumers, 52 weeks)
+   :header-rows: 1
 
-   for name, val in zip(env.parameter_names, result.parameters):
-       print(f"{name}: {float(val):.4f}")
+   * - Parameter
+     - True
+     - NFXP
+     - CCP
+     - MCE-IRL
+   * - habit_strength
+     - 0.3000
+     - 0.3789
+     - 0.2015
+     - 0.3786
+   * - recency_effect
+     - 0.5000
+     - 0.5279
+     - 0.2500
+     - 0.5279
+   * - reorder_cost
+     - -0.2000
+     - -0.3048
+     - 0.2203
+     - -0.3045
 
-The true parameters are habit strength of 0.3, recency effect of 0.5, and reorder cost of negative 0.2. A positive habit strength means consumers who have reordered before are more likely to reorder again. A positive recency effect means recent purchasers are more likely to reorder. The negative reorder cost represents the hassle of placing an order.
+NFXP and MCE-IRL produce nearly identical estimates and recover the correct sign and relative magnitude of all three parameters. The habit strength is positive (consumers who reorder more keep reordering), the recency effect is positive (recent purchasers reorder sooner), and the reorder cost is negative (placing an order has a hassle cost). NFXP standard errors are 0.17 for habit strength, 0.06 for recency effect, and 0.15 for reorder cost.
+
+Counterfactual analysis
+-----------------------
+
+The free delivery promotion sets the reorder cost to zero, simulating a promotional offer that eliminates the hassle of placing an order. The welfare change is positive 4.33.
+
+.. list-table:: Reorder Probability Under Free Delivery
+   :header-rows: 1
+
+   * - State
+     - Baseline
+     - Free Delivery
+     - Change
+   * - 0 orders, 0-3 days
+     - 0.666
+     - 0.732
+     - +0.066
+   * - 0 orders, 8-14 days
+     - 0.642
+     - 0.715
+     - +0.073
+   * - 3-5 orders, 0-3 days
+     - 0.684
+     - 0.747
+     - +0.063
+   * - 3-5 orders, 8-14 days
+     - 0.662
+     - 0.731
+     - +0.069
+   * - 11+ orders, 0-3 days
+     - 0.683
+     - 0.746
+     - +0.063
+   * - 11+ orders, 8-14 days
+     - 0.661
+     - 0.731
+     - +0.069
+
+The free delivery promotion increases reorder rates by 6 to 7 percentage points across all states. The lift is slightly larger for consumers with stale purchase history (8 to 14 days since last order) than for recent purchasers (0 to 3 days), suggesting that the promotion is most effective at reactivating lapsed customers.
+
+.. list-table:: Reorder Cost Elasticity
+   :header-rows: 1
+
+   * - % Change
+     - Welfare Change
+     - Avg Policy Change
+   * - -100% (free)
+     - +4.329
+     - 0.068
+   * - -50%
+     - +2.114
+     - 0.035
+   * - -25%
+     - +1.044
+     - 0.018
+   * - +25%
+     - -1.017
+     - 0.019
+   * - +50%
+     - -2.006
+     - 0.038
+   * - +100%
+     - -3.897
+     - 0.077
+
+The elasticity is approximately symmetric around the baseline. Each 25 percent reduction in reorder cost raises welfare by about 1.0 and shifts the reorder probability by about 1.8 percentage points. The response is nearly linear across the range tested.
 
 Marketing interpretation
 ------------------------

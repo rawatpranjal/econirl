@@ -34,34 +34,98 @@ The raw MDP components are available for direct analysis.
 Estimation
 ----------
 
-Three estimators recover the implicit reward function from clinician behavior. The linear utility model has four features: SOFA score (illness severity), IV fluid dose, vasopressor dose, and an absorbing state indicator.
+NFXP and CCP recover the implicit reward function from 1600 training patients (14512 observations). The linear utility model has four features: SOFA score (illness severity), IV fluid dose, vasopressor dose, and an absorbing state indicator.
 
 .. code-block:: python
 
    from econirl.estimation.nfxp import NFXPEstimator
-   from econirl.estimation.ccp import CCPEstimator
-   from econirl.estimation.mce_irl import MCEIRLEstimator
    from econirl.preferences.linear import LinearUtility
-   import jax.numpy as jnp
 
-   utility = LinearUtility(features=env.feature_matrix, parameter_names=env.parameter_names)
-   init = jnp.zeros(4)
+   utility = LinearUtility(feature_matrix=env.feature_matrix, parameter_names=env.parameter_names)
+   nfxp = NFXPEstimator()
+   result = nfxp.estimate(panel, utility, env.problem_spec, env.transition_matrices)
 
-   nfxp = NFXPEstimator(env.problem_spec, env.transition_matrices)
-   nfxp_result = nfxp.fit(panel, utility, init_params=init)
+.. list-table:: Estimated Parameters (2000 patients, 20 steps)
+   :header-rows: 1
 
-   ccp = CCPEstimator(env.problem_spec, env.transition_matrices)
-   ccp_result = ccp.fit(panel, utility, init_params=init)
+   * - Parameter
+     - NFXP
+     - CCP
+     - Std Error (NFXP)
+   * - sofa_weight
+     - 1.1288
+     - -0.0028
+     - 0.2465
+   * - fluid_weight
+     - -0.3270
+     - -0.3508
+     - 0.0255
+   * - vaso_weight
+     - -4.1528
+     - -4.0477
+     - 0.0305
+   * - absorbing_weight
+     - 0.4291
+     - -0.1435
+     - 0.0888
 
-   mce = MCEIRLEstimator(env.problem_spec, env.transition_matrices)
-   mce_result = mce.fit(panel, utility, init_params=init)
+The large negative vasopressor weight (negative 4.15) reveals that clinicians strongly penalize aggressive vasopressor dosing. The fluid weight is also negative but much smaller in magnitude (negative 0.33), indicating that fluid overload risk is a concern but less dominant than vasopressor side effects. Both estimators agree on these signs and relative magnitudes.
 
-Clinical interpretation
+Counterfactual analysis
 -----------------------
 
-The recovered parameters reveal how clinicians weigh severity against treatment intensity. A negative SOFA weight means sicker patients receive lower flow utility, consistent with the clinical reality that high-SOFA patients have worse outcomes regardless of treatment. Negative fluid and vasopressor weights reflect that clinicians implicitly penalize aggressive dosing, consistent with evidence on fluid overload and vasopressor-induced organ damage.
+Doubling the vasopressor cost simulates a policy intervention that restricts aggressive vasopressor dosing. The counterfactual shifts clinician behavior strongly toward lower vasopressor levels.
 
-Since this is real clinical data with no known ground-truth reward, the parameters should be interpreted as the implicit preference structure that rationalizes observed behavior. Different estimators may recover different parameter magnitudes, but the signs and relative magnitudes should be consistent.
+.. list-table:: Vasopressor Distribution Under Counterfactual
+   :header-rows: 1
+
+   * - Vasopressor Level
+     - Baseline
+     - Counterfactual
+     - Change
+   * - Level 0 (none)
+     - 0.649
+     - 0.874
+     - +0.226
+   * - Level 1
+     - 0.230
+     - 0.110
+     - -0.121
+   * - Level 2
+     - 0.082
+     - 0.014
+     - -0.068
+   * - Level 3
+     - 0.029
+     - 0.002
+     - -0.027
+   * - Level 4 (max)
+     - 0.010
+     - 0.000
+     - -0.010
+
+The welfare change is negative 29.8, reflecting the cost of restricting treatment options. Under the counterfactual, 87 percent of treatment decisions use no vasopressors at all, compared to 65 percent at baseline.
+
+Elasticity analysis shows that the SOFA weight has a modest effect on welfare and nearly no effect on the policy distribution. The treatment choice is dominated by the drug cost parameters, not the severity indicator.
+
+.. list-table:: SOFA Weight Elasticity
+   :header-rows: 1
+
+   * - % Change
+     - Welfare Change
+     - Avg Policy Change
+   * - -50%
+     - -1.749
+     - 0.001
+   * - -25%
+     - -0.882
+     - 0.001
+   * - +25%
+     - +0.869
+     - 0.001
+   * - +50%
+     - +1.753
+     - 0.001
 
 Run the full example
 --------------------
@@ -70,7 +134,7 @@ Run the full example
 
    python examples/icu-sepsis/run_estimation.py
 
-This script generates 2000 patient trajectories from the clinician policy, estimates with all three methods, and reports out-of-sample log-likelihood and accuracy on a held-out test set.
+This script generates 2000 patient trajectories from the clinician policy, estimates with NFXP and CCP, and runs counterfactual and elasticity analysis.
 
 References
 ----------
