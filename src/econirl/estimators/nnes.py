@@ -4,43 +4,39 @@ This module provides an NNES class with a scikit-learn style API that wraps
 the underlying NNESEstimator from econirl.estimation.nnes. It accepts pandas
 DataFrames with column names instead of the low-level Panel API.
 
-NNES (Neural Network Estimation of Structural models, Nguyen 2025) is the
-neural extension of NFXP. Instead of solving the Bellman equation exactly,
-Phase 1 trains a neural V(s) network via Bellman residual minimization.
-Phase 2 plugs the learned V-network into an NFXP-style outer MLE over
-structural parameters theta.
+NNES (Neural Network Estimation of Structural models, Nguyen 2025) trains
+a neural V(s) network in Phase 1 and uses it in a structural MLE in Phase 2.
+Two Bellman variants are available via the ``bellman`` parameter:
+
+- ``"npl"`` (default): Uses the NPL Bellman with Hotz-Miller emax correction.
+  Has the zero Jacobian property (Neyman orthogonality), so standard errors
+  are semiparametrically efficient despite V-approximation error.
+- ``"nfxp"``: Uses the NFXP soft Bellman operator. Does NOT have Neyman
+  orthogonality. V-approximation errors contaminate the score.
 
 Example:
     >>> from econirl.estimators import NNES
     >>> import pandas as pd
     >>>
-    >>> # Load bus replacement data
     >>> df = pd.read_csv("zurcher_bus.csv")
-    >>>
-    >>> # Create estimator and fit
-    >>> model = NNES(n_states=90, discount=0.9999, utility="linear_cost")
+    >>> model = NNES(n_states=90, discount=0.9999, bellman="npl")
     >>> model.fit(data=df, state="mileage_bin", action="replaced", id="bus_id")
-    >>>
-    >>> # Access results sklearn-style
-    >>> print(model.params_)        # {"theta_c": 0.001, "RC": 9.35}
+    >>> print(model.params_)
     >>> print(model.summary())
-    >>>
-    >>> # Predict choice probabilities
-    >>> proba = model.predict_proba(states=np.array([0, 10, 50]))
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
-import torch
 from scipy.stats import norm as scipy_norm
 
 from econirl.core.reward_spec import RewardSpec
 from econirl.core.types import DDCProblem, Panel, Trajectory, TrajectoryPanel
-from econirl.estimation.nnes import NNESConfig, NNESEstimator
+from econirl.estimation.nnes import NNESConfig, NNESEstimator, NNESNFXPEstimator
 from econirl.preferences.linear import LinearUtility
 from econirl.transitions import TransitionEstimator
 
@@ -50,10 +46,8 @@ class NNES:
 
     NNES (Neural Network Estimation of Structural models) estimates utility
     parameters using a two-phase approach: Phase 1 trains a neural V(s)
-    network via Bellman residual minimization, Phase 2 uses the learned
-    V-network in a structural MLE for theta. This avoids the costly inner
-    fixed-point loop of NFXP while maintaining semiparametric efficiency
-    (Nguyen 2025).
+    network, Phase 2 uses the learned V-network in a structural MLE for
+    theta (Nguyen 2025).
 
     Parameters
     ----------
@@ -67,6 +61,12 @@ class NNES:
         Utility specification.  Pass ``"linear_cost"`` for the classic Rust
         bus model (``u = -theta_c * s * (1-a) - RC * a``), or a
         ``RewardSpec`` for custom features.
+    bellman : str, default="npl"
+        Which Bellman equation to use in Phase 1.  ``"npl"`` uses the NPL
+        Bellman with Hotz-Miller emax correction (has Neyman orthogonality,
+        standard errors are semiparametrically efficient).  ``"nfxp"`` uses
+        the NFXP soft Bellman operator (no orthogonality, V-errors
+        contaminate the score).
     se_method : str, default="asymptotic"
         Method for computing standard errors. Options: "robust", "asymptotic".
     hidden_dim : int, default=32
@@ -85,8 +85,7 @@ class NNES:
     Attributes
     ----------
     params_ : dict
-        Estimated parameters after fitting. Keys are parameter names
-        (e.g., "theta_c", "RC") and values are point estimates.
+        Estimated parameters after fitting.
     se_ : dict
         Standard errors for each parameter.
     coef_ : numpy.ndarray
@@ -101,7 +100,6 @@ class NNES:
         Estimated value function V(s) of shape (n_states,).
     v_network_ : numpy.ndarray or None
         V-network values for all states after training, shape (n_states,).
-        Available if the underlying estimator includes them in metadata.
     converged_ : bool
         Whether the optimization converged.
     reward_spec_ : RewardSpec
@@ -110,15 +108,7 @@ class NNES:
     Examples
     --------
     >>> from econirl.estimators import NNES
-    >>> import pandas as pd
-    >>>
-    >>> df = pd.DataFrame({
-    ...     "bus_id": [0, 0, 1, 1],
-    ...     "mileage": [10, 20, 15, 30],
-    ...     "replaced": [0, 0, 0, 1],
-    ... })
-    >>>
-    >>> model = NNES(n_states=90, hidden_dim=32, v_epochs=500)
+    >>> model = NNES(n_states=90, bellman="npl")  # default: NPL Bellman
     >>> model.fit(df, state="mileage", action="replaced", id="bus_id")
     >>> print(model.params_)
     """
@@ -129,6 +119,7 @@ class NNES:
         n_actions: int = 2,
         discount: float = 0.9999,
         utility: str | RewardSpec = "linear_cost",
+        bellman: Literal["npl", "nfxp"] = "npl",
         se_method: Literal["robust", "asymptotic"] = "asymptotic",
         hidden_dim: int = 32,
         num_layers: int = 2,
@@ -137,37 +128,11 @@ class NNES:
         n_outer_iterations: int = 3,
         verbose: bool = False,
     ):
-        """Initialize the NNES estimator.
-
-        Parameters
-        ----------
-        n_states : int, default=90
-            Number of discrete states.
-        n_actions : int, default=2
-            Number of discrete actions.
-        discount : float, default=0.9999
-            Time discount factor (beta).
-        utility : str or RewardSpec, default="linear_cost"
-            Utility specification to use.
-        se_method : str, default="asymptotic"
-            Method for computing standard errors.
-        hidden_dim : int, default=32
-            Hidden units per layer in V-network.
-        num_layers : int, default=2
-            Number of hidden layers in V-network.
-        v_lr : float, default=1e-3
-            Learning rate for V-network training.
-        v_epochs : int, default=500
-            Number of training epochs for V-network.
-        n_outer_iterations : int, default=3
-            Number of Phase 1 + Phase 2 alternations.
-        verbose : bool, default=False
-            Whether to print progress messages.
-        """
         self.n_states = n_states
         self.n_actions = n_actions
         self.discount = discount
         self.utility = utility
+        self.bellman = bellman
         self.se_method = se_method
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -287,10 +252,10 @@ class NNES:
             discount_factor=self.discount,
             scale_parameter=1.0,
             state_dim=1,
-            state_encoder=lambda s: (s.float() / max(self.n_states - 1, 1)).unsqueeze(-1),
+            state_encoder=lambda s: jnp.expand_dims(jnp.asarray(s, dtype=jnp.float32) / max(self.n_states - 1, 1), axis=-1),
         )
 
-        # Create the underlying NNES estimator
+        # Create the underlying NNES estimator (NPL or NFXP variant)
         config = NNESConfig(
             hidden_dim=self.hidden_dim,
             num_layers=self.num_layers,
@@ -301,7 +266,10 @@ class NNES:
             se_method=self.se_method,
             verbose=self.verbose,
         )
-        estimator = NNESEstimator(config=config)
+        if self.bellman == "nfxp":
+            estimator = NNESNFXPEstimator(config=config)
+        else:
+            estimator = NNESEstimator(config=config)
 
         # Run estimation
         self._result = estimator.estimate(
@@ -316,7 +284,7 @@ class NNES:
 
         return self
 
-    def _build_transition_tensor(self, keep_transitions: np.ndarray) -> torch.Tensor:
+    def _build_transition_tensor(self, keep_transitions: np.ndarray) -> jnp.ndarray:
         """Build full transition tensor for both actions.
 
         Parameters
@@ -326,21 +294,20 @@ class NNES:
 
         Returns
         -------
-        torch.Tensor
+        jnp.ndarray
             Transition tensor of shape (n_actions, n_states, n_states).
         """
         n = self.n_states
-        transitions = torch.zeros((self.n_actions, n, n), dtype=torch.float32)
+        transitions = np.zeros((self.n_actions, n, n), dtype=np.float32)
 
         # Action 0 (keep): use provided transitions
-        transitions[0] = torch.tensor(keep_transitions, dtype=torch.float32)
+        transitions[0] = np.asarray(keep_transitions, dtype=np.float32)
 
         # Action 1 (replace): reset to state 0, then transition
-        # After replacement, start at state 0 and apply the same transition
         for s in range(n):
             transitions[1, s, :] = transitions[0, 0, :]
 
-        return transitions
+        return jnp.array(transitions)
 
     def _create_utility(self) -> LinearUtility:
         """Create utility function for estimation.
@@ -357,17 +324,13 @@ class NNES:
         # U(s, keep) = -theta_c * s
         # U(s, replace) = -RC
         n = self.n_states
-        features = torch.zeros((n, self.n_actions, 2), dtype=torch.float32)
-
-        mileage = torch.arange(n, dtype=torch.float32)
+        features = jnp.zeros((n, self.n_actions, 2))
+        mileage = jnp.arange(n, dtype=jnp.float32)
 
         # Keep action (a=0): feature = [-s, 0]
-        features[:, 0, 0] = -mileage
-        features[:, 0, 1] = 0.0
-
+        features = features.at[:, 0, 0].set(-mileage)
         # Replace action (a=1): feature = [0, -1]
-        features[:, 1, 0] = 0.0
-        features[:, 1, 1] = -1.0
+        features = features.at[:, 1, 1].set(-1.0)
 
         return LinearUtility(
             feature_matrix=features,
@@ -380,14 +343,14 @@ class NNES:
             return
 
         # Parameter estimates
-        params = self._result.parameters.numpy()
+        params = np.asarray(self._result.parameters)
         param_names = self._result.parameter_names
 
         self.params_ = {name: float(val) for name, val in zip(param_names, params)}
         self.coef_ = params.copy()
 
         # Standard errors
-        se = self._result.standard_errors.numpy()
+        se = np.asarray(self._result.standard_errors)
         self.se_ = {name: float(val) for name, val in zip(param_names, se)}
 
         # Other attributes
@@ -395,11 +358,11 @@ class NNES:
         self.converged_ = bool(self._result.converged)
 
         if self._result.value_function is not None:
-            self.value_ = self._result.value_function.numpy()
+            self.value_ = np.asarray(self._result.value_function)
 
         # Policy matrix
         if self._result.policy is not None:
-            self.policy_ = self._result.policy.numpy()
+            self.policy_ = np.asarray(self._result.policy)
 
         # p-values from t-statistics
         if self.se_ is not None:
@@ -419,10 +382,7 @@ class NNES:
         if self._result.metadata:
             v_vals = self._result.metadata.get("v_network_values")
             if v_vals is not None:
-                if isinstance(v_vals, torch.Tensor):
-                    self.v_network_ = v_vals.numpy()
-                else:
-                    self.v_network_ = v_vals
+                self.v_network_ = np.asarray(v_vals)
 
     def summary(self) -> str:
         """Generate a formatted summary of estimation results.
@@ -485,7 +445,7 @@ class NNES:
         states = np.asarray(states, dtype=np.int64)
 
         # Get policy (choice probabilities) from result
-        policy = self._result.policy.numpy()
+        policy = np.asarray(self._result.policy)
 
         # Index into the policy for the requested states
         proba = policy[states]
@@ -493,12 +453,8 @@ class NNES:
         return proba
 
     def __repr__(self) -> str:
-        if self.params_ is not None:
-            return (
-                f"NNES(n_states={self.n_states}, n_actions={self.n_actions}, "
-                f"discount={self.discount}, fitted=True)"
-            )
+        fitted = self.params_ is not None
         return (
             f"NNES(n_states={self.n_states}, n_actions={self.n_actions}, "
-            f"discount={self.discount}, fitted=False)"
+            f"discount={self.discount}, bellman={self.bellman!r}, fitted={fitted})"
         )

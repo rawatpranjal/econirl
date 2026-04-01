@@ -29,7 +29,7 @@ from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
 
 # Structural approximation
 from econirl.estimation.td_ccp import TDCCPEstimator, TDCCPConfig
-from econirl.estimation.nnes import NNESEstimator
+from econirl.estimation.nnes import NNESEstimator, NNESNFXPEstimator
 from econirl.estimation.sees import SEESEstimator
 
 # Q-learning IRL
@@ -69,6 +69,7 @@ __all__ = [
     "TDCCPEstimator",
     "TDCCPConfig",
     "NNESEstimator",
+    "NNESNFXPEstimator",
     "SEESEstimator",
     # Q-learning IRL
     "GLADIUSEstimator",

@@ -479,3 +479,56 @@ class TestNoNFXPMethods:
 
     def test_no_counterfactual(self, fitted_model_fast):
         assert not hasattr(fitted_model_fast, "counterfactual")
+
+
+# ---------------------------------------------------------------------------
+# 13. Bellman variant selection
+# ---------------------------------------------------------------------------
+
+
+class TestBellmanVariant:
+    """NNES supports bellman='npl' (default) and bellman='nfxp'."""
+
+    def test_default_is_npl(self):
+        model = NNES(n_states=_N_STATES_FAST)
+        assert model.bellman == "npl"
+
+    def test_nfxp_variant_fits(self, bus_df_fast):
+        model = NNES(
+            n_states=_N_STATES_FAST,
+            discount=_DISCOUNT_FAST,
+            bellman="nfxp",
+            hidden_dim=8,
+            num_layers=1,
+            v_lr=1e-2,
+            v_epochs=_V_EPOCHS_FAST,
+            n_outer_iterations=_N_OUTER_FAST,
+            verbose=False,
+        )
+        model.fit(bus_df_fast, state="mileage_bin", action="replaced", id="bus_id")
+        assert model.params_ is not None
+        assert model.params_["theta_c"] > 0
+        assert model.params_["RC"] > 0
+
+    def test_npl_variant_fits(self, bus_df_fast):
+        model = NNES(
+            n_states=_N_STATES_FAST,
+            discount=_DISCOUNT_FAST,
+            bellman="npl",
+            hidden_dim=8,
+            num_layers=1,
+            v_lr=1e-2,
+            v_epochs=_V_EPOCHS_FAST,
+            n_outer_iterations=_N_OUTER_FAST,
+            verbose=False,
+        )
+        model.fit(bus_df_fast, state="mileage_bin", action="replaced", id="bus_id")
+        assert model.params_ is not None
+        assert model.params_["theta_c"] > 0
+        assert model.params_["RC"] > 0
+
+    def test_repr_shows_bellman(self):
+        model_npl = NNES(n_states=_N_STATES_FAST, bellman="npl")
+        model_nfxp = NNES(n_states=_N_STATES_FAST, bellman="nfxp")
+        assert "npl" in repr(model_npl)
+        assert "nfxp" in repr(model_nfxp)
