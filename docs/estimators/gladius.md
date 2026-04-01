@@ -1,25 +1,8 @@
 # GLADIUS
 
-Full name
-: Model-Free DDC Estimation with Dual Networks
-
-Citation
-: Kang et al. (2025)
-
-Category
-: Model-Free Neural
-
-Reward type
-: Neural (projects onto linear features)
-
-Needs transitions
-: No
-
-Standard errors
-: No (R-squared diagnostic)
-
-Scales beyond tabular
-: Yes
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Model-Free Neural | Kang et al. (2025) | Neural (projects onto linear) | No | No (R² diagnostic) | Yes |
 
 ## Background
 

@@ -1,25 +1,8 @@
 # NFXP
 
-Full name
-: Nested Fixed Point
-
-Citation
-: Rust (1987), Iskhakov et al. (2016)
-
-Category
-: Structural
-
-Reward type
-: Linear
-
-Needs transitions
-: Yes
-
-Standard errors
-: Analytical (MLE)
-
-Scales beyond tabular
-: No
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Structural | Rust (1987), Iskhakov et al. (2016) | Linear | Yes | Analytical (MLE) | No |
 
 ## Background
 

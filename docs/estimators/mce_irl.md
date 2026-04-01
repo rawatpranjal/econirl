@@ -1,25 +1,8 @@
 # MCE-IRL
 
-Full name
-: Maximum Causal Entropy Inverse Reinforcement Learning
-
-Citation
-: Ziebart (2010)
-
-Category
-: Inverse
-
-Reward type
-: Linear or Neural
-
-Needs transitions
-: Yes
-
-Standard errors
-: Bootstrap
-
-Scales beyond tabular
-: Deep variant only
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Inverse | Ziebart (2010) | Linear or Neural | Yes | Bootstrap | Deep variant only |
 
 ## Background
 

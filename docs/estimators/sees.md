@@ -1,25 +1,8 @@
 # SEES
 
-Full name
-: Sieve-Based Estimation of Economic Structural Models
-
-Citation
-: Luo and Sang (2024)
-
-Category
-: Structural
-
-Reward type
-: Linear
-
-Needs transitions
-: Yes
-
-Standard errors
-: Marginal Hessian (Schur complement)
-
-Scales beyond tabular
-: Yes, $O(1)$ in $|\mathcal{S}|$
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Structural | Luo and Sang (2024) | Linear | Yes | Marginal Hessian | Yes, $O(1)$ in $|\mathcal{S}|$ |
 
 ## Background
 

@@ -1,25 +1,8 @@
 # NNES
 
-Full name
-: Neural Network Estimation of Structural Models
-
-Citation
-: Nguyen (2025)
-
-Category
-: Structural
-
-Reward type
-: Linear
-
-Needs transitions
-: Yes
-
-Standard errors
-: Valid (Neyman orthogonality)
-
-Scales beyond tabular
-: Yes (neural V)
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Structural | Nguyen (2025) | Linear | Yes | Valid (orthogonality) | Yes (neural V) |
 
 ## Background
 

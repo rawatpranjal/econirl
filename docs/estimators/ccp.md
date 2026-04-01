@@ -1,25 +1,8 @@
 # CCP and NPL
 
-Full name
-: Conditional Choice Probabilities and Nested Pseudo-Likelihood
-
-Citation
-: Hotz and Miller (1993), Aguirregabiria and Mira (2002)
-
-Category
-: Structural
-
-Reward type
-: Linear
-
-Needs transitions
-: Yes
-
-Standard errors
-: Hessian
-
-Scales beyond tabular
-: No
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Structural | Hotz and Miller (1993), Aguirregabiria and Mira (2002) | Linear | Yes | Hessian | No |
 
 ## Background
 

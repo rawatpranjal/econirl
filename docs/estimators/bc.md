@@ -1,25 +1,8 @@
 # BC
 
-Full name
-: Behavioral Cloning
-
-Citation
-: Ross et al. (2011)
-
-Category
-: Baseline
-
-Reward type
-: None
-
-Needs transitions
-: No
-
-Standard errors
-: No
-
-Scales beyond tabular
-: No
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Baseline | Ross et al. (2011) | None | No | No | No |
 
 ## Background
 

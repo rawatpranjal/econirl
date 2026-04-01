@@ -1,28 +1,8 @@
 # AIRL
 
-Full name
-: Adversarial Inverse Reinforcement Learning
-
-Citation
-: Fu, Luo, and Levine (2018)
-
-Category
-: Inverse
-
-Reward type
-: Linear or Tabular
-
-Needs transitions
-: No (adversarial)
-
-Standard errors
-: No
-
-Scales beyond tabular
-: No
-
-Transfer
-: Yes
+| Category | Citation | Reward | Transitions | SEs | Scales | Transfer |
+|----------|----------|--------|-------------|-----|--------|----------|
+| Inverse | Fu, Luo, and Levine (2018) | Linear or Tabular | No (adversarial) | No | No | Yes |
 
 ## Background
 

@@ -1,25 +1,8 @@
 # f-IRL
 
-Full name
-: f-Divergence Inverse Reinforcement Learning
-
-Citation
-: Ni et al. (2022)
-
-Category
-: Inverse
-
-Reward type
-: Tabular
-
-Needs transitions
-: Yes
-
-Standard errors
-: No
-
-Scales beyond tabular
-: No
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Inverse | Ni et al. (2022) | Tabular | Yes | No | No |
 
 ## Background
 

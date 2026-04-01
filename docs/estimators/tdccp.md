@@ -1,25 +1,8 @@
 # TD-CCP
 
-Full name
-: Temporal Difference CCP
-
-Citation
-: Adusumilli and Eckardt (2025)
-
-Category
-: Structural
-
-Reward type
-: Linear
-
-Needs transitions
-: No (uses data transitions)
-
-Standard errors
-: Hessian
-
-Scales beyond tabular
-: Yes (neural AVI)
+| Category | Citation | Reward | Transitions | SEs | Scales |
+|----------|----------|--------|-------------|-----|--------|
+| Structural | Adusumilli and Eckardt (2025) | Linear | No (uses data) | Hessian | Yes (neural AVI) |
 
 ## Background
 
