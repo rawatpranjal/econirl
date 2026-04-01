@@ -90,7 +90,7 @@ def build_estimators():
     estimators["NFXP-NK"] = NFXPEstimator(
         optimizer="BHHH", inner_solver="policy",
         inner_tol=1e-12, inner_max_iter=200,
-        analytical_gradient=True, compute_hessian=True,
+        compute_hessian=True,
         outer_tol=1e-3, verbose=True,
     )
 

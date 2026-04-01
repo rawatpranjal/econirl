@@ -239,7 +239,7 @@ def experiment_rs_insample():
     utility_rs = make_rs_features(env)
 
     from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
-    from econirl.estimation.maxent_irl import MaxEntIRLEstimator
+    from econirl.contrib.maxent_irl import MaxEntIRLEstimator
 
     # MCE IRL
     config = MCEIRLConfig(compute_se=False, optimizer="L-BFGS-B",

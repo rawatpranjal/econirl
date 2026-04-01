@@ -9,7 +9,7 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-import torch
+import jax.numpy as jnp
 from scipy.stats import norm as scipy_norm
 
 from econirl.core.bellman import SoftBellmanOperator
@@ -270,36 +270,36 @@ class MCEIRL:
                     next_states[-1] = min(states[-1] + 1, self.n_states - 1)
 
             traj = Trajectory(
-                states=torch.tensor(states, dtype=torch.long),
-                actions=torch.tensor(actions, dtype=torch.long),
-                next_states=torch.tensor(next_states, dtype=torch.long),
+                states=np.array(states, dtype=np.int64),
+                actions=np.array(actions, dtype=np.int64),
+                next_states=np.array(next_states, dtype=np.int64),
                 individual_id=ind_id,
             )
             trajectories.append(traj)
 
         return Panel(trajectories=trajectories)
 
-    def _build_transition_tensor(self, keep_transitions: np.ndarray) -> torch.Tensor:
+    def _build_transition_tensor(self, keep_transitions: np.ndarray) -> jnp.ndarray:
         """Build transition tensor for both actions."""
         n = self.n_states
-        transitions = torch.zeros((self.n_actions, n, n), dtype=torch.float32)
+        transitions = np.zeros((self.n_actions, n, n), dtype=np.float32)
 
         # Action 0 (keep): use provided transitions
-        transitions[0] = torch.tensor(keep_transitions, dtype=torch.float32)
+        transitions[0] = np.asarray(keep_transitions, dtype=np.float32)
 
         # Action 1 (replace): reset to state 0, then transition
         for s in range(n):
             transitions[1, s, :] = transitions[0, 0, :]
 
-        return transitions
+        return jnp.array(transitions)
 
     def _create_reward(self) -> LinearReward:
         """Create reward function."""
         if self.feature_matrix is not None:
-            features = torch.tensor(self.feature_matrix, dtype=torch.float32)
+            features = jnp.array(self.feature_matrix, dtype=jnp.float32)
             n_features = features.shape[1]
         else:
-            features = torch.arange(self.n_states, dtype=torch.float32).unsqueeze(1)
+            features = jnp.expand_dims(jnp.arange(self.n_states, dtype=jnp.float32), axis=1)
             n_features = 1
 
         if self.feature_names is not None:
@@ -318,7 +318,7 @@ class MCEIRL:
         if self._result is None:
             return
 
-        params = self._result.parameters.numpy()
+        params = np.asarray(self._result.parameters)
         param_names = self._result.parameter_names
 
         self.params_ = {name: float(val) for name, val in zip(param_names, params)}
@@ -330,10 +330,10 @@ class MCEIRL:
             if se_values is not None:
                 self.se_ = {name: float(val) for name, val in zip(param_names, se_values)}
             else:
-                se = self._result.standard_errors.numpy()
+                se = np.asarray(self._result.standard_errors)
                 self.se_ = {name: float(val) for name, val in zip(param_names, se)}
         else:
-            se = self._result.standard_errors.numpy()
+            se = np.asarray(self._result.standard_errors)
             self.se_ = {name: float(val) for name, val in zip(param_names, se)}
 
         # P-values from t-statistics (Wald test)
@@ -351,17 +351,17 @@ class MCEIRL:
             self.pvalues_ = pvalues
 
         # Reward function R(s)
-        reward_params = torch.tensor(params, dtype=torch.float32)
+        reward_params = jnp.array(params, dtype=jnp.float32)
         reward_matrix = self._reward_fn.compute(reward_params)
-        self.reward_ = reward_matrix[:, 0].numpy()
+        self.reward_ = np.asarray(reward_matrix[:, 0])
 
         # Policy
         if self._result.policy is not None:
-            self.policy_ = self._result.policy.numpy()
+            self.policy_ = np.asarray(self._result.policy)
 
         # Value function
         if self._result.value_function is not None:
-            self.value_function_ = self._result.value_function.numpy()
+            self.value_function_ = np.asarray(self._result.value_function)
             self.value_ = self.value_function_
 
         # State visitation

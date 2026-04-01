@@ -40,6 +40,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import torch
@@ -312,7 +313,7 @@ class TDCCP:
             discount_factor=self.discount,
             scale_parameter=1.0,
             state_dim=1,
-            state_encoder=lambda s: (s.float() / max(self.n_states - 1, 1)).unsqueeze(-1),
+            state_encoder=lambda s: jnp.expand_dims(jnp.asarray(s, dtype=jnp.float32) / max(self.n_states - 1, 1), axis=-1),
         )
 
         # Create the underlying TD-CCP estimator
@@ -342,58 +343,25 @@ class TDCCP:
 
         return self
 
-    def _build_transition_tensor(self, keep_transitions: np.ndarray) -> torch.Tensor:
-        """Build full transition tensor for both actions.
-
-        Parameters
-        ----------
-        keep_transitions : numpy.ndarray
-            Transition matrix for action=0 (keep), shape (n_states, n_states).
-
-        Returns
-        -------
-        torch.Tensor
-            Transition tensor of shape (n_actions, n_states, n_states).
-        """
+    def _build_transition_tensor(self, keep_transitions: np.ndarray) -> jnp.ndarray:
+        """Build full transition tensor for both actions."""
         n = self.n_states
-        transitions = torch.zeros((self.n_actions, n, n), dtype=torch.float32)
-
-        # Action 0 (keep): use provided transitions
-        transitions[0] = torch.tensor(keep_transitions, dtype=torch.float32)
-
-        # Action 1 (replace): reset to state 0, then transition
-        # After replacement, start at state 0 and apply the same transition
+        transitions = np.zeros((self.n_actions, n, n), dtype=np.float32)
+        transitions[0] = np.asarray(keep_transitions, dtype=np.float32)
         for s in range(n):
             transitions[1, s, :] = transitions[0, 0, :]
-
-        return transitions
+        return jnp.array(transitions)
 
     def _create_utility(self) -> LinearUtility:
-        """Create utility function for estimation.
-
-        Returns
-        -------
-        LinearUtility
-            Utility function with appropriate features.
-        """
+        """Create utility function for estimation."""
         if self.utility != "linear_cost":
             raise ValueError(f"Unknown utility specification: {self.utility}")
 
-        # Build feature matrix for linear cost utility
-        # U(s, keep) = -theta_c * s
-        # U(s, replace) = -RC
         n = self.n_states
-        features = torch.zeros((n, self.n_actions, 2), dtype=torch.float32)
-
-        mileage = torch.arange(n, dtype=torch.float32)
-
-        # Keep action (a=0): feature = [-s, 0]
-        features[:, 0, 0] = -mileage
-        features[:, 0, 1] = 0.0
-
-        # Replace action (a=1): feature = [0, -1]
-        features[:, 1, 0] = 0.0
-        features[:, 1, 1] = -1.0
+        features = jnp.zeros((n, self.n_actions, 2))
+        mileage = jnp.arange(n, dtype=jnp.float32)
+        features = features.at[:, 0, 0].set(-mileage)
+        features = features.at[:, 1, 1].set(-1.0)
 
         return LinearUtility(
             feature_matrix=features,
@@ -406,14 +374,14 @@ class TDCCP:
             return
 
         # Parameter estimates
-        params = self._result.parameters.numpy()
+        params = np.asarray(self._result.parameters)
         param_names = self._result.parameter_names
 
         self.params_ = {name: float(val) for name, val in zip(param_names, params)}
         self.coef_ = params.copy()
 
         # Standard errors
-        se = self._result.standard_errors.numpy()
+        se = np.asarray(self._result.standard_errors)
         self.se_ = {name: float(val) for name, val in zip(param_names, se)}
 
         # Other attributes
@@ -421,11 +389,11 @@ class TDCCP:
         self.converged_ = bool(self._result.converged)
 
         if self._result.value_function is not None:
-            self.value_ = self._result.value_function.numpy()
+            self.value_ = np.asarray(self._result.value_function)
 
         # Policy matrix
         if self._result.policy is not None:
-            self.policy_ = self._result.policy.numpy()
+            self.policy_ = np.asarray(self._result.policy)
 
         # p-values from t-statistics
         if self.se_ is not None:
@@ -445,10 +413,7 @@ class TDCCP:
         if self._result.metadata:
             ev = self._result.metadata.get("ev_features")
             if ev is not None:
-                if isinstance(ev, torch.Tensor):
-                    self.ev_features_ = ev.numpy()
-                else:
-                    self.ev_features_ = np.array(ev)
+                self.ev_features_ = np.asarray(ev)
 
     def summary(self) -> str:
         """Generate a formatted summary of estimation results.
@@ -511,7 +476,7 @@ class TDCCP:
         states = np.asarray(states, dtype=np.int64)
 
         # Get policy (choice probabilities) from result
-        policy = self._result.policy.numpy()
+        policy = np.asarray(self._result.policy)
 
         # Index into the policy for the requested states
         proba = policy[states]

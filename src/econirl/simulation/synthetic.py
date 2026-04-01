@@ -214,13 +214,15 @@ def simulate_panel_from_policy(
         for t in range(n_periods):
             states.append(state)
 
-            # Sample action
-            action_probs = policy[state]
+            # Sample action (normalize for float32 rounding)
+            action_probs = np.asarray(policy[state], dtype=np.float64)
+            action_probs = action_probs / action_probs.sum()
             action = rng.choice(num_actions, p=action_probs)
             actions.append(action)
 
-            # Sample next state
-            trans_probs = transitions[action, state]
+            # Sample next state (normalize for float32 rounding)
+            trans_probs = np.asarray(transitions[action, state], dtype=np.float64)
+            trans_probs = trans_probs / trans_probs.sum()
             next_state = rng.choice(num_states, p=trans_probs)
             next_states.append(next_state)
 

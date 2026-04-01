@@ -111,7 +111,7 @@ def compare_results(title, result_nfxp, result_mce, param_names, true_params=Non
     cos = cosine_sim(p_nfxp, p_mce)
     policy_diff = float("nan")
     if result_nfxp.policy is not None and result_mce.policy is not None:
-        policy_diff = (result_nfxp.policy - result_mce.policy).abs().max().item()
+        policy_diff = float(jnp.abs(result_nfxp.policy - result_mce.policy).max())
 
     print(f"\n  {'Metric':<30} {'Value':>15}")
     print("  " + "-" * 47)
@@ -212,7 +212,7 @@ def main():
     problem_orig = env_orig.problem_spec
     transitions_orig = estimate_transitions_from_panel(
         panel_orig, num_states=90, max_increment=2,
-    ).float()  # Ensure float32 for consistent dtype with reward computation
+    ).astype(jnp.float32)  # Ensure float32 for consistent dtype with reward computation
 
     print("\n--- Running NFXP ---")
     t0 = time.time()

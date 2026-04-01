@@ -175,9 +175,9 @@ class MaxMarginIRLEstimator(BaseEstimator):
 
         if is_action_dependent:
             all_actions = panel.get_all_actions()
-            feature_expectations = feature_matrix[all_states, all_actions, :].sum(dim=0)
+            feature_expectations = feature_matrix[all_states, all_actions, :].sum(axis=0)
         else:
-            feature_expectations = feature_matrix[all_states, :].sum(dim=0)
+            feature_expectations = feature_matrix[all_states, :].sum(axis=0)
 
         # Normalize by total observations
         if total_count > 0:
