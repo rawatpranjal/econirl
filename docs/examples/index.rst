@@ -1,17 +1,79 @@
 Examples
 ========
 
-The first four examples use synthetic environments with known ground truth to validate the estimators. The remaining five apply them to real data from economics, transportation, and industry. The estimator choice depends on the state space size, whether transitions are known, and whether you need standard errors.
+These examples span six application domains. The spatial navigation examples use synthetic environments with known ground truth to validate estimators and benchmark parameter recovery. The remaining examples apply the same estimators to real data from maintenance engineering, healthcare, transportation, labor economics, and consumer markets.
+
+Spatial Navigation
+------------------
+
+Grid environments with known ground truth for validating estimators and benchmarking parameter recovery.
+
+.. toctree::
+   :maxdepth: 1
+
+   taxi_gridworld
+   wulfmeier_deep_maxent
+   frozen_lake
+
+Replacement and Maintenance
+---------------------------
+
+Optimal stopping problems where an agent decides when to replace or maintain durable equipment.
 
 .. toctree::
    :maxdepth: 1
 
    rust_bus
-   post_estimation
-   taxi_gridworld
-   wulfmeier_deep_maxent
-   keane_wolpin
+
+Healthcare
+----------
+
+Clinical treatment decisions modeled as sequential choice under uncertainty.
+
+.. toctree::
+   :maxdepth: 1
+
+   icu_sepsis
+
+Transportation and Route Choice
+--------------------------------
+
+Driver, cyclist, and vehicle routing on road networks and highways.
+
+.. toctree::
+   :maxdepth: 1
+
    ngsim_lane_change
    shanghai_route
    beijing_taxi
+
+Labor and Career Decisions
+--------------------------
+
+Life-cycle models of schooling, occupation, and employment transitions.
+
+.. toctree::
+   :maxdepth: 1
+
+   keane_wolpin
+
+Consumer and Search Behavior
+-----------------------------
+
+Sequential search, browsing, and purchase decisions in markets.
+
+.. toctree::
+   :maxdepth: 1
+
    trivago_search
+   instacart
+
+Methodology
+-----------
+
+Cross-cutting tools for post-estimation diagnostics, model comparison, and inference.
+
+.. toctree::
+   :maxdepth: 1
+
+   post_estimation

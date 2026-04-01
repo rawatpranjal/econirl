@@ -22,6 +22,9 @@ Search/Click Datasets (Sequential Choice):
 # DDC datasets
 from econirl.datasets.rust_bus import load_rust_bus
 from econirl.datasets.occupational_choice import load_occupational_choice
+from econirl.datasets.icu_sepsis import load_icu_sepsis, load_icu_sepsis_mdp, get_icu_sepsis_info
+from econirl.datasets.frozen_lake import load_frozen_lake, get_frozen_lake_info
+from econirl.datasets.instacart import load_instacart, get_instacart_info
 from econirl.datasets.keane_wolpin import load_keane_wolpin, get_keane_wolpin_info
 from econirl.datasets.robinson_crusoe import load_robinson_crusoe, get_robinson_crusoe_info
 from econirl.datasets.equipment_replacement import load_equipment_replacement
@@ -63,6 +66,16 @@ __all__ = [
     "load_robinson_crusoe",
     "get_robinson_crusoe_info",
     "load_equipment_replacement",
+    # Healthcare Datasets
+    "load_icu_sepsis",
+    "load_icu_sepsis_mdp",
+    "get_icu_sepsis_info",
+    # Benchmark Environments
+    "load_frozen_lake",
+    "get_frozen_lake_info",
+    # Consumer/Marketing Datasets
+    "load_instacart",
+    "get_instacart_info",
     # IRL Datasets
     "load_tdrive",
     "get_tdrive_info",
