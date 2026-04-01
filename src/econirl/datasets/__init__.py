@@ -7,6 +7,7 @@ lives on the environment classes via env.generate_panel().
 
 Real DDC Datasets:
 - Rust (1987): Bus engine replacement
+- SCANIA Component X (IDA 2024): Heavy truck component replacement
 - Keane & Wolpin (1994): Career decisions
 - Aguirregabiria (1999): Supermarket pricing/inventory
 - ICU-Sepsis: Clinical treatment decisions (abstracted MDP)
@@ -36,6 +37,7 @@ from econirl.datasets.equipment_replacement import load_equipment_replacement
 from econirl.datasets.icu_sepsis import load_icu_sepsis, load_icu_sepsis_mdp, get_icu_sepsis_info
 from econirl.datasets.supermarket import load_supermarket, get_supermarket_info
 from econirl.datasets.keane_wolpin import load_keane_wolpin, get_keane_wolpin_info
+from econirl.datasets.scania import load_scania, get_scania_info
 
 # Hybrid datasets (real data + synthetic fallback)
 from econirl.datasets.citibike_route import load_citibike_route, get_citibike_route_info
@@ -79,6 +81,8 @@ __all__ = [
     "load_equipment_replacement",
     "load_keane_wolpin",
     "get_keane_wolpin_info",
+    "load_scania",
+    "get_scania_info",
     "load_supermarket",
     "get_supermarket_info",
     # Healthcare Datasets
