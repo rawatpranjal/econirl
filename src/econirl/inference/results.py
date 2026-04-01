@@ -391,6 +391,72 @@ class EstimationSummary:
 
         return latex
 
+    def diagnostics(self) -> dict[str, Any]:
+        """Bundle all available diagnostics into a single dict.
+
+        Returns a dict with sections for goodness of fit, identification,
+        numerical quality, and convergence. Each section contains the
+        diagnostics that are available for this estimation result.
+        Missing diagnostics are omitted rather than set to None.
+
+        Returns:
+            Dict with section keys: goodness_of_fit, identification,
+            numerical_quality, convergence.
+        """
+        result: dict[str, Any] = {}
+
+        # Goodness of fit
+        if self.goodness_of_fit is not None:
+            gof = self.goodness_of_fit
+            result["goodness_of_fit"] = {
+                "log_likelihood": gof.log_likelihood,
+                "aic": gof.aic,
+                "bic": gof.bic,
+                "num_parameters": gof.num_parameters,
+                "num_observations": gof.num_observations,
+            }
+            if gof.pseudo_r_squared is not None:
+                result["goodness_of_fit"]["pseudo_r_squared"] = gof.pseudo_r_squared
+            if gof.prediction_accuracy is not None:
+                result["goodness_of_fit"]["prediction_accuracy"] = gof.prediction_accuracy
+
+        # Identification
+        if self.identification is not None:
+            ident = self.identification
+            result["identification"] = {
+                "condition_number": ident.hessian_condition_number,
+                "min_eigenvalue": ident.min_eigenvalue,
+                "max_eigenvalue": ident.max_eigenvalue,
+                "rank": ident.rank,
+                "is_positive_definite": ident.is_positive_definite,
+                "status": ident.status,
+            }
+
+        # Numerical quality
+        num_quality: dict[str, Any] = {}
+        if self.hessian is not None:
+            eigenvalues = np.sort(np.real(np.linalg.eigvals(np.asarray(-self.hessian))))
+            num_quality["hessian_eigenvalues"] = eigenvalues.tolist()
+            num_quality["hessian_condition_number"] = (
+                float(eigenvalues[-1] / eigenvalues[0])
+                if eigenvalues[0] > 0 else float("inf")
+            )
+        num_quality["converged"] = self.converged
+        num_quality["num_iterations"] = self.num_iterations
+        num_quality["convergence_message"] = self.convergence_message
+        num_quality["estimation_time"] = self.estimation_time
+        if num_quality:
+            result["numerical_quality"] = num_quality
+
+        # Convergence
+        result["convergence"] = {
+            "converged": self.converged,
+            "num_iterations": self.num_iterations,
+            "message": self.convergence_message,
+        }
+
+        return result
+
     def __repr__(self) -> str:
         return (
             f"EstimationSummary(method='{self.method}', "

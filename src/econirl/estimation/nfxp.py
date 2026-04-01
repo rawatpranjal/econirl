@@ -398,6 +398,12 @@ class NFXPEstimator(BaseEstimator):
         """Run NFXP optimization."""
         import warnings
 
+        # Allow kwargs to override outer_max_iter for warm-start bootstrap
+        outer_max_iter_override = kwargs.pop("outer_max_iter", None)
+        saved_outer_max_iter = self._outer_max_iter
+        if outer_max_iter_override is not None:
+            self._outer_max_iter = outer_max_iter_override
+
         start_time = time.time()
 
         beta = problem.discount_factor
@@ -560,6 +566,10 @@ class NFXPEstimator(BaseEstimator):
             hessian = compute_numerical_hessian(final_params, ll_fn_fh)
 
         optimization_time = time.time() - start_time
+
+        # Restore original outer_max_iter if it was overridden
+        if outer_max_iter_override is not None:
+            self._outer_max_iter = saved_outer_max_iter
 
         return EstimationResult(
             parameters=final_params,

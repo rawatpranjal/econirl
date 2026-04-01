@@ -19,6 +19,10 @@ from econirl.inference.reward_comparison import (
     detect_reward_shaping,
 )
 from econirl.inference.etable import etable
+from econirl.inference.identifiability import check_reward_identifiability
+from econirl.inference.sensitivity import discount_factor_sensitivity
+from econirl.inference.bootstrap import warm_start_bootstrap
+from econirl.inference.profile_likelihood import profile_likelihood
 
 __all__ = [
     "EstimationSummary",
@@ -38,4 +42,9 @@ __all__ = [
     "detect_reward_shaping",
     # Tables
     "etable",
+    # Tier 3: advanced diagnostics
+    "check_reward_identifiability",
+    "discount_factor_sensitivity",
+    "warm_start_bootstrap",
+    "profile_likelihood",
 ]
