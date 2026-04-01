@@ -589,6 +589,77 @@ class TrajectoryPanel(Panel):
                 )
         return pd.DataFrame(rows)
 
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
+    def save_npz(self, path: str) -> None:
+        """Save panel to a compressed .npz file.
+
+        Stores all trajectories as flat arrays with an offset index so
+        individual trajectories can be reconstructed on load. Metadata
+        and individual IDs are preserved via pickle-compatible arrays.
+
+        Parameters
+        ----------
+        path : str
+            File path (should end in .npz).
+        """
+        states = np.concatenate([np.asarray(t.states) for t in self.trajectories])
+        actions = np.concatenate([np.asarray(t.actions) for t in self.trajectories])
+        next_states = np.concatenate([np.asarray(t.next_states) for t in self.trajectories])
+
+        lengths = np.array([len(t) for t in self.trajectories], dtype=np.int32)
+        ids = np.array(
+            [t.individual_id if t.individual_id is not None else i
+             for i, t in enumerate(self.trajectories)],
+            dtype=object,
+        )
+
+        np.savez_compressed(
+            path,
+            states=states,
+            actions=actions,
+            next_states=next_states,
+            lengths=lengths,
+            ids=ids,
+        )
+
+    @classmethod
+    def load_npz(cls, path: str) -> TrajectoryPanel:
+        """Load a panel from a .npz file created by save_npz.
+
+        Parameters
+        ----------
+        path : str
+            Path to .npz file.
+
+        Returns
+        -------
+        TrajectoryPanel
+        """
+        data = np.load(path, allow_pickle=True)
+        states = data["states"]
+        actions = data["actions"]
+        next_states = data["next_states"]
+        lengths = data["lengths"]
+        ids = data["ids"]
+
+        trajectories = []
+        offset = 0
+        for i, length in enumerate(lengths):
+            end = offset + length
+            traj = Trajectory(
+                states=jnp.array(states[offset:end], dtype=jnp.int32),
+                actions=jnp.array(actions[offset:end], dtype=jnp.int32),
+                next_states=jnp.array(next_states[offset:end], dtype=jnp.int32),
+                individual_id=ids[i],
+            )
+            trajectories.append(traj)
+            offset = end
+
+        return cls(trajectories=trajectories)
+
 
 # Backward-compatible alias: Panel now points to TrajectoryPanel so new code
 # that creates Panel(...) automatically gets the enhanced interface.

@@ -76,6 +76,10 @@ class MCEIRLConfig:
     svf_tol: float = 1e-8
     svf_max_iter: int = 1000
 
+    # Occupancy distance convergence (from imitation library, Gleave & Toyer 2022)
+    # Checks L-infinity distance between demo and policy occupancy measures
+    occupancy_tol: float = 1e-3  # max|D_demo - D_policy| convergence threshold
+
     # Inference
     compute_se: bool = True
     se_method: Literal["bootstrap", "asymptotic", "hessian"] = "bootstrap"
@@ -587,6 +591,13 @@ class MCEIRLEstimator(BaseEstimator):
         empirical_features = self._compute_empirical_features(panel, reward_fn).astype(jnp.float64)
         initial_dist = self._compute_initial_distribution(panel, problem.num_states).astype(jnp.float64)
 
+        # Compute empirical state occupancy (constant) for occupancy distance check
+        # Following Gleave & Toyer (2022): convergence when max|D_demo - D_policy| < tol
+        D_demo, _ = self._compute_empirical_state_occupancy(
+            panel, problem.num_states, problem.num_actions
+        )
+        D_demo = D_demo.astype(jnp.float64)
+
         self._log(f"Empirical features: {empirical_features}")
         self._log(f"Initial distribution entropy: {-(initial_dist * jnp.log(initial_dist + 1e-10)).sum():.3f}")
 
@@ -785,6 +796,16 @@ class MCEIRLEstimator(BaseEstimator):
             # Objective: ||μ_D - μ_π||^2
             obj = float(0.5 * jnp.sum((empirical_features - expected_features) ** 2))
 
+            # Occupancy distance: max|D_demo - D_policy| (Gleave & Toyer 2022)
+            # Only computed for infinite horizon where state visitation is meaningful
+            if not finite_horizon:
+                D_policy = self._compute_state_visitation(
+                    policy, transitions_f64, problem, initial_dist
+                )
+                occ_dist = float(jnp.max(jnp.abs(D_demo - D_policy)))
+            else:
+                occ_dist = float('inf')
+
             # Track best
             if obj < best_obj:
                 best_obj = obj
@@ -797,15 +818,21 @@ class MCEIRLEstimator(BaseEstimator):
             postfix = {
                 "obj": f"{obj:.6f}",
                 "||grad||": f"{grad_norm:.4f}",
+                "occ": f"{occ_dist:.4f}",
             }
             if true_params is not None:
                 rmse = float(jnp.sqrt(jnp.mean((params - true_params) ** 2)))
                 postfix["RMSE"] = f"{rmse:.6f}"
             pbar.set_postfix(postfix)
 
-            # Check convergence
+            # Check convergence: gradient norm OR occupancy distance
             if grad_norm < self.config.outer_tol:
                 converged = True
+                break
+
+            if occ_dist < self.config.occupancy_tol:
+                converged = True
+                self._log(f"Converged by occupancy distance: {occ_dist:.6f}")
                 break
 
             if patience_counter > max_patience:

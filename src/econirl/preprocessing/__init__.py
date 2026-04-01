@@ -4,6 +4,7 @@ This module provides transparent preprocessing functions for:
 - State discretization (continuous to discrete bins)
 - Panel data validation
 - Next-state computation
+- Running normalization for feature standardization
 """
 
 from econirl.preprocessing.discretization import (
@@ -15,6 +16,7 @@ from econirl.preprocessing.validation import (
     compute_next_states,
     PanelValidationResult,
 )
+from econirl.preprocessing.running_norm import RunningNorm
 
 __all__ = [
     "discretize_state",
@@ -22,4 +24,5 @@ __all__ = [
     "check_panel_structure",
     "compute_next_states",
     "PanelValidationResult",
+    "RunningNorm",
 ]

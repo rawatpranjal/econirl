@@ -95,21 +95,19 @@ class BehavioralCloningEstimator(BaseEstimator):
         # Count state-action pairs
         all_states = panel.get_all_states()
         all_actions = panel.get_all_actions()
-        idx = all_states * n_actions + all_actions
-        counts = jnp.zeros(n_states * n_actions).scatter_add_(
-            0, idx.long(), jnp.ones(idx.shape[0])
-        ).reshape(n_states, n_actions)
+        counts = jnp.zeros((n_states, n_actions), dtype=jnp.float32)
+        counts = counts.at[all_states, all_actions].add(1.0)
 
         # Laplace smoothing
         counts = counts + self._smoothing
 
         # Normalize to P(a|s)
         row_sums = counts.sum(axis=1, keepdims=True)
-        row_sums = jnp.clip(row_sums, min=1e-10)
+        row_sums = jnp.clip(row_sums, a_min=1e-10)
         policy = counts / row_sums
 
         # Log-likelihood of observed data under the empirical policy
-        ll = jnp.log(policy[all_states, all_actions] + 1e-10).sum().item()
+        ll = float(jnp.log(policy[all_states, all_actions] + 1e-10).sum())
 
         elapsed = time.time() - start
         self._log(f"Computed empirical policy in {elapsed:.3f}s, LL={ll:.2f}")
@@ -169,7 +167,7 @@ class BehavioralCloningEstimator(BaseEstimator):
             num_observations=n_obs,
             aic=-2 * result.log_likelihood + 2 * n_params,
             bic=-2 * result.log_likelihood
-            + n_params * jnp.log(jnp.array(n_obs)).item(),
+            + n_params * float(jnp.log(jnp.array(n_obs))),
             prediction_accuracy=self._compute_prediction_accuracy(
                 panel, result.policy
             ),

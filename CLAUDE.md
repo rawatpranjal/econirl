@@ -124,7 +124,21 @@ python3 -m pytest tests/ --cov=econirl
 
 Controlled simulated experiments use in-sample, out-of-sample, and out-of-transfer evaluation. Benchmarks are modular (`ESTIMATORS` dict) so new algorithms slot in with one entry. Use high trajectory counts — the goal is not standard errors but verifying that estimators correctly recover reward parameters and produce good policies. Working examples live in `examples/`.
 
-MCE IRL and NFXP converge to the same answer with enough data and proper features — with 2000 trajectories on a 5x5 gridworld both achieve cosine similarity 0.9999 to true parameters and identical policy performance across in-sample, out-of-sample, and all three transfer scenarios. Features MUST be action-dependent (vary across the choice set) for NFXP identification; state-only features that are identical across actions make R(s,a) constant across actions, collapsing the likelihood surface and causing parameter blowup. IRL rewards are identified only up to additive constants and scale (Kim et al. 2021), so evaluate on cosine similarity and policy quality rather than raw RMSE. MaxEnt IRL underperforms MCE IRL even in deterministic environments because it doesn't account for causal structure in the state visitation computation. For the `imitation` library comparison: econirl's infinite-horizon formulation with action-dependent features is more general; the main borrowed improvement is the direct linear solve for occupancy measures in `core/occupancy.py`.
+MCE IRL and NFXP converge to the same answer with enough data and proper features — with 2000 trajectories on a 5x5 gridworld both achieve cosine similarity 0.9999 to true parameters and identical policy performance across in-sample, out-of-sample, and all three transfer scenarios. Features MUST be action-dependent (vary across the choice set) for NFXP identification; state-only features that are identical across actions make R(s,a) constant across actions, collapsing the likelihood surface and causing parameter blowup. IRL rewards are identified only up to additive constants and scale (Kim et al. 2021), so evaluate on cosine similarity and policy quality rather than raw RMSE. MaxEnt IRL underperforms MCE IRL even in deterministic environments because it doesn't account for causal structure in the state visitation computation.
+
+## Relationship to HumanCompatibleAI/imitation
+
+The `imitation` library (Gleave, Toyer et al.) is the most mature open-source IRL library. econirl borrows the direct linear solve for occupancy measures in `core/occupancy.py` and the MCE IRL feature matching framework from the Gleave and Toyer (2022) primer. econirl's infinite-horizon formulation with action-dependent features is more general than imitation's finite-horizon tabular MCE IRL.
+
+econirl's core differentiators over imitation are statistical inference (standard errors, Wald tests, identification diagnostics), counterfactual analysis (welfare elasticity, policy simulation), structural estimators (NFXP, CCP, NNES), and the unified post-estimation pipeline. imitation has none of these. Do not adopt imitation's Stable Baselines 3 dependency or Gymnasium environment wrappers. Soft value iteration is the correct policy solver for structural estimation.
+
+MCE IRL uses dual stopping criteria following imitation. The gradient path checks both gradient norm and occupancy distance (L-infinity between demo and policy state visitation). The `occupancy_tol` parameter in `MCEIRLConfig` controls the occupancy distance threshold.
+
+`BehavioralCloningEstimator` serves as the lower bound baseline for every benchmark. Any estimator that cannot beat BC is not learning from MDP structure. BC is just weighted logistic regression on state-action frequencies.
+
+`RunningNorm` in `preprocessing/running_norm.py` provides numerically stable online mean and variance tracking (Chan, Golub, and LeVeque 1979) for feature normalization during training. Use it when feature columns span different scales.
+
+`Panel.save_npz()` and `Panel.load_npz()` serialize panel data to compressed NumPy archives for reproducibility.
 
 ## ReadTheDocs
 
