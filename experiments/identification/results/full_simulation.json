@@ -1,0 +1,159 @@
+{
+  "A": {
+    "Oracle": {
+      "mse": 0.0,
+      "corr": 1.0
+    },
+    "AIRL+anchors": {
+      "mse": 0.0,
+      "corr": 1.0
+    },
+    "IQ-Learn": {
+      "mse": 0.0,
+      "corr": 1.0
+    },
+    "AIRL-no-anchors": {
+      "mse": 10.005,
+      "corr": 0.44
+    },
+    "Reduced-form": {
+      "mse": 40.019,
+      "corr": 0.138
+    }
+  },
+  "B": {
+    "1": {
+      "Oracle": 0.0,
+      "AIRL+anchors": 0.0,
+      "IQ-Learn": 0.0,
+      "AIRL-no-anchors": 0.0,
+      "Reduced-form": 0.0
+    },
+    "2": {
+      "Oracle": 0.0,
+      "AIRL+anchors": 0.0,
+      "IQ-Learn": 0.0,
+      "AIRL-no-anchors": 0.025,
+      "Reduced-form": 0.082
+    },
+    "3": {
+      "Oracle": 0.0,
+      "AIRL+anchors": 0.0,
+      "IQ-Learn": 0.0,
+      "AIRL-no-anchors": 0.017,
+      "Reduced-form": 0.094
+    },
+    "5": {
+      "Oracle": 0.0,
+      "AIRL+anchors": 0.0,
+      "IQ-Learn": 0.0,
+      "AIRL-no-anchors": 0.015,
+      "Reduced-form": 0.123
+    },
+    "7": {
+      "Oracle": 0.0,
+      "AIRL+anchors": 0.0,
+      "IQ-Learn": 0.0,
+      "AIRL-no-anchors": 0.016,
+      "Reduced-form": 0.129
+    },
+    "10": {
+      "Oracle": 0.0,
+      "AIRL+anchors": 0.0,
+      "IQ-Learn": 0.0,
+      "AIRL-no-anchors": 0.014,
+      "Reduced-form": 0.139
+    }
+  },
+  "C": {
+    "0.0": {
+      "error": 0.0,
+      "corr": 1.0
+    },
+    "0.05": {
+      "error": 0.002,
+      "corr": 0.974
+    },
+    "0.1": {
+      "error": 0.004,
+      "corr": 0.908
+    },
+    "0.2": {
+      "error": 0.008,
+      "corr": 0.746
+    },
+    "0.3": {
+      "error": 0.011,
+      "corr": 0.61
+    },
+    "0.5": {
+      "error": 0.017,
+      "corr": 0.44
+    },
+    "0.7": {
+      "error": 0.022,
+      "corr": 0.347
+    },
+    "1.0": {
+      "error": 0.027,
+      "corr": 0.27
+    }
+  },
+  "D": {
+    "500": {
+      "rf": 0.264,
+      "iq": 0.384
+    },
+    "1000": {
+      "rf": 0.2625,
+      "iq": 0.3851
+    },
+    "2000": {
+      "rf": 0.263,
+      "iq": 0.3857
+    },
+    "5000": {
+      "rf": 0.2624,
+      "iq": 0.3852
+    }
+  },
+  "E": {
+    "0.0": {
+      "corr": 1.0,
+      "type2_err": 0.0,
+      "pi_shift": 0.0
+    },
+    "0.1": {
+      "corr": 0.999,
+      "type2_err": 0.0,
+      "pi_shift": 0.0
+    },
+    "0.3": {
+      "corr": 0.991,
+      "type2_err": 0.001,
+      "pi_shift": 0.0
+    },
+    "0.5": {
+      "corr": 0.976,
+      "type2_err": 0.002,
+      "pi_shift": 0.0
+    },
+    "1.0": {
+      "corr": 0.909,
+      "type2_err": 0.004,
+      "pi_shift": 0.0
+    },
+    "2.0": {
+      "corr": 0.729,
+      "type2_err": 0.008,
+      "pi_shift": 0.0
+    }
+  },
+  "F": {
+    "Oracle": 0.0,
+    "AIRL+anchors": 0.0,
+    "IQ-Learn": 0.0,
+    "AIRL-no-anchors": 0.009,
+    "Reduced-form": 0.185
+  }
+}

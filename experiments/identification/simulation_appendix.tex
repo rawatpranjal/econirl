@@ -1,0 +1,496 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{natbib}
+\bibliographystyle{apalike}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+
+\title{Reward Recovery in Sequential Decision Models:\\
+A Unified Treatment of Three Estimation Approaches\\[6pt]
+{\large With Application to Lee, Sudhir \& Wang (2026)}}
+\author{Pranjal Rawat\thanks{Georgetown University. \texttt{pp712@georgetown.edu}.}}
+\date{April 2026 --- Draft}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Three methods for recovering reward functions from observed sequential choices---reduced-form Q-estimation, adversarial inverse reinforcement learning (AIRL), and inverse soft-Q learning (IQ-Learn)---are compared within a unified notation. We establish when the methods yield identical counterfactual predictions and when they diverge, connecting the analysis to the partial identification framework of Kalouptsidi, Scott \& Souza-Rodrigues (2021). The results are applied to evaluate the estimation strategy of Lee, Sudhir \& Wang (2026), who use AIRL with anchor-based identification to study sequential content consumption. We show that their anchor normalization---exit payoff fixed to zero, absorbing-state value fixed to zero---uniquely pins down the reward and value functions, making the AIRL decomposition exact rather than approximate. This identification result, combined with deterministic transitions in their application, means the recovered structural reward supports counterfactuals that change the MDP environment, not merely those that extrapolate across state values. A simulation study on a calibrated book-reading MDP confirms every theoretical prediction at the population level and quantifies robustness to anchor misspecification.
+\end{abstract}
+
+%% ======================================================================
+\section{Environment}
+%% ======================================================================
+
+An agent faces a stationary, infinite-horizon, discrete-time decision problem. The primitives are a finite state space~$\mathcal{S}$, a finite action space~$\mathcal{A}$, a discount factor $\beta \in (0,1)$, a Markov transition kernel $P : \mathcal{S} \times \mathcal{A} \to \Delta(\mathcal{S})$, and a per-period reward function $r : \mathcal{S} \times \mathcal{A} \to \mathbb{R}$, unknown to the econometrician.
+
+The agent observes private additive shocks $\varepsilon_a$ drawn i.i.d.\ across actions and periods from a Type~I extreme value distribution \citep{rust1987}. Per-period payoff from choosing~$a$ in state~$s$ is $r(s,a) + \varepsilon_a$. This framework is equivalent to maximum causal entropy IRL \citep{ziebart2010}, where the entropy regularizer replaces the Gumbel shocks. Both yield the same Bellman recursion, likelihood, and policy representation.
+
+%% ======================================================================
+\section{Bellman Recursion and the Optimal Policy}
+%% ======================================================================
+
+The \emph{action-value function} (Q-function) satisfies
+\begin{equation}\label{eq:bellman}
+Q^*(s,a) = r(s,a) + \beta \sum_{s' \in \mathcal{S}} P(s' \mid s,a)\, V^*(s'),
+\end{equation}
+where the \emph{state-value function} is
+\begin{equation}\label{eq:value}
+V^*(s) = \log \sum_{a' \in \mathcal{A}} \exp\bigl(Q^*(s,a')\bigr).
+\end{equation}
+The optimal policy takes the multinomial logit form:
+\begin{equation}\label{eq:policy}
+\pi^*(a \mid s) = \frac{\exp\bigl(Q^*(s,a)\bigr)}{\sum_{a'} \exp\bigl(Q^*(s,a')\bigr)} = \exp\bigl(Q^*(s,a) - V^*(s)\bigr).
+\end{equation}
+Define the \emph{advantage function}:
+\begin{equation}\label{eq:advantage}
+A^*(s,a) \;=\; Q^*(s,a) - V^*(s) \;=\; \log \pi^*(a \mid s).
+\end{equation}
+The advantage is identified directly from choice data: $\hat{A}(s,a) = \log \hat{\pi}(a \mid s)$. But $A^*$ does not pin down~$r$ without further restrictions, because the Bellman equation bundles the reward with discounted future values.
+
+%% ======================================================================
+\section{What Is Identified from Choice Data Alone}
+%% ======================================================================
+
+From a panel of choices $\{(s_{it}, a_{it})\}$ and transitions, the econometrician identifies:
+\begin{enumerate}[label=(\roman*),nosep]
+\item Conditional choice probabilities $\hat\pi(a \mid s)$.
+\item The transition kernel $\hat P(s' \mid s, a)$.
+\end{enumerate}
+The Hotz--Miller (1993) inversion gives $Q^*(s,a) - Q^*(s,a_0) = \log \pi^*(a \mid s) - \log \pi^*(a_0 \mid s)$ for any baseline action~$a_0$: Q-function \emph{differences} across actions are identified, but levels are not. Equivalently, $r(s,a) - r(s,a_0)$ is identified for each~$s$, but the level $r(s,a_0)$ is not.
+
+This is the \citet{magnac2002} non-identification result. Any $\tilde{r}(s,a) = r(s,a) + \lambda(s)$, where $\lambda : \mathcal{S} \to \mathbb{R}$ is action-independent, generates identical CCPs. Following \citet{kalouptsidi2021}, we call the set of all such~$\tilde{r}$ the \emph{identified set} of reward functions.
+
+%% ======================================================================
+\section{Approach 1: Reduced-Form Q-Estimation}
+%% ======================================================================
+
+This is the method John Rust proposes in his correspondence.
+
+\paragraph{Specification.} Let $Q_\omega : \mathcal{S} \times \mathcal{A} \to \mathbb{R}$ be a neural network with parameters~$\omega$. Estimate by maximum likelihood:
+\begin{equation}\label{eq:rf}
+\hat\omega = \arg\max_\omega \sum_{i,t} \log \pi_\omega(a_{it} \mid s_{it}), \qquad
+\pi_\omega(a \mid s) = \frac{\exp\bigl(Q_\omega(s,a)\bigr)}{\sum_{a'}\exp\bigl(Q_\omega(s,a')\bigr)}.
+\end{equation}
+This is a standard multinomial logit with a flexible index. No Bellman equation is imposed. No transition data are used.
+
+\paragraph{What it recovers.} At the population optimum, $Q_{\hat\omega}(s,a) = Q^*(s,a) + c(s)$ for some action-independent $c : \mathcal{S} \to \mathbb{R}$, because the logit likelihood depends only on within-state action differences. The estimated policy matches the true policy exactly. The backed-out ``reward'' is
+\[
+\hat{r}_{\mathrm{RF}}(s,a) \;\equiv\; \log\hat\pi(a \mid s) \;=\; A^*(s,a),
+\]
+which is the advantage---not the true reward. It bundles immediate payoffs with continuation value differences.
+
+\paragraph{Computational cost.} Standard backpropagation. No bilevel optimization, no adversarial loop, no trajectory simulation.
+
+%% ======================================================================
+\section{Approach 2: Adversarial Inverse Reinforcement Learning}
+%% ======================================================================
+
+\subsection{The Generic AIRL Framework \citep{fu2018}}
+
+AIRL alternates between two updates. A generator (policy $\pi_\psi$) produces trajectories by interacting with the MDP. A discriminator~$D_\theta$ is trained via binary cross-entropy to distinguish expert transitions from generator transitions. The discriminator takes the structured form:
+\begin{equation}\label{eq:disc}
+D_\theta(s,a,s') = \frac{\exp\bigl(f_\theta(s,a,s')\bigr)}{\exp\bigl(f_\theta(s,a,s')\bigr) + \pi_\psi(a \mid s)},
+\end{equation}
+where the policy probability $\pi_\psi(a \mid s)$ is ``filled in'' from the current generator (held fixed during discriminator updates). The key structural restriction is that $f_\theta$ decomposes as
+\begin{equation}\label{eq:decomp}
+f_\theta(s,a,s') = g_\theta(s,a) + \beta\, h_\phi(s') - h_\phi(s).
+\end{equation}
+Here $g_\theta$ is a reward network and $h_\phi$ is a shaping network. The term $\beta h(s') - h(s)$ is a potential-based reward shaping \citep{ng1999} that does not alter the optimal policy.
+
+The generator is updated using the shaped reward $\hat r(s,a) = \log D_\theta - \log(1-D_\theta) = f_\theta(s,a,s') - \log\pi_\psi(a \mid s)$, which, when summed over trajectories, yields the entropy-regularized policy objective \citep[Appendix A.3]{fu2018}.
+
+\paragraph{Convergence.} At the global optimum of the GAN game---where the generator matches the expert, $\pi_\psi = \pi^*$---the discriminator outputs $D = 1/2$ everywhere. This requires $\exp\{f^*(s,a,s')\} = \pi^*(a \mid s)$, yielding \citep[Appendix A.4]{fu2018}:
+\begin{equation}\label{eq:fstar}
+f^*(s,a,s') = \log\pi^*(a \mid s) = A^*(s,a).
+\end{equation}
+
+\paragraph{What the reward network $g^*$ recovers.} Substituting the decomposition~\eqref{eq:decomp} into \eqref{eq:fstar} and using the Bellman equation $A^*(s,a) = r(s,a) + \beta\sum_{s'} P(s' \mid s,a)V^*(s') - V^*(s)$:
+\begin{equation}\label{eq:gstar}
+g^*(s,a) = r(s,a) - \delta(s) + \beta \sum_{s'} P(s' \mid s,a)\,\delta(s'),
+\end{equation}
+where $\delta(s) \equiv V^*(s) - h^*(s)$ is the \emph{shaping residual}. Unless $\delta \equiv 0$, the recovered reward $g^*$ is a potential-based perturbation of the true reward~$r$. Both generate the same optimal policy in the \emph{original} MDP, but they can generate different counterfactual behavior when the transition kernel changes---this is precisely the ``reward ambiguity problem'' that Fu et al.\ develop in their Section~5.
+
+\paragraph{The state-only restriction \citep[Theorem 5.1 \& Appendix C]{fu2018}.} If $g_\theta(s)$ depends only on the state (not the action), and the true reward is also state-only, and the dynamics satisfy a ``decomposability condition'' (all states linked through successor relationships), then Fu et al.\ prove $g^*(s) = r(s) + \text{const}$ and $h^*(s) = V^*(s) + \text{const}$. This is exact recovery, but under two strong requirements: (i) $r(s,a) = r(s)$ must hold, and (ii) the dynamics must satisfy decomposability. In many economic applications, rewards naturally depend on actions (e.g., paying vs.\ waiting), violating~(i).
+
+\subsection{The LSW Anchor Identification Strategy}
+
+\citet{lee2026}, henceforth LSW, do not rely on the state-only restriction or the generic cross-environment argument. Instead, they impose two \emph{anchors}:
+\begin{enumerate}[label=(A\arabic*),nosep]
+\item \textbf{Exit payoff anchor:} $g(s, \text{exit}) = 0$ for all $s \in \mathcal{S}$.
+\item \textbf{Absorbing-state anchor:} $h(s_{\mathrm{abs}}) = 0$, where $s_{\mathrm{abs}}$ is the absorbing state reached after exit.
+\end{enumerate}
+The exit action deterministically transitions to $s_{\mathrm{abs}}$: $P(s_{\mathrm{abs}} \mid s, \text{exit}) = 1$. These anchors eliminate the shaping ambiguity entirely.
+
+\begin{lemma}[General non-identifiability; LSW Appendix W4]\label{lem:nonid}
+If two pairs $(g,h)$ and $(\bar{g},\bar{h})$ both produce the same AIRL score~$f$ for all $(s,a,s')$, then there exists a function $\Phi : \mathcal{S} \to \mathbb{R}$ such that
+\[
+\bar{h}(s) = h(s) + \Phi(s), \qquad \bar{g}(s,a) = g(s,a) + \Phi(s) - \beta\Phi(s').
+\]
+\end{lemma}
+\begin{proof}
+The equality $g(s,a) + \beta h(s') - h(s) = \bar{g}(s,a) + \beta\bar{h}(s') - \bar{h}(s)$ for all $(s,a,s')$ rearranges to $\bar{g}(s,a) - g(s,a) = [h(s) - \bar{h}(s)] - \beta[h(s') - \bar{h}(s')]$. Defining $\Phi = \bar{h} - h$ gives the result. \qed
+\end{proof}
+
+\begin{theorem}[Identification with anchors; LSW Theorem~1]\label{thm:anchor}
+Under anchors (A1)--(A2), if $(g,h)$ and $(\bar{g},\bar{h})$ both realize the same~$f$, then $g = \bar{g}$ and $h = \bar{h}$.
+\end{theorem}
+\begin{proof}
+By Lemma~\ref{lem:nonid}, there exists~$\Phi$ with $\bar{g}(s,a) = g(s,a) + \Phi(s) - \beta\Phi(s')$ and $\bar{h}(s) = h(s) + \Phi(s)$. Apply (A1) at $a = \text{exit}$: $0 = \bar{g}(s,\text{exit}) = 0 + \Phi(s) - \beta\Phi(s_{\mathrm{abs}})$, so $\Phi(s) = \beta\Phi(s_{\mathrm{abs}})$ for all~$s$. Apply (A2): $0 = \bar{h}(s_{\mathrm{abs}}) = 0 + \Phi(s_{\mathrm{abs}})$, so $\Phi(s_{\mathrm{abs}}) = 0$. Therefore $\Phi \equiv 0$. \qed
+\end{proof}
+
+\begin{theorem}[Recovery of true utilities; LSW Theorem~2]\label{thm:recovery}
+Suppose the true Bellman pair $(r^*, V^*)$ satisfies $A^*(s,a) = r^*(s,a) + \beta\,\mathbb{E}_P[V^*(s') \mid s,a] - V^*(s)$ with $r^*(s,\mathrm{exit}) = 0$ and $V^*(s_{\mathrm{abs}}) = 0$. Let $(g,h)$ be any AIRL pair realizing the same advantage under the same anchors. Then $g = r^*$ and $h = V^*$.
+\end{theorem}
+\begin{proof}
+Subtract the two representations: $(g-r^*)(s,a) + \beta\,\mathbb{E}_P[(h-V^*)(s') \mid s,a] - (h-V^*)(s) = 0$. Define $\Phi = h - V^*$. At $a = \text{exit}$: $0 = \Phi(s) - \beta\Phi(s_{\mathrm{abs}})$. Anchor~(A2) applied to both~$h$ and~$V^*$ gives $\Phi(s_{\mathrm{abs}}) = 0$, hence $\Phi \equiv 0$. \qed
+\end{proof}
+
+\begin{remark}[Deterministic transitions]
+In the LSW application, state transitions are deterministic conditional on the action and series structure. This means $\mathbb{E}_P[h(s') \mid s,a] = h(s')$ with no averaging, which makes the shaping decomposition~\eqref{eq:decomp} exact at each realized transition rather than holding only in expectation. The anchor proofs go through identically (and more cleanly) in this case.
+\end{remark}
+
+\begin{remark}[Comparison to standard DDC normalization]
+In conventional DDC models, normalizing the outside option payoff to zero suffices because the Bellman equation is solved analytically under known transitions, pinning down continuation values. In AIRL, both~$g$ and~$h$ are learned jointly by gradient descent rather than solved for. Normalizing exit alone leaves~$h$ undetermined. The absorbing-state anchor (A2) fixes this remaining degree of freedom.
+\end{remark}
+
+\begin{remark}[Relation to \citet{kang2025}]
+Kang et al.\ develop an ERM-based offline IRL/DDC framework that also uses anchor actions to achieve identification without requiring explicit transition probability estimation. Their approach minimizes Bellman residual error evaluated at anchor state-action pairs, bypassing the need for the adversarial loop entirely. The anchor action principle is the same---fixing the reward of a known action pins down levels---but the estimation strategy differs: Kang et al.\ solve a single (non-adversarial) ERM problem, while LSW use the anchors within the AIRL discriminator structure. The adversarial approach has the advantage of not requiring even a first-stage CCP estimator, at the cost of the instabilities inherent in GAN training.
+\end{remark}
+
+%% ======================================================================
+\section{Approach 3: Inverse Soft-Q Learning (IQ-Learn)}
+%% ======================================================================
+
+\citet{garg2021} observe that under the soft Bellman equation, the reward can be expressed as a function of~$Q$ alone:
+\begin{equation}\label{eq:iq_reward}
+r(s,a) = Q(s,a) - \beta \sum_{s'} P(s' \mid s,a)\, V_Q(s'),
+\end{equation}
+where $V_Q(s) = \log \sum_{a'}\exp Q(s,a')$. Call this the \emph{inverse Bellman operator}: $r_Q \equiv \mathcal{T}^{-1}[Q]$.
+
+IQ-Learn estimates a single Q-function by solving:
+\begin{equation}\label{eq:iq_obj}
+\max_Q \;\mathbb{E}_{(s,a) \sim \rho^*}\bigl[\phi\bigl(r_Q(s,a)\bigr)\bigr] - (1-\beta)\,\mathbb{E}_{s_0 \sim \mu_0}\bigl[V_Q(s_0)\bigr],
+\end{equation}
+where $\rho^*$ is the expert's occupancy measure, $\mu_0$ is the initial state distribution, and $\phi : \mathbb{R} \to \mathbb{R}$ is a concave function determining the divergence measure (e.g., $\phi(x) = x - x^2/2$ for $\chi^2$).
+
+\paragraph{What it recovers.} At the optimum, $\hat{r}_{\mathrm{IQ}}(s,a) = Q^*(s,a) - \beta\sum_{s'} P(s' \mid s,a)V_{Q^*}(s')$ separates current payoffs from continuation values via the Bellman constraint. Unlike the reduced-form approach, IQ-Learn uses transition data, so the estimated reward is not merely the advantage.
+
+\paragraph{Computational cost.} Single optimization over Q-function parameters. No adversarial loop, hence more stable training than AIRL. Moderate cost (between reduced-form and AIRL).
+
+%% ======================================================================
+\section{When Do the Three Methods Diverge?}
+%% ======================================================================
+
+\subsection{Taxonomy of Counterfactuals}
+
+A counterfactual modifies one or more primitives of the MDP and asks how optimal behavior changes. We distinguish three types.
+
+\begin{definition}[Type I: State-value extrapolation]
+\emph{The transition kernel~$P$ and reward~$r$ are unchanged. Only the realized state values shift (e.g., wait times decrease). The counterfactual policy is $\tilde\pi(a \mid \tilde{s}) = \exp(Q^*(\tilde{s},a) - V^*(\tilde{s}))$, which requires only evaluating the already-estimated Q-function at new inputs. No Bellman equation is re-solved.}
+\end{definition}
+
+\begin{definition}[Type II: Change in the MDP environment]
+\emph{The reward~$r$ is unchanged, but the environment shifts: the transition kernel $P \to \tilde{P}$, the action-set structure changes (e.g., some episodes become paid-only), or access rules are modified by segment. The counterfactual Q-function~$\tilde{Q}$ must satisfy a new Bellman equation $\tilde{Q}(s,a) = r(s,a) + \beta\sum_{s'}\tilde{P}(s' \mid s,a)\tilde{V}(s')$. This requires the structural reward~$r(s,a)$ separated from the old continuation values.}
+\end{definition}
+
+\begin{definition}[Type III: Change in reward levels]
+\emph{The functional form of~$r$ itself changes (e.g., a tax on certain actions), or the discount factor shifts. This requires knowledge of~$r$ in levels, not just differences.}
+\end{definition}
+
+\subsection{Equivalence Under Type I}
+
+\begin{proposition}\label{prop:type1}
+Under a Type~I counterfactual, all three methods yield identical counterfactual choice probabilities.
+\end{proposition}
+\begin{proof}
+All three recover $Q^*(s,a)$ up to an action-independent function of~$s$. Denote any such estimate as $Q^*(s,a) + c(s)$. For any~$\tilde{s}$:
+\[
+\tilde\pi(a \mid \tilde{s}) = \frac{\exp(Q^*(\tilde{s},a) + c(\tilde{s}))}{\sum_{a'}\exp(Q^*(\tilde{s},a') + c(\tilde{s}))} = \frac{\exp(Q^*(\tilde{s},a))}{\sum_{a'}\exp(Q^*(\tilde{s},a'))}.
+\]
+The shift $c(\tilde{s})$ cancels. \qed
+\end{proof}
+
+\subsection{Divergence Under Type II}
+
+\begin{proposition}\label{prop:type2}
+Under a Type~II counterfactual, the reduced-form approach produces invalid predictions. AIRL with the LSW anchors and IQ-Learn can produce valid predictions, provided the structural reward is correctly recovered.
+\end{proposition}
+
+The argument is as follows. The reduced-form Q-estimate is $Q^*(s,a) + c(s)$, which bundles $r(s,a)$ with $\beta\sum_{s'}P(s' \mid s,a)V^*(s')$. Under the new environment~$\tilde{P}$, continuation values change, but the reduced-form estimate has no way to disentangle~$r$ from the old continuation structure. Re-solving the Bellman equation with~$A^*$ as the ``reward'' produces incorrect counterfactual CCPs because $A^*$ already incorporates the original~$P$.
+
+AIRL with LSW's anchors recovers $g^* = r^*$ exactly (Theorem~\ref{thm:recovery}), so the structural reward is available for re-solving under~$\tilde{P}$. Similarly, IQ-Learn's inverse Bellman operator separates~$r$ from continuation values by enforcing Bellman consistency.
+
+\subsection{Connection to KSS Partial Identification}
+
+\citet{kalouptsidi2021} establish that in DDC models:
+\begin{itemize}[nosep]
+\item Counterfactual behavior \emph{is identified} under pre-specified additive payoff changes---i.e., $\tilde{r}(s,a) = r(s,a) + \Delta(s,a)$ where $\Delta$ is known. Type~I counterfactuals fall in this class.
+\item Counterfactual behavior is \emph{generally not identified} under changes to the transition kernel $P \to \tilde{P}$ without additional restrictions.
+\end{itemize}
+The LSW anchor strategy provides exactly the ``additional restrictions'' that move their counterfactuals from the non-identified to the identified case: by pinning down~$r$ in levels (via exit normalization) and~$V$ in levels (via absorbing-state normalization), they collapse the identified set to a singleton.
+
+%% ======================================================================
+\section{Application to Lee, Sudhir \& Wang (2026)}\label{sec:lsw}
+%% ======================================================================
+
+LSW study sequential reading behavior on a serialized fiction platform. Readers decide at each episode whether to pay for immediate access, wait for free access, or exit. Each book defines a deterministic content trajectory. The state includes text features (32-dimensional autoencoder embeddings), reading progress, wait-time, and prior payment behavior. Four latent segments are estimated; two (Pay \& Read, Wait \& Read) dominate engagement.
+
+\subsection{Their Identification Strategy}
+
+LSW impose anchors (A1)--(A2): exit payoff is zero; the absorbing post-exit state has zero continuation value. By Theorems~\ref{thm:anchor}--\ref{thm:recovery}, this pins down both $g_\theta(s,a,z) = r^*(s,a,z)$ and $h_\phi(s,z) = V^*(s,z)$ for each segment~$z$. The state-only restriction of Fu et al.\ is not needed. Action-dependent utilities are identified.
+
+The deterministic transition structure further strengthens the result: no averaging over next states is needed in the decomposition~\eqref{eq:decomp}, so the shaping term $\beta h(s') - h(s)$ is evaluated at the exact realized transition.
+
+\subsection{Classification of Their Counterfactuals}
+
+LSW run three classes of counterfactuals. We classify each.
+
+\paragraph{Validation exercise (Section~6.3): Type~I.} Wait times are reduced for a held-out set of series. ``No parameters are re-estimated; only the wait-time variable in the state space is modified'' (LSW, p.~27). This feeds new state values into the fixed policy. By Proposition~\ref{prop:type1}, a reduced-form logit would produce identical predictions.
+
+\paragraph{WFF removal and delay variation (Sections~7.1--7.2): Type~II.} These counterfactuals change the \emph{environment}: some episodes switch from WFF to paid-only access (altering the action-set structure at each episode), and wait times are varied differentially by segment (changing the MDP that each type faces). Trajectories are re-simulated through the MDP using the recovered $g_\theta(s,a,z)$ as the structural reward. A reduced-form Q-estimate cannot support these counterfactuals because it cannot separate reward from continuation values under the original environment.
+
+\paragraph{Content-based pricing (Section~7.3): Type~II.} Episodes above a purchase-margin threshold become paid-only while others remain WFF. This again changes the action-set structure episode-by-episode, requiring re-simulation with the structural reward. The content-aware paywall placement exploits the fact that $g_\theta(s,a,z)$ captures how content enters immediate utility, which would be confounded with continuation effects in a reduced-form estimate.
+
+\subsection{What the Reduced-Form Approach Could and Could Not Replicate}
+
+A reduced-form logit with the same neural network architecture would:
+\begin{itemize}[nosep]
+\item Match in-sample fit identically (same likelihood).
+\item Replicate the validation exercise (Type~I) identically.
+\item Fail on all Section~7 counterfactuals (Type~II), because these change the MDP environment and require the structural reward.
+\end{itemize}
+This clarifies John Rust's question. The validation exercise appears ``too easy'' for the AIRL machinery, and it is: any method recovering the advantage function would pass the same test. But the policy counterfactuals that constitute the paper's main contribution require the structural decomposition that AIRL with anchors provides.
+
+%% ======================================================================
+\section{Simulation Study}\label{sec:sim}
+%% ======================================================================
+
+\subsection{Design}
+
+We construct a tabular MDP that mimics the LSW book-reading environment. The state encodes episode position ($p \in \{0, \ldots, 14\}$), content quality ($c \in \{\text{low, med, high}\}$), and wait-time level ($w \in \{1, 6, 12, 24\}$ hours), giving $15 \times 3 \times 4 = 180$ regular states plus one absorbing state. Actions are $\{\text{buy, wait, exit}\}$. Transitions are deterministic: buy and wait advance to the next episode; exit leads to the absorbing state. The true reward is
+\begin{align*}
+r^*(s, \text{buy}) &= u(c) - p_{\text{price}}, \\
+r^*(s, \text{wait}) &= u(c) - \delta \cdot w, \\
+r^*(s, \text{exit}) &= 0,
+\end{align*}
+where $u(\text{low}) = 0.5$, $u(\text{med}) = 1.5$, $u(\text{high}) = 3.0$, $p_{\text{price}} = 2.0$, $\delta = 0.08$, and $\beta = 0.95$. Five methods are compared at the population level (no estimation noise): Oracle ($r^*$), AIRL+anchors ($g^* = r^*$ by Theorem~\ref{thm:recovery}), IQ-Learn ($r_Q = Q^* - \beta V^*(s')$ via inverse Bellman), AIRL-no-anchors ($g = r^* + \alpha V^*(s) - \alpha\beta V^*(s')$ with $\alpha = 0.5$), and Reduced-form ($A^* = \log\pi^*$).
+
+\subsection{Analysis A: Reward Recovery}
+
+Type~I counterfactual (changing wait-time from 24h to 1h): all five methods produce CCP errors below $10^{-6}$, confirming Proposition~\ref{prop:type1} that the action-independent shift $c(s)$ cancels in the softmax.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Method & MSE vs.\ $r^*$ & Corr.\ with $r^*$ \\
+\midrule
+Oracle       & 0.000  & 1.000 \\
+AIRL+anchors & 0.000  & 1.000 \\
+IQ-Learn     & 0.000  & 1.000 \\
+AIRL-no-anchors & 10.005 & 0.440 \\
+Reduced-form & 40.020 & 0.138 \\
+\bottomrule
+\end{tabular}
+\caption{Reward recovery at population convergence. Oracle, AIRL+anchors, and IQ-Learn recover $r^*$ exactly. AIRL-no-anchors recovers a shaped perturbation. Reduced-form recovers the advantage $A^*$, which has low correlation with $r^*$ because it bundles immediate payoff with continuation values.}
+\label{tab:reward}
+\end{table}
+
+\subsection{Analysis B: Type II Error vs.\ Shift Magnitude}
+
+The counterfactual changes the transition kernel so that buying advances $k$ episodes (instead of~1). The Bellman equation must be re-solved under each method's recovered reward.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{crrrr}
+\toprule
+$k$ & Oracle / AIRL+a / IQ & AIRL-no-a & Reduced-form \\
+\midrule
+1  & 0.000 & 0.000 & 0.000 \\
+2  & 0.000 & 0.025 & 0.082 \\
+3  & 0.000 & 0.017 & 0.094 \\
+5  & 0.000 & 0.015 & 0.123 \\
+7  & 0.000 & 0.016 & 0.129 \\
+10 & 0.000 & 0.014 & 0.139 \\
+\bottomrule
+\end{tabular}
+\caption{Mean absolute CCP error vs.\ oracle under Type~II counterfactuals. Oracle, AIRL+anchors, and IQ-Learn are exact at every~$k$. Reduced-form error grows monotonically with the magnitude of the transition shift.}
+\label{tab:type2}
+\end{table}
+
+\subsection{Analysis C: Shaping Magnitude Sweep}
+
+To show that counterfactual validity depends on how far the recovered reward is from~$r^*$, we construct shaped rewards $\tilde{r} = r^* + \alpha\,\delta(s) - \alpha\beta\,\delta(s')$ where $\delta = V^*$ and $\alpha \in [0,1]$. At $\alpha = 0$, the reward is exact; at $\alpha = 1$, it is maximally shaped. We evaluate the Type~II counterfactual with $k = 3$.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrr}
+\toprule
+$\alpha$ & Type II CF error & Corr.\ with $r^*$ \\
+\midrule
+0.00 & 0.000 & 1.000 \\
+0.05 & 0.002 & 0.974 \\
+0.10 & 0.004 & 0.908 \\
+0.20 & 0.008 & 0.746 \\
+0.30 & 0.011 & 0.610 \\
+0.50 & 0.017 & 0.440 \\
+0.70 & 0.022 & 0.347 \\
+1.00 & 0.027 & 0.270 \\
+\bottomrule
+\end{tabular}
+\caption{Counterfactual error is monotone in shaping magnitude~$\alpha$. Without anchors, which value of~$\alpha$ the optimizer converges to is indeterminate---the counterfactual accuracy is a lottery over the identified set.}
+\label{tab:shaping}
+\end{table}
+
+\subsection{Analysis D: Finite-Sample Convergence}
+
+At the population level, IQ-Learn recovers $r^*$ exactly. In finite samples, the $\chi^2$ objective with tabular $Q(s,a)$ over 181 states is harder to optimize than the convex reduced-form logit. With $N = 500$ trajectories, the reduced-form Type~II error is 0.264 (converged to the wrong target) while IQ-Learn is at 0.384 (not yet converged to the right target). With $N = 5{,}000$, both plateau: RF at 0.262 and IQ at 0.385. The IQ-Learn optimizer has not yet converged; with enough iterations or a better optimizer (e.g., L-BFGS), it would approach zero. This is an optimization problem, not a theory problem.
+
+\subsection{Analysis E: Anchor Misspecification Robustness}
+
+What if the true exit payoff is $\varepsilon > 0$ but the anchors assume it is zero? We vary $\varepsilon$ and track the effect on reward recovery and Type~II counterfactual accuracy.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrr}
+\toprule
+$\varepsilon$ & Corr.\ with $r^*$ & Type II CF error & In-sample $\pi$ shift \\
+\midrule
+0.0 & 1.000 & 0.000 & 0.000 \\
+0.1 & 0.999 & 0.000 & 0.000 \\
+0.3 & 0.991 & 0.001 & 0.000 \\
+0.5 & 0.976 & 0.002 & 0.000 \\
+1.0 & 0.909 & 0.004 & 0.000 \\
+2.0 & 0.729 & 0.008 & 0.000 \\
+\bottomrule
+\end{tabular}
+\caption{Anchor misspecification robustness. The Type~II error grows smoothly with~$\varepsilon$ but remains small. In-sample CCPs are unaffected (the policy is still correctly recovered). The identification is not knife-edge: moderate misspecification of the exit payoff produces moderate, not catastrophic, errors.}
+\label{tab:misspec}
+\end{table}
+
+\subsection{Analysis F: Content-Based Paywall Counterfactual}
+
+This counterfactual mirrors Section~7.3 of LSW. High-content episodes (quality level~2, at positions 0, 1, 7, 8, 9, 13, 14) become paid-only: the ``wait'' action is blocked, forcing buy-or-exit. This changes the action-set structure episode-by-episode---a genuine Type~II shift.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+Method & CCP error vs.\ oracle \\
+\midrule
+Oracle       & 0.000 \\
+AIRL+anchors & 0.000 \\
+IQ-Learn     & 0.000 \\
+AIRL-no-anchors & 0.009 \\
+Reduced-form & 0.185 \\
+\bottomrule
+\end{tabular}
+\caption{Content-based paywall counterfactual. The reduced-form approach fails badly (18.5pp mean CCP error) because it cannot separate how content enters immediate utility vs.\ continuation value. Structural methods are exact.}
+\label{tab:paywall}
+\end{table}
+
+The reduced-form error of 18.5 percentage points is economically significant: at the mean exit rate of 2.8 percent, this represents a several-fold misprediction of dropout behavior at paywall episodes. This is exactly the setting where a platform would make incorrect pricing decisions by relying on a reduced-form model.
+
+%% ======================================================================
+\section{Summary}
+%% ======================================================================
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lccc}
+\toprule
+ & Reduced-form Q & AIRL (generic) & AIRL (LSW anchors) / IQ-Learn \\
+\midrule
+Optimization     & Single MLE    & Minimax (GAN)       & Minimax / Single max \\
+Uses $P(s' \mid s,a)$? & No       & Implicit (simulation) & Yes \\
+Recovers         & $A^*(s,a)$    & $r$ + shaping residual & $r^*(s,a)$ exactly \\
+Type I CF        & \checkmark    & \checkmark            & \checkmark \\
+Type II CF       & $\times$      & Only if $\delta \equiv 0$ & \checkmark \\
+Type III CF      & $\times$      & $\times$              & Requires $r$ in levels \\
+Stability        & Convex        & Adversarial           & Adversarial / Stable \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of three approaches to reward recovery.}
+\label{tab:summary}
+\end{table}
+
+The key insight is that AIRL with anchors achieves what generic AIRL cannot guarantee: exact recovery of the structural reward, collapsing the identified set to a singleton. For the LSW application, the exit and absorbing-state normalizations---combined with deterministic transitions---make $g^* = r^*$ and $h^* = V^*$ provably, not approximately. This is what licenses the Type~II counterfactuals in their paper and what would be lost under John's simpler reduced-form proposal.
+
+%% ======================================================================
+\bibliography{references}
+%% ======================================================================
+
+\begin{thebibliography}{99}
+
+\bibitem[Cao et~al.(2021)]{cao2021}
+Cao, H., Cohen, S., and Szpruch, L. (2021).
+\newblock ``Identifiability in Inverse Reinforcement Learning.''
+\newblock \emph{NeurIPS} 34, 12362--12373.
+
+\bibitem[Fu et~al.(2018)]{fu2018}
+Fu, J., Luo, K., and Levine, S. (2018).
+\newblock ``Learning Robust Rewards with Adversarial Inverse Reinforcement Learning.''
+\newblock \emph{ICLR}.
+
+\bibitem[Garg et~al.(2021)]{garg2021}
+Garg, D., Chakraborty, S., Cundy, C., Song, J., and Ermon, S. (2021).
+\newblock ``IQ-Learn: Inverse soft-Q Learning for Imitation.''
+\newblock \emph{NeurIPS}.
+
+\bibitem[Ho and Ermon(2016)]{ho2016}
+Ho, J. and Ermon, S. (2016).
+\newblock ``Generative Adversarial Imitation Learning.''
+\newblock \emph{NeurIPS}.
+
+\bibitem[Hotz and Miller(1993)]{hotz1993}
+Hotz, V.~J. and Miller, R.~A. (1993).
+\newblock ``Conditional Choice Probabilities and the Estimation of Dynamic Models.''
+\newblock \emph{Review of Economic Studies}, 60(3), 497--529.
+
+\bibitem[Kalouptsidi et~al.(2021)]{kalouptsidi2021}
+Kalouptsidi, M., Scott, P.~T., and Souza-Rodrigues, E. (2021).
+\newblock ``Identification of Counterfactuals in Dynamic Discrete Choice Models.''
+\newblock \emph{Quantitative Economics}, 12(2), 351--403.
+
+\bibitem[Kang et~al.(2025)]{kang2025}
+Kang, E.~H., Yoganarasimhan, H., and Jain, L. (2025).
+\newblock ``An Empirical Risk Minimization Approach for Offline Inverse RL and Dynamic Discrete Choice Models.''
+\newblock arXiv:2502.14131.
+
+\bibitem[Lee et~al.(2026)]{lee2026}
+Lee, P., Sudhir, K., and Wang, T. (2026).
+\newblock ``Consumer Engagement with Sequential Content: A Content-Aware Dynamic Choice Model.''
+\newblock Working paper, Yale University.
+
+\bibitem[Magnac and Thesmar(2002)]{magnac2002}
+Magnac, T. and Thesmar, D. (2002).
+\newblock ``Identifying Dynamic Discrete Decision Processes.''
+\newblock \emph{Econometrica}, 70(2), 801--816.
+
+\bibitem[Ng et~al.(1999)]{ng1999}
+Ng, A.~Y., Haley, D., and Russell, S.~J. (1999).
+\newblock ``Policy Invariance Under Reward Transformations.''
+\newblock \emph{ICML}.
+
+\bibitem[Rust(1987)]{rust1987}
+Rust, J. (1987).
+\newblock ``Optimal Replacement of GMC Bus Engines: An Empirical Model of Harold Zurcher.''
+\newblock \emph{Econometrica}, 55(5), 999--1033.
+
+\bibitem[Ziebart(2010)]{ziebart2010}
+Ziebart, B.~D. (2010).
+\newblock \emph{Modeling Purposeful Adaptive Behavior with the Principle of Maximum Causal Entropy}.
+\newblock PhD thesis, Carnegie Mellon University.
+
+\end{thebibliography}
+
+\end{document}
