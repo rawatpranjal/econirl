@@ -20,7 +20,7 @@ import time
 import traceback
 
 import numpy as np
-import torch
+import jax.numpy as jnp
 
 from econirl.environments.rust_bus import RustBusEnvironment
 from econirl.preferences.linear import LinearUtility
@@ -43,13 +43,13 @@ CSV_COLUMNS = [
 
 
 def cosine_sim(a, b):
-    a = torch.as_tensor(a, dtype=torch.float64).flatten()
-    b = torch.as_tensor(b, dtype=torch.float64).flatten()
-    dot = (a @ b)
-    norm = a.norm() * b.norm()
+    a = jnp.asarray(a, dtype=jnp.float64).flatten()
+    b = jnp.asarray(b, dtype=jnp.float64).flatten()
+    dot = jnp.dot(a, b)
+    norm = jnp.linalg.norm(a) * jnp.linalg.norm(b)
     if norm < 1e-15:
         return float("nan")
-    return (dot / norm).item()
+    return float(dot / norm)
 
 
 def setup():
@@ -61,7 +61,7 @@ def setup():
     utility = LinearUtility.from_environment(env)
     problem = env.problem_spec
     transitions = env.transition_matrices
-    true_params = torch.tensor([0.001, 3.0])
+    true_params = jnp.array([0.001, 3.0])
 
     panel = simulate_panel(env, n_individuals=N_INDIVIDUALS, n_periods=N_PERIODS, seed=SEED)
     n_obs = sum(len(t.states) for t in panel.trajectories)
@@ -69,8 +69,8 @@ def setup():
     # Compute true policy for comparison
     from econirl.core.bellman import SoftBellmanOperator
     from econirl.core.solvers import policy_iteration
-    operator = SoftBellmanOperator(problem, transitions.double())
-    true_reward = utility.compute(true_params.float()).double()
+    operator = SoftBellmanOperator(problem, jnp.asarray(transitions, dtype=jnp.float64))
+    true_reward = jnp.asarray(utility.compute(jnp.asarray(true_params, dtype=jnp.float32)), dtype=jnp.float64)
     true_result = policy_iteration(operator, true_reward, tol=1e-10, max_iter=200, eval_method="matrix")
     true_policy = true_result.policy
 
@@ -230,10 +230,10 @@ def run_one(name, estimator, panel, utility, problem, transitions,
 
         if result.policy is not None and true_policy is not None:
             try:
-                pol = result.policy.float()
-                tp = true_policy.float()
+                pol = jnp.asarray(result.policy, dtype=jnp.float32)
+                tp = jnp.asarray(true_policy, dtype=jnp.float32)
                 if pol.shape == tp.shape:
-                    row["max_policy_diff"] = f"{(pol - tp).abs().max().item():.6f}"
+                    row["max_policy_diff"] = f"{float(jnp.abs(pol - tp).max()):.6f}"
             except Exception:
                 pass
 

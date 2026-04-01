@@ -17,7 +17,7 @@ Experiments:
 
 import time
 import numpy as np
-import torch
+import jax.numpy as jnp
 
 from econirl.environments.gridworld import GridworldEnvironment
 from econirl.core.types import DDCProblem, Panel
@@ -46,12 +46,12 @@ def make_env(stochastic=False, noise=0.0, seed=42):
     )
     if stochastic and noise > 0:
         # Add noise to transitions: with prob `noise`, random action instead
-        trans = env.transition_matrices.clone()
-        uniform = torch.ones(N_ACTIONS, N_STATES, N_STATES) / N_STATES
+        trans = jnp.array(env.transition_matrices)
+        uniform = jnp.ones((N_ACTIONS, N_STATES, N_STATES)) / N_STATES
         trans = (1 - noise) * trans + noise * uniform
         # Re-normalize rows
         for a in range(N_ACTIONS):
-            trans[a] = trans[a] / trans[a].sum(dim=1, keepdim=True)
+            trans = trans.at[a].set(trans[a] / trans[a].sum(axis=1, keepdims=True))
         return env, trans
     return env, env.transition_matrices
 
@@ -67,13 +67,14 @@ def make_rsa_features(env):
 def make_rs_features(env):
     """R(s) features: state-only, 2 features (step_penalty_indicator, distance)."""
     n_states = env.num_states
-    features = torch.zeros(n_states, 2)
+    features_np = np.zeros((n_states, 2))
     terminal = env.terminal_state
     for s in range(n_states):
         if s != terminal:
-            features[s, 0] = 1.0  # step penalty indicator
+            features_np[s, 0] = 1.0  # step penalty indicator
             dist = abs(s // GRID_SIZE - (GRID_SIZE - 1)) + abs(s % GRID_SIZE - (GRID_SIZE - 1))
-            features[s, 1] = -dist / (2.0 * GRID_SIZE)  # distance feature
+            features_np[s, 1] = -dist / (2.0 * GRID_SIZE)
+    features = jnp.array(features_np)  # distance feature
     return LinearReward(
         state_features=features,
         parameter_names=["step_penalty", "distance_weight"],
@@ -85,17 +86,17 @@ def compute_pct_optimal(policy, env, transitions):
     """Compute % of optimal value achieved by a policy."""
     problem = env.problem_spec
     operator = SoftBellmanOperator(problem, transitions)
-    true_params_vec = torch.tensor(list(TRUE_PARAMS.values()))
-    true_reward = torch.einsum("sak,k->sa", env.feature_matrix, true_params_vec)
+    true_params_vec = jnp.array(list(TRUE_PARAMS.values()))
+    true_reward = jnp.einsum("sak,k->sa", env.feature_matrix, true_params_vec)
     # Optimal value
     sol_opt = value_iteration(operator, true_reward, tol=1e-10, max_iter=5000)
     V_opt = sol_opt.V
     # Policy reward: r_pi(s) = Σ_a π(a|s) r(s,a)
-    r_pi = (policy * true_reward).sum(dim=1)  # (S,)
+    r_pi = (policy * true_reward).sum(axis=1)  # (S,)
     # Policy transitions: P_pi(s'|s) = Σ_a π(a|s) P(s'|s,a)
-    P_pi = torch.einsum("sa,ast->st", policy, transitions)
-    I = torch.eye(N_STATES)
-    V_pi = torch.linalg.solve(I - problem.discount_factor * P_pi, r_pi)
+    P_pi = jnp.einsum("sa,ast->st", policy, transitions)
+    I = jnp.eye(N_STATES)
+    V_pi = jnp.linalg.solve(I - problem.discount_factor * P_pi, r_pi)
     # % optimal
     denom = V_opt.mean().item()
     if abs(denom) < 1e-8:
@@ -121,7 +122,7 @@ def run_estimator(name, est_class, panel, utility, problem, transitions, true_pa
             "params": {n: params[i].item() for i, n in enumerate(utility.parameter_names)} if params is not None else {},
         }
         if true_params_vec is not None and params is not None:
-            rmse = torch.sqrt(torch.mean((params - true_params_vec) ** 2)).item()
+            rmse = float(jnp.sqrt(jnp.mean((params - true_params_vec) ** 2)))
             info["param_rmse"] = rmse
 
         if result.policy is not None:
@@ -162,7 +163,7 @@ def experiment_rsa_insample():
     panel = simulate_panel(env, n_individuals=200, n_periods=100, seed=42)
     problem = env.problem_spec
     utility = make_rsa_features(env)
-    true_vec = torch.tensor(list(TRUE_PARAMS.values()))
+    true_vec = jnp.array(list(TRUE_PARAMS.values()))
 
     from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
     from econirl.estimation.nfxp import NFXPEstimator
@@ -195,7 +196,7 @@ def experiment_rsa_transfer():
     panel = simulate_panel(env_train, n_individuals=200, n_periods=100, seed=42)
     problem = env_train.problem_spec
     utility = make_rsa_features(env_train)
-    true_vec = torch.tensor(list(TRUE_PARAMS.values()))
+    true_vec = jnp.array(list(TRUE_PARAMS.values()))
 
     from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
     from econirl.estimation.nfxp import NFXPEstimator
@@ -216,7 +217,7 @@ def experiment_rsa_transfer():
 
     for name, info in [("MCE IRL", r_mce), ("NFXP-NK", r_nfxp)]:
         if "params" in info and info["params"]:
-            params_vec = torch.tensor([info["params"][n] for n in utility.parameter_names])
+            params_vec = jnp.array([info["params"][n] for n in utility.parameter_names])
             reward_matrix = utility.compute(params_vec)
             sol = value_iteration(operator_test, reward_matrix, tol=1e-10, max_iter=5000)
             policy_test = sol.policy
@@ -280,7 +281,7 @@ def experiment_rs_transfer():
     # Transfer: apply R(s) to stochastic grid
     _, trans_test = make_env(stochastic=True, noise=0.1)
     if "params" in r_mce and r_mce["params"]:
-        params_vec = torch.tensor([r_mce["params"][n] for n in utility_rs.parameter_names])
+        params_vec = jnp.array([r_mce["params"][n] for n in utility_rs.parameter_names])
         # R(s) reward: expand to (S, A) for policy computation
         reward_sa = utility_rs.compute(params_vec)  # Should be (S, A)
         operator_test = SoftBellmanOperator(problem, trans_test)

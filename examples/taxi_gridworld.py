@@ -20,8 +20,7 @@ Run: python examples/taxi_gridworld.py
 import time
 
 import numpy as np
-import torch
-import torch.nn.functional as F
+import jax.numpy as jnp
 
 from econirl.core.bellman import SoftBellmanOperator
 from econirl.core.solvers import hybrid_iteration
@@ -35,12 +34,16 @@ from econirl.preferences.action_reward import ActionDependentReward
 from econirl.simulation.synthetic import simulate_panel, simulate_panel_from_policy
 
 
-def cosine_sim(a: torch.Tensor, b: torch.Tensor) -> float:
+def cosine_sim(a: jnp.ndarray, b: jnp.ndarray) -> float:
     """Compute cosine similarity between two vectors."""
-    return F.cosine_similarity(a.unsqueeze(0), b.unsqueeze(0)).item()
+    a = jnp.asarray(a, dtype=jnp.float32).flatten()
+    b = jnp.asarray(b, dtype=jnp.float32).flatten()
+    dot = jnp.dot(a, b)
+    norm = jnp.linalg.norm(a) * jnp.linalg.norm(b)
+    return float(dot / norm)
 
 
-def build_action_dependent_features(grid_size: int) -> tuple[torch.Tensor, list[str], torch.Tensor]:
+def build_action_dependent_features(grid_size: int) -> tuple[jnp.ndarray, list[str], jnp.ndarray]:
     """Build well-identified action-dependent features for the gridworld.
 
     The gridworld environment's built-in features are mostly state-only
@@ -67,7 +70,7 @@ def build_action_dependent_features(grid_size: int) -> tuple[torch.Tensor, list[
     deltas = [(0, -1), (0, 1), (-1, 0), (1, 0), (0, 0)]
 
     names = ["move_cost", "goal_approach", "northward", "eastward"]
-    features = torch.zeros(n_states, 5, 4)
+    features_np = np.zeros((n_states, 5, 4))
 
     for s in range(n_states):
         r, c = s // grid_size, s % grid_size
@@ -82,35 +85,36 @@ def build_action_dependent_features(grid_size: int) -> tuple[torch.Tensor, list[
             nd = abs(nr - goal_r) + abs(nc - goal_c)
 
             # Feature 0: move_cost (-1 if actually moved)
-            features[s, a, 0] = -1.0 if ns != s else 0.0
+            features_np[s, a, 0] = -1.0 if ns != s else 0.0
 
             # Feature 1: goal_approach (+1 closer, -1 farther)
             if ns != s:
-                features[s, a, 1] = 1.0 if nd < d else -1.0
+                features_np[s, a, 1] = 1.0 if nd < d else -1.0
             else:
-                features[s, a, 1] = 0.0
+                features_np[s, a, 1] = 0.0
 
             # Feature 2: northward (+1 for Up action, -1 for Down)
             if a == 2:  # Up
-                features[s, a, 2] = 1.0
+                features_np[s, a, 2] = 1.0
             elif a == 3:  # Down
-                features[s, a, 2] = -1.0
+                features_np[s, a, 2] = -1.0
 
             # Feature 3: eastward (+1 for Right, -1 for Left)
             if a == 1:  # Right
-                features[s, a, 3] = 1.0
+                features_np[s, a, 3] = 1.0
             elif a == 0:  # Left
-                features[s, a, 3] = -1.0
+                features_np[s, a, 3] = -1.0
 
-    true_params = torch.tensor([-0.5, 2.0, 0.1, 0.1])
+    features = jnp.array(features_np)
+    true_params = jnp.array([-0.5, 2.0, 0.1, 0.1])
     return features, names, true_params
 
 
 def generate_panel(
     grid_size: int,
-    true_params: torch.Tensor,
-    features: torch.Tensor,
-    transitions: torch.Tensor,
+    true_params: jnp.ndarray,
+    features: jnp.ndarray,
+    transitions: jnp.ndarray,
     n_individuals: int,
     n_periods: int,
     seed: int,
@@ -129,8 +133,7 @@ def generate_panel(
     operator = SoftBellmanOperator(problem, transitions)
     result = hybrid_iteration(operator, reward_matrix, tol=1e-10)
 
-    initial_dist = torch.zeros(n_states)
-    initial_dist[0] = 1.0
+    initial_dist = jnp.zeros(n_states).at[0].set(1.0)
 
     return simulate_panel_from_policy(
         problem=problem,
@@ -235,7 +238,7 @@ def run_small_grid():
             elapsed = time.time() - t0
             params = result.parameters
             cos = cosine_sim(params, true_params)
-            rmse = torch.sqrt(torch.mean((params - true_params) ** 2)).item()
+            rmse = float(jnp.sqrt(jnp.mean((params - true_params) ** 2)))
             results[name] = {
                 "params": params,
                 "cosine_sim": cos,
@@ -328,12 +331,12 @@ def run_large_grid():
     print("\n  Running MCEIRLNeural...")
 
     # State encoder: map state index to normalized (row, col)
-    def state_encoder(s: torch.Tensor, gs=grid_size) -> torch.Tensor:
+    def state_encoder(s: jnp.ndarray, gs=grid_size) -> jnp.ndarray:
         """Encode state indices to normalized (row, col) features."""
-        s_long = s.long()
-        row = (s_long // gs).float() / (gs - 1)
-        col = (s_long % gs).float() / (gs - 1)
-        return torch.stack([row, col], dim=-1)
+        s_int = jnp.asarray(s, dtype=jnp.int32)
+        row = (s_int // gs).astype(jnp.float32) / (gs - 1)
+        col = (s_int % gs).astype(jnp.float32) / (gs - 1)
+        return jnp.stack([row, col], axis=-1)
 
     t0 = time.time()
     try:
@@ -363,12 +366,12 @@ def run_large_grid():
 
         # Extract projected parameters
         if model.params_ is not None:
-            proj_params = torch.tensor(
+            proj_params = jnp.array(
                 [model.params_[n] for n in param_names],
-                dtype=torch.float32,
+                dtype=jnp.float32,
             )
             cos = cosine_sim(proj_params, true_params)
-            rmse = torch.sqrt(torch.mean((proj_params - true_params) ** 2)).item()
+            rmse = float(jnp.sqrt(jnp.mean((proj_params - true_params) ** 2)))
         else:
             proj_params = None
             cos = float("nan")
@@ -430,7 +433,7 @@ def run_large_grid():
         elapsed = time.time() - t0
         params = result.parameters
         cos = cosine_sim(params, true_params)
-        rmse = torch.sqrt(torch.mean((params - true_params) ** 2)).item()
+        rmse = float(jnp.sqrt(jnp.mean((params - true_params) ** 2)))
         results["MCE-IRL (tabular)"] = {
             "params": params,
             "cosine_sim": cos,
