@@ -1,6 +1,6 @@
 [project]
 name = "econirl"
-version = "0.0.2"
+version = "0.0.3"
 description = "Behavioral inference. IRL and DDC with standard errors."
 readme = "README.md"
 license = "MIT"

@@ -25,7 +25,11 @@ from econirl.core.types import DDCProblem, Panel
 from econirl.datasets.icu_sepsis import load_icu_sepsis
 from econirl.environments.icu_sepsis import ICUSepsisEnvironment
 from econirl.estimation.ccp import CCPEstimator
+from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
 from econirl.estimation.nfxp import NFXPEstimator
+from econirl.inference import etable
+from econirl.inference.fit_metrics import brier_score, kl_divergence
+from econirl.inference.hypothesis_tests import vuong_test
 from econirl.preferences.linear import LinearUtility
 from econirl.simulation.counterfactual import counterfactual_policy, elasticity_analysis
 
