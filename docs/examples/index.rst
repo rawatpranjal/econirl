@@ -25,6 +25,7 @@ Optimal stopping problems where an agent decides when to replace or maintain dur
 
    rust_bus
    scania_component
+   rdw_scrappage
 
 Healthcare
 ----------

@@ -43,6 +43,8 @@ autolab/FINDINGS.md
 # Large data files
 data/raw/
 data/samples/
+src/econirl/datasets/rdw_scrappage_data.csv
+src/econirl/datasets/rdw_intermediate/
 
 # Cache
 cache/

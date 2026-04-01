@@ -37,6 +37,7 @@ from econirl.datasets.equipment_replacement import load_equipment_replacement
 from econirl.datasets.icu_sepsis import load_icu_sepsis, load_icu_sepsis_mdp, get_icu_sepsis_info
 from econirl.datasets.supermarket import load_supermarket, get_supermarket_info
 from econirl.datasets.keane_wolpin import load_keane_wolpin, get_keane_wolpin_info
+from econirl.datasets.rdw_scrappage import load_rdw_scrappage, get_rdw_scrappage_info
 from econirl.datasets.scania import load_scania, get_scania_info
 
 # Hybrid datasets (real data + synthetic fallback)
@@ -81,6 +82,8 @@ __all__ = [
     "load_equipment_replacement",
     "load_keane_wolpin",
     "get_keane_wolpin_info",
+    "load_rdw_scrappage",
+    "get_rdw_scrappage_info",
     "load_scania",
     "get_scania_info",
     "load_supermarket",

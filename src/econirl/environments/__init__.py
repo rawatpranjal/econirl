@@ -11,6 +11,7 @@ from econirl.environments.icu_sepsis import ICUSepsisEnvironment
 from econirl.environments.instacart import InstacartEnvironment
 from econirl.environments.multi_component_bus import MultiComponentBusEnvironment
 from econirl.environments.objectworld import ObjectworldEnvironment
+from econirl.environments.rdw_scrappage import RDWScrapageEnvironment
 from econirl.environments.rust_bus import RustBusEnvironment
 from econirl.environments.scania import ScaniaComponentEnvironment
 from econirl.environments.supermarket import SupermarketEnvironment
@@ -27,6 +28,7 @@ __all__ = [
     "InstacartEnvironment",
     "MultiComponentBusEnvironment",
     "ObjectworldEnvironment",
+    "RDWScrapageEnvironment",
     "RustBusEnvironment",
     "ScaniaComponentEnvironment",
     "SupermarketEnvironment",

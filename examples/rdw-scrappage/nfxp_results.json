@@ -1,0 +1,36 @@
+{
+  "dataset": "RDW Vehicle Scrappage (VW Golf 2005-2015)",
+  "source": "opendata.rdw.nl",
+  "n_vehicles": 170852,
+  "n_observations": 2009144,
+  "n_exits": 17106,
+  "n_defect_records": 447296,
+  "estimation_subsample": 5000,
+  "estimator": "NFXP (BHHH, policy iteration)",
+  "discount_factor": 0.95,
+  "parameters": {
+    "age_cost": {
+      "estimate": 0.1148,
+      "se": 0.0067,
+      "t_stat": 17.16
+    },
+    "minor_defect_cost": {
+      "estimate": -0.1601,
+      "se": 0.1226,
+      "t_stat": -1.31
+    },
+    "major_defect_cost": {
+      "estimate": 0.3729,
+      "se": 0.1437,
+      "t_stat": 2.6
+    },
+    "replacement_cost": {
+      "estimate": 8.5358,
+      "se": 0.2449,
+      "t_stat": 34.86
+    }
+  },
+  "log_likelihood": -2833.21,
+  "prediction_accuracy": 0.992,
+  "nfxp_npl_agreement_dLL": 3.23
+}
