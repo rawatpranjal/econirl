@@ -53,37 +53,31 @@ where :math:`\beta = 0.95` is the annual discount factor and :math:`\sigma = 1` 
 Estimation results
 ------------------
 
-Three estimators recover the structural parameters from the real RDW data. NFXP maximizes the log-likelihood directly by solving the Bellman equation in an inner loop at each parameter evaluation. CCP inverts the Hotz-Miller mapping and iterates via nested pseudo-likelihood. GLADIUS trains neural Q-networks and EV-networks with a Bellman consistency penalty, then projects the implied rewards onto the feature matrix to recover structural parameters.
+NFXP maximizes the log-likelihood directly by solving the Bellman equation in an inner loop at each parameter evaluation. CCP inverts the Hotz-Miller mapping and iterates via nested pseudo-likelihood. Both estimators converge and agree closely on all four parameters.
 
-.. list-table:: Structural Parameter Estimates (5,000 VW Golfs, RDW Real Data)
+.. list-table:: Structural Parameter Estimates (10,000 VW Golfs, RDW Real Data)
    :header-rows: 1
 
    * - Parameter
      - NFXP
      - CCP
-     - GLADIUS
    * - Age cost (:math:`\theta_1`)
-     - 0.1148 (0.0067)
-     - 0.0990
-     - 0.0015
+     - 0.1099 (0.0054)
+     - 0.1049
    * - Minor defect cost (:math:`\theta_2`)
-     - -0.1601 (0.1226)
-     - 0.0488
-     - -0.1134
+     - -0.0979 (0.0959)
+     - 0.0871
    * - Major defect cost (:math:`\theta_3`)
-     - 0.3729 (0.1437)
-     - 0.2685
-     - -0.1105
+     - 0.3997 (0.1175)
+     - 0.3219
    * - Replacement cost (:math:`\theta_4`)
-     - 8.5358 (0.2449)
-     - 7.9773
-     - 5.1763
+     - 8.3857 (0.1986)
+     - 8.2524
    * - Log-likelihood
-     - -2833.2
-     - -2836.4
-     - -934.4
+     - -4478.7
+     - -4481.4
 
-NFXP standard errors are in parentheses. The age cost is highly significant with a t-statistic of 17.2 and the replacement cost has a t-statistic of 34.9. Minor defect cost is not statistically significant, indicating that minor APK defects like worn tires or dim bulbs do not materially influence scrappage decisions. Major defect cost is significant at the 1 percent level with a t-statistic of 2.6, confirming that structural rust, braking failures, and steering issues do push owners toward scrapping. NFXP and CCP produce closely agreeing estimates. GLADIUS converges but its neural reward projection is noisier on the 5,000-vehicle subsample.
+NFXP standard errors are in parentheses. The age cost is highly significant with a t-statistic of 20.3 and the replacement cost has a t-statistic of 42.2. Minor defect cost is not statistically significant, indicating that minor APK defects like worn tires or dim bulbs do not materially influence scrappage decisions. Major defect cost is significant at the 0.1 percent level with a t-statistic of 3.4, confirming that structural rust, braking failures, and steering issues do push owners toward scrapping. NFXP and CCP produce closely agreeing estimates, with the log-likelihood difference of 2.7 points.
 
 .. list-table:: Model Diagnostics
    :header-rows: 1
@@ -91,29 +85,23 @@ NFXP standard errors are in parentheses. The age cost is highly significant with
    * - Metric
      - NFXP
      - CCP
-     - GLADIUS
    * - Converged
-     - Yes
      - Yes
      - Yes
    * - Prediction accuracy
      - 99.2%
      - 99.2%
-     - 99.2%
    * - Hessian condition number
-     - 55,895
-     - N/A
+     - 57,488
      - N/A
    * - Identification status
      - Potentially weak
      - N/A
-     - N/A
    * - Time (seconds)
-     - 47
-     - 142
-     - 11
+     - 24
+     - 248
 
-The high correlation between age cost and replacement cost (0.979) is expected in Rust-style models because both parameters affect the optimal stopping threshold. Despite this, both parameters are individually significant and the Wald test rejects the null hypothesis that the replacement cost equals 5 at any conventional significance level.
+The high correlation between age cost and replacement cost (0.976) is expected in Rust-style models because both parameters affect the optimal stopping threshold. Despite this, both parameters are individually significant and the Wald test rejects the null hypothesis that the replacement cost equals 5 at any conventional significance level.
 
 Counterfactual analysis
 -----------------------
@@ -123,7 +111,7 @@ The estimated model supports four types of counterfactual analysis. Each counter
 Scrappage subsidy
 ^^^^^^^^^^^^^^^^^
 
-A government policy that subsidizes 30 percent of the replacement cost reduces the effective :math:`\theta_4` from 8.54 to 5.98. The subsidy increases scrappage rates at every age, with the largest effect on vehicles aged 15 where the owner was previously on the margin.
+A government policy that subsidizes 30 percent of the replacement cost reduces the effective :math:`\theta_4` from 8.39 to 5.87. The subsidy increases scrappage rates at every age, with the largest effect on vehicles aged 15 where the owner was previously on the margin.
 
 .. image:: /_static/rdw_subsidy_counterfactual.png
    :alt: Paired bar charts comparing baseline and subsidized scrappage probabilities by age, separately for vehicles with no defects and vehicles with major defects.
@@ -137,29 +125,29 @@ A government policy that subsidizes 30 percent of the replacement cost reduces t
      - With subsidy
      - Change
    * - (5, pass)
-     - 0.00%
-     - 0.08%
-     - +0.08pp
+     - 0.01%
+     - 0.14%
+     - +0.13pp
    * - (10, pass)
-     - 0.40%
-     - 4.75%
-     - +4.35pp
+     - 0.42%
+     - 3.99%
+     - +3.57pp
    * - (15, pass)
-     - 3.42%
-     - 27.48%
-     - +24.07pp
+     - 2.47%
+     - 18.44%
+     - +15.97pp
    * - (20, pass)
-     - 0.87%
-     - 12.00%
-     - +11.13pp
+     - 0.95%
+     - 9.62%
+     - +8.66pp
    * - (15, major)
-     - 3.29%
-     - 26.84%
-     - +23.55pp
+     - 3.91%
+     - 26.28%
+     - +22.37pp
    * - (20, major)
-     - 0.85%
-     - 11.82%
-     - +10.96pp
+     - 1.41%
+     - 13.69%
+     - +12.28pp
 
 The subsidy has the largest impact on 15-year-old vehicles, where baseline scrappage is already elevated. The effect is similar across defect levels conditional on age, suggesting that the replacement cost rather than defect severity is the binding constraint.
 
@@ -179,32 +167,32 @@ Varying the replacement cost by plus or minus 10 to 50 percent traces out the po
      - Avg policy change
      - Welfare change
    * - -50%
-     - 27.74%
-     - +10.69
+     - 24.13%
+     - +7.90
    * - -30%
-     - 10.30%
-     - +3.62
+     - 8.54%
+     - +2.56
    * - -10%
-     - 1.55%
-     - +0.51
+     - 1.35%
+     - +0.38
    * - +10%
-     - 0.66%
-     - -0.21
+     - 0.63%
+     - -0.18
    * - +30%
-     - 1.02%
-     - -0.33
+     - 1.04%
+     - -0.29
    * - +50%
-     - 1.07%
-     - -0.35
+     - 1.12%
+     - -0.31
 
 The welfare response is strongly asymmetric. Reducing the replacement cost produces large welfare gains because it moves marginal owners past the scrappage threshold. Increasing the replacement cost produces small welfare losses because few owners are on the margin of keeping when the cost is already high.
 
-The total welfare change from the 30 percent subsidy decomposes into a direct effect of 3.75 (value improvement at every state holding the fleet distribution fixed) and a distribution effect of 0.60 (the fleet shifts toward younger vehicles with fewer defects). The direct effect accounts for 86 percent of the total.
+The total welfare change from the 30 percent subsidy decomposes into a direct effect of 2.63 (value improvement at every state holding the fleet distribution fixed) and a distribution effect of 0.37 (the fleet shifts toward younger vehicles with fewer defects). The direct effect accounts for 88 percent of the total.
 
 Defect deterioration
 ^^^^^^^^^^^^^^^^^^^^
 
-If road conditions worsen and the defect-age sensitivity doubles from 0.02 to 0.04, vehicles accumulate defects faster. This raises scrappage probability at age 15 from 3.4 percent to 56 percent and at age 20 from 0.9 percent to 78 percent. The deterioration scenario produces a welfare loss and accelerates fleet turnover.
+If road conditions worsen and the defect-age sensitivity doubles from 0.02 to 0.04, vehicles accumulate defects faster. This raises scrappage probability at age 15 from 2.5 percent to 41 percent and at age 20 from 1.0 percent to 62 percent. The deterioration scenario accelerates fleet turnover dramatically.
 
 Using real RDW data
 -------------------

@@ -78,11 +78,11 @@ print(f"Saved {OUT / 'rdw_defect_by_age.png'}")
 
 cf_ages = [5, 10, 15, 20]
 
-# Values from the 5K-vehicle showcase run on real data (defect=0 / pass state)
-baseline_pass =      [0.0000, 0.0040, 0.0342, 0.0087]
-subsidy_pass =       [0.0008, 0.0475, 0.2748, 0.1200]
-baseline_major =     [0.0009, 0.0039, 0.0329, 0.0085]
-subsidy_major =      [0.0142, 0.0464, 0.2684, 0.1182]
+# Values from the 10K-vehicle showcase run on real data (defect=0 / pass state)
+baseline_pass =      [0.0001, 0.0042, 0.0247, 0.0095]
+subsidy_pass =       [0.0014, 0.0399, 0.1844, 0.0962]
+baseline_major =     [0.0028, 0.0070, 0.0391, 0.0141]
+subsidy_major =      [0.0296, 0.0642, 0.2628, 0.1369]
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
 
@@ -121,8 +121,8 @@ print(f"Saved {OUT / 'rdw_subsidy_counterfactual.png'}")
 # ---------------------------------------------------------------------------
 
 pct_changes = [-50, -30, -10, 10, 30, 50]
-welfare_changes = [10.6921, 3.6237, 0.5136, -0.2128, -0.3284, -0.3453]
-policy_changes = [0.2774, 0.1030, 0.0155, 0.0066, 0.0102, 0.0107]
+welfare_changes = [7.9027, 2.5603, 0.3824, -0.1763, -0.2891, -0.3105]
+policy_changes = [0.2413, 0.0854, 0.0135, 0.0063, 0.0104, 0.0112]
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
