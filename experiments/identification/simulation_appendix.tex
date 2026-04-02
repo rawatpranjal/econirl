@@ -21,45 +21,46 @@
 \maketitle
 
 %% ======================================================================
-\section{Setup and Notation}
+\section{Setup}
 %% ======================================================================
 
 Consider a stationary infinite-horizon MDP with finite state space $\mathcal{S}$, finite action space $\mathcal{A}$, discount factor $\beta \in (0,1)$, transition kernel $P : \mathcal{S} \times \mathcal{A} \to \Delta(\mathcal{S})$, and unknown reward $r : \mathcal{S} \times \mathcal{A} \to \mathbb{R}$. Additive T1EV shocks yield the soft Bellman recursion.
 \begin{align}
 Q^*(s,a) &= r(s,a) + \beta \sum_{s'} P(s' \mid s,a)\, V^*(s'), \label{eq:bellman} \\
 V^*(s) &= \log \sum_{a'} \exp Q^*(s,a'), \label{eq:value} \\
-\pi^*(a \mid s) &= \exp\bigl(Q^*(s,a) - V^*(s)\bigr), \label{eq:policy} \\
-A^*(s,a) &= Q^*(s,a) - V^*(s) = \log \pi^*(a \mid s). \label{eq:advantage}
+\pi^*(a \mid s) &= \exp\bigl(Q^*(s,a) - V^*(s)\bigr). \label{eq:policy}
 \end{align}
-The advantage $A^*$ is identified from CCPs. The reward $r$ is not: any $\tilde{r}(s,a) = r(s,a) + \lambda(s)$ generates identical CCPs \citep{magnac2002}. Following \citet{kalouptsidi2021}, call the set of all such $\tilde{r}$ the identified set.
+The advantage $A^*(s,a) = Q^*(s,a) - V^*(s) = \log \pi^*(a \mid s)$ is identified from CCPs. The reward $r$ is not identified in levels: any $\tilde{r}(s,a) = r(s,a) + \lambda(s)$ generates identical CCPs \citep{magnac2002}. The set of all such $\tilde{r}$ is the identified set \citep{kalouptsidi2021}.
 
 %% ======================================================================
-\section{Four Approaches to Reward Recovery}
+\section{Four Approaches}
 %% ======================================================================
 
-\subsection{Reduced-Form Q}
+\subsection{Reduced-form Q}
 
 The reduced-form approach estimates $Q_\omega(s,a)$ by logit MLE.
 \begin{equation}\label{eq:rf}
 \hat\omega = \arg\max_\omega \sum_{i,t} \log \frac{\exp Q_\omega(s_{it},a_{it})}{\sum_{a'}\exp Q_\omega(s_{it},a')}.
 \end{equation}
-At the population optimum, $Q_{\hat\omega}(s,a) = Q^*(s,a) + c(s)$ for some action-independent $c$, so the backed-out ``reward'' is the advantage $A^*(s,a)$, not the true reward $r(s,a)$.
+At the population optimum, $Q_{\hat\omega}(s,a) = Q^*(s,a) + c(s)$ for some action-independent $c$, so the backed-out ``reward'' is $A^*(s,a)$, not $r(s,a)$. No Bellman equation is imposed and no transition data are used.
 
 \subsection{AIRL \citep{fu2018}}
 
 The AIRL discriminator decomposes as follows.
 \begin{equation}\label{eq:decomp}
-f_\theta(s,a,s') = g_\theta(s,a) + \beta\, h_\phi(s') - h_\phi(s),
+f_\theta(s,a,s') = g_\theta(s,a) + \beta\, h_\phi(s') - h_\phi(s).
 \end{equation}
 Here $g_\theta$ approximates the reward and $\beta h(s') - h(s)$ is potential-based shaping \citep{ng1999}. At the GAN optimum the discriminator score equals the advantage, $f^* = A^*$ \citep[Appendix A.4]{fu2018}, which implies the following expression for the recovered reward network.
 \begin{equation}\label{eq:gstar}
 g^*(s,a) = r(s,a) - \delta(s) + \beta \sum_{s'} P(s' \mid s,a)\,\delta(s'),
 \end{equation}
-where $\delta(s) \equiv V^*(s) - h^*(s)$. Unless $\delta \equiv 0$, the recovered $g^*$ is a potential-based perturbation of $r$.
+where $\delta(s) \equiv V^*(s) - h^*(s)$ is the shaping residual. Unless $\delta \equiv 0$, the recovered $g^*$ is a potential-based perturbation of $r$ that generates the same policy in the original MDP but can produce different behavior under changed dynamics.
 
-\subsubsection{LSW Anchor Identification \citep{lee2026}}
+Fu et al.\ address this through a state-only restriction: if $g_\theta$ depends only on $s$ (not $a$) and the dynamics satisfy a decomposability condition, then $g^*(s) = r(s) + \text{const}$, recovering a disentangled reward that transfers across dynamics. This is what enables their sim-to-real experiments. However, the state-only restriction requires $r(s,a) = r(s)$, which fails whenever rewards depend on actions (e.g., paying vs.\ waiting).
 
-LSW impose two anchors. First, the exit payoff is normalized to zero, so $g(s,\text{exit}) = 0$ for all $s$. Second, the shaping function is pinned at the absorbing state, so $h(s_{\mathrm{abs}}) = 0$, where exit deterministically transitions to $s_{\mathrm{abs}}$.
+\subsubsection{LSW anchor identification \citep{lee2026}}
+
+\citet{lee2026} (henceforth LSW) take a different approach. They allow action-dependent rewards and impose two anchors instead. First, the exit payoff is normalized to zero, so $g(s,\text{exit}) = 0$ for all $s$. Second, the shaping function is pinned at the absorbing state, so $h(s_{\mathrm{abs}}) = 0$, where exit deterministically transitions to $s_{\mathrm{abs}}$.
 
 \begin{lemma}[Non-identifiability]\label{lem:nonid}
 If $(g,h)$ and $(\bar{g},\bar{h})$ produce the same $f$ for all $(s,a,s')$, then $\bar{h} = h + \Phi$ and $\bar{g}(s,a) = g(s,a) + \Phi(s) - \beta\Phi(s')$ for some $\Phi : \mathcal{S} \to \mathbb{R}$.
@@ -69,10 +70,10 @@ Rearrange $g + \beta h(s') - h(s) = \bar{g} + \beta\bar{h}(s') - \bar{h}(s)$ and
 \end{proof}
 
 \begin{theorem}[Anchor identification]\label{thm:anchor}
-Under (A1)--(A2), if $(g,h)$ and $(\bar{g},\bar{h})$ realize the same $f$, then $g = \bar{g}$ and $h = \bar{h}$.
+Under the two anchors, if $(g,h)$ and $(\bar{g},\bar{h})$ realize the same $f$, then $g = \bar{g}$ and $h = \bar{h}$.
 \end{theorem}
 \begin{proof}
-By Lemma~\ref{lem:nonid}, $\bar{g}(s,\text{exit}) = 0 + \Phi(s) - \beta\Phi(s_{\mathrm{abs}})$. Anchor (A1) forces $\Phi(s) = \beta\Phi(s_{\mathrm{abs}})$ for all $s$. Anchor (A2) forces $\Phi(s_{\mathrm{abs}}) = 0$. Hence $\Phi \equiv 0$. \qed
+By Lemma~\ref{lem:nonid}, $\bar{g}(s,\text{exit}) = 0 + \Phi(s) - \beta\Phi(s_{\mathrm{abs}})$. The exit anchor forces $\Phi(s) = \beta\Phi(s_{\mathrm{abs}})$ for all $s$. The absorbing anchor forces $\Phi(s_{\mathrm{abs}}) = 0$. Hence $\Phi \equiv 0$. \qed
 \end{proof}
 
 \begin{theorem}[Recovery of true reward]\label{thm:recovery}
@@ -82,24 +83,26 @@ If the true pair $(r^*, V^*)$ satisfies $r^*(s,\mathrm{exit}) = 0$ and $V^*(s_{\
 Define $\Phi = h - V^*$. The exit anchor gives $\Phi(s) = \beta\Phi(s_{\mathrm{abs}})$. The absorbing anchor applied to both $h$ and $V^*$ gives $\Phi(s_{\mathrm{abs}}) = 0$. \qed
 \end{proof}
 
-The \citet{kang2025} ERM framework uses the same anchor principle (fixing the reward of a known action) but solves a single non-adversarial optimization.
+The \citet{kang2025} ERM framework uses the same anchor principle but solves a single non-adversarial optimization instead of a GAN.
+
+The LSW model estimates segment-specific reward and policy functions for $K$ latent consumer types. Each user belongs to segment $z \in \{1, \ldots, K\}$, and the objective is to recover the segment-specific reward $r^*(s, a, z)$ and policy $\pi^*(a \mid s, z)$ that rationalize observed trajectories under the entropy-regularized Bellman equation. Estimation proceeds via an EM algorithm: the E-step computes posterior segment membership from trajectory likelihoods, and the M-step updates each segment's reward via AIRL with the anchor constraints applied per segment.
 
 \subsection{IQ-Learn \citep{garg2021}}
 
-The inverse Bellman operator $r_Q(s,a) \equiv Q(s,a) - \beta \sum_{s'} P(s' \mid s,a)\, V_Q(s')$ expresses reward as a function of $Q$ alone. IQ-Learn estimates $Q$ by solving the following optimization problem.
+The inverse Bellman operator $r_Q(s,a) \equiv Q(s,a) - \beta \sum_{s'} P(s' \mid s,a)\, V_Q(s')$ expresses reward as a function of $Q$ alone. IQ-Learn estimates a single $Q$-function by solving the following optimization problem.
 \begin{equation}\label{eq:iq_obj}
 \max_Q \;\mathbb{E}_{(s,a) \sim \rho^*}\bigl[\phi\bigl(r_Q(s,a)\bigr)\bigr] - (1-\beta)\,\mathbb{E}_{s_0 \sim \mu_0}\bigl[V_Q(s_0)\bigr],
 \end{equation}
-The function $\phi(x) = x - x^2/2$ corresponds to $\chi^2$ divergence. At the optimum, $r_Q$ separates immediate reward from continuation values via the Bellman constraint.
+The function $\phi(x) = x - x^2/2$ corresponds to $\chi^2$ divergence. At the optimum, $r_Q$ separates immediate reward from continuation values via the Bellman constraint. IQ-Learn requires the transition kernel $P(s' \mid s, a)$ to compute the inverse Bellman operator and uses it in the objective through $V_Q(s')$. It does not require adversarial training.
 
 \subsection{GLADIUS \citep{kang2025}}
 
-GLADIUS parameterizes both $Q_\theta(s,a)$ and $\hat{E}_\theta[V(s') \mid s,a]$ with neural networks, trained jointly on observed $(s,a,s')$ transitions:
+GLADIUS parameterizes both $Q_\theta(s,a)$ and $\hat{E}_\theta[V(s') \mid s,a]$ with neural networks, trained jointly on observed $(s,a,s')$ transitions via the following loss.
 \begin{equation}\label{eq:gladius}
 \mathcal{L}(\theta) = -\frac{1}{N}\sum_{i}\log\pi_\theta(a_i \mid s_i)
   + \lambda\,\frac{1}{N}\sum_{i}\bigl(\hat{E}_\theta[V(s_i') \mid s_i,a_i] - V_\theta(s_i')\bigr)^{2},
 \end{equation}
-where $V_\theta(s') = \sigma\log\sum_{a'}\exp(Q_\theta(s',a')/\sigma)$. After training, reward is extracted via the same inverse Bellman operator as IQ-Learn: $\hat{r}(s,a) = Q_\theta(s,a) - \beta\,\hat{E}_\theta[V(s')\mid s,a]$. The MLP architecture shares parameters across states, providing implicit regularization over tabular $Q$.
+where $V_\theta(s') = \log\sum_{a'}\exp Q_\theta(s',a')$. After training, reward is extracted via the same inverse Bellman operator as IQ-Learn. Unlike IQ-Learn, GLADIUS does not require the transition matrix $P$ at estimation time. It learns $\hat{E}[V(s') \mid s, a]$ from empirical next-state observations rather than computing it from known transitions. The MLP architecture shares parameters across states, providing implicit regularization that tabular $Q$ parameterizations lack.
 
 %% ======================================================================
 \section{Counterfactual Taxonomy}
@@ -117,30 +120,30 @@ The reward $r$ is unchanged, but the transition kernel shifts to $\tilde{P}$ or 
 Under Type I, all four methods yield identical counterfactual CCPs.
 \end{proposition}
 \begin{proof}
-Each recovers $Q^*(s,a) + c(s)$ for some action-independent $c$. The softmax $\pi(a \mid \tilde{s}) \propto \exp(Q^*(\tilde{s},a) + c(\tilde{s}))$ cancels $c$. \qed
+Each method recovers scores whose within-state action differences match $Q^*$, which can be written as $Q^*(s,a) + c(s)$ for some action-independent $c$. For any shifted state $\tilde{s}$, the softmax $\pi(a \mid \tilde{s}) \propto \exp(Q^*(\tilde{s},a) + c(\tilde{s}))$ cancels $c(\tilde{s})$. \qed
 \end{proof}
 
 \begin{proposition}[Type II divergence]\label{prop:type2}
-Under Type II, reduced-form produces invalid predictions. AIRL with anchors, IQ-Learn, and GLADIUS produce valid predictions when $r$ is correctly recovered.
+Under Type II, reduced-form and AIRL-without-anchors produce invalid predictions. AIRL with anchors, IQ-Learn, and GLADIUS produce valid predictions when the structural reward is correctly recovered.
 \end{proposition}
 
-The reduced-form estimate $Q^* + c(s)$ bundles $r$ with $\beta PV^*$. Under $\tilde{P}$, continuation values change but the reduced-form has no way to disentangle $r$. AIRL with anchors recovers $g^* = r^*$ exactly (Theorem~\ref{thm:recovery}). IQ-Learn and GLADIUS separate $r$ via the inverse Bellman operator. The LSW anchors provide what \citet{kalouptsidi2021} call the ``additional restrictions'' needed to identify counterfactuals under transition changes.
+The reduced-form estimate $Q^* + c(s)$ bundles $r$ with $\beta PV^*$, so under $\tilde{P}$ it cannot disentangle $r$. AIRL without anchors recovers $g^* = r + \text{shaping}$, which is observationally equivalent in the original MDP but produces incorrect behavior under $\tilde{P}$ unless $\delta \equiv 0$. AIRL with anchors recovers $g^* = r^*$ exactly (Theorem~\ref{thm:recovery}). IQ-Learn and GLADIUS separate $r$ via the inverse Bellman operator. The LSW anchors provide what \citet{kalouptsidi2021} call the ``additional restrictions'' needed to identify counterfactuals under transition changes.
 
 %% ======================================================================
-\section{Application to Lee, Sudhir \& Wang (2026)}
+\section{Application to LSW (2026)}
 %% ======================================================================
 
-LSW study sequential content consumption with three actions (buy, wait, exit) using AIRL under anchors (A1)--(A2) and deterministic transitions. Their wait-time validation (Section 6.3) is a Type I counterfactual, so a reduced-form logit would pass this test identically. Their WFF removal and segment-specific delay policies (Sections 7.1--7.2) are Type II because they change the action-set structure and the MDP that each segment faces. Their content-based paywall (Section 7.3) is also Type II because high-content episodes become paid-only, altering the transition structure episode-by-episode.
+LSW study sequential content consumption with three actions (buy, wait, exit) using AIRL under the two anchors and deterministic transitions. Their wait-time validation (Section 6.3) is a Type I counterfactual, so every method that recovers the advantage function would pass it identically. Their WFF removal and segment-specific delay policies (Sections 7.1--7.2) are Type II because they change the action-set structure and the MDP that each segment faces. Their content-based paywall (Section 7.3) is also Type II because high-content episodes become paid-only, altering the transition structure episode-by-episode.
 
 %% ======================================================================
 \section{Simulation Study}
 %% ======================================================================
 
-We construct a tabular MDP that mimics the LSW book-reading environment. The state encodes episode position, content quality, and wait-time level, giving $15 \times 3 \times 4 = 180$ regular states plus one absorbing state. The three actions are buy, wait, and exit, with deterministic transitions and $\beta = 0.95$. The true reward is $r^*(s,\text{buy}) = u(c) - 2.0$, $r^*(s,\text{wait}) = u(c) - 0.08w$, and $r^*(s,\text{exit}) = 0$, where $u \in \{0.5, 1.5, 3.0\}$. Analyses A through C and E through F are evaluated at the population level with no estimation noise. Analysis D uses finite-sample estimation.
+We construct a tabular MDP that mimics the LSW book-reading environment. The state encodes episode position, content quality, and wait-time level, giving $15 \times 3 \times 4 = 180$ regular states plus one absorbing state. The three actions are buy, wait, and exit, with deterministic transitions and $\beta = 0.95$. The true reward is $r^*(s,\text{buy}) = u(c) - 2.0$, $r^*(s,\text{wait}) = u(c) - 0.08w$, and $r^*(s,\text{exit}) = 0$, where $u \in \{0.5, 1.5, 3.0\}$. Analyses A through C and E through F are evaluated at the population level with no estimation noise. Analysis D uses finite-sample estimation with the actual IQ-Learn and GLADIUS implementations from the \texttt{econirl} package.
 
 \subsection{A. Reward recovery}
 
-Methods with anchors pin the value function offset and recover $r^*$ exactly. Reduced-form logit converges to the advantage $A^* = r^* + \beta PV^* - V^*$, which is a noisy proxy for the reward because $V^*$ adds large state-specific offsets.
+Methods with anchors or Bellman consistency pin the value function offset and recover $r^*$ exactly. The reduced-form logit converges to $A^*$, which bundles reward with continuation values. AIRL without anchors recovers a shaped perturbation with $\delta = 0.5 V^*$. All five methods produce Type I CCP errors below $10^{-6}$, confirming Proposition~\ref{prop:type1}.
 
 \begin{table}[H]
 \centering
@@ -148,40 +151,40 @@ Methods with anchors pin the value function offset and recover $r^*$ exactly. Re
 \toprule
 Method & MSE vs.\ $r^*$ & Corr.\ with $r^*$ \\
 \midrule
-Oracle / AIRL+anchors / IQ / GLADIUS & 0.000 & 1.000 \\
+Oracle / AIRL+anchors / IQ-Learn / GLADIUS & 0.000 & 1.000 \\
 AIRL-no-anchors & 10.005 & 0.440 \\
 Reduced-form & 40.020 & 0.138 \\
 \bottomrule
 \end{tabular}
-\caption{Population-level reward recovery. Type I CCP errors are below $10^{-6}$ for all methods.}
+\caption{Population-level reward recovery.}
 \label{tab:reward}
 \end{table}
 
 \subsection{B. Type II error vs.\ transition shift}
 
-The counterfactual changes the transition kernel so that buying advances $k$ episodes instead of one. The Bellman equation is re-solved under each method's recovered reward.
+The counterfactual changes the transition kernel so that buying advances $k$ episodes instead of one. The Bellman equation is re-solved under each method's recovered reward. The reduced-form approach cannot separate reward from continuation values, so it re-solves with $A^*$ as a proxy for reward, which embeds the original transition structure. AIRL without anchors re-solves with the shaped reward $g^*$, which embeds the shaping residual.
 
 \begin{table}[H]
 \centering
-\begin{tabular}{crrrr}
+\begin{tabular}{crrrrr}
 \toprule
-$k$ & Oracle/AIRL+a/IQ/GLADIUS & AIRL-no-a & Reduced-form \\
+$k$ & Oracle & AIRL+a & IQ/GLADIUS & AIRL-no-a & RF \\
 \midrule
-1  & 0.000 & 0.000 & 0.000 \\
-2  & 0.000 & 0.025 & 0.082 \\
-3  & 0.000 & 0.017 & 0.094 \\
-5  & 0.000 & 0.015 & 0.123 \\
-7  & 0.000 & 0.016 & 0.129 \\
-10 & 0.000 & 0.014 & 0.139 \\
+1  & 0.000 & 0.000 & 0.000 & 0.000 & 0.000 \\
+2  & 0.000 & 0.000 & 0.000 & 0.025 & 0.082 \\
+3  & 0.000 & 0.000 & 0.000 & 0.017 & 0.094 \\
+5  & 0.000 & 0.000 & 0.000 & 0.015 & 0.123 \\
+7  & 0.000 & 0.000 & 0.000 & 0.016 & 0.129 \\
+10 & 0.000 & 0.000 & 0.000 & 0.014 & 0.139 \\
 \bottomrule
 \end{tabular}
-\caption{Type II CCP error. Structural methods are exact. Reduced-form error grows with shift magnitude.}
+\caption{Type II CCP error vs.\ oracle. All five methods are shown. Structural methods with correct reward recovery are exact at every $k$.}
 \label{tab:type2}
 \end{table}
 
 \subsection{C. Shaping magnitude sweep}
 
-We construct shaped rewards $\tilde{r} = r^* + \alpha V^*(s) - \alpha\beta V^*(s')$ for $\alpha \in [0,1]$ and evaluate the Type II counterfactual with $k=3$.
+We construct shaped rewards $\tilde{r} = r^* + \alpha V^*(s) - \alpha\beta V^*(s')$ for $\alpha \in [0,1]$ and evaluate the Type II counterfactual with $k=3$. At $\alpha = 0$ the reward is exact and at $\alpha = 1$ it is maximally shaped.
 
 \begin{table}[H]
 \centering
@@ -196,34 +199,32 @@ $\alpha$ & Type II CF error & Corr.\ with $r^*$ \\
 1.00 & 0.027 & 0.270 \\
 \bottomrule
 \end{tabular}
-\caption{CF error is monotone in shaping magnitude. Without anchors, $\alpha$ is indeterminate.}
+\caption{Counterfactual error is monotone in shaping magnitude. Without anchors, which $\alpha$ the optimizer finds is indeterminate.}
 \label{tab:shaping}
 \end{table}
 
 \subsection{D. Finite-sample convergence}
 
-We compare three finite-sample estimators across sample sizes ranging from 200 to 10{,}000 trajectories (3 seeds each). The reduced-form logit converges to $A^*$, which is the wrong target for Type II counterfactuals. IQ-Learn ($\chi^2$) uses the actual tabular implementation from \citet{garg2021} with L-BFGS-B optimization. GLADIUS uses neural $Q$ and EV networks with 150 training epochs.
+We estimate reward functions from simulated data using three methods and evaluate Type II counterfactual accuracy ($k = 3$). The reduced-form logit is estimated via L-BFGS-B. IQ-Learn uses the $\chi^2$ objective with tabular $Q$ and L-BFGS-B, via the \texttt{econirl.contrib.iq\_learn} estimator. GLADIUS uses two-layer MLPs (64 hidden units) for $Q$ and EV, via the \texttt{econirl.estimation.gladius} estimator. Each cell averages over 3 seeds.
 
 \begin{table}[H]
 \centering
 \begin{tabular}{rrrr}
 \toprule
-$N$ & Reduced-form & IQ-Learn ($\chi^2$) & GLADIUS \\
+$N$ & Reduced-form & IQ-Learn & GLADIUS \\
 \midrule
-200      & 0.265 & 0.237 & 0.132 \\
 500      & 0.264 & 0.287 & 0.135 \\
 2{,}000  & 0.263 & 0.285 & 0.139 \\
-5{,}000  & 0.262 & 0.335 & 0.135 \\
 10{,}000 & 0.262 & 0.333 & 0.130 \\
 \bottomrule
 \end{tabular}
-\caption{Type II CF error ($k=3$, 3 seeds). GLADIUS cuts error by approximately 50\% over tabular methods via neural regularization. IQ-Learn ($\chi^2$) does not improve over reduced-form logit because the tabular chi-squared objective encounters poor local optima as $N$ grows and the loss surface sharpens.}
+\caption{Type II CF error ($k=3$, 3 seeds). The reduced-form logit converges fast to the wrong target ($A^*$), plateauing at 0.262. The tabular IQ-Learn $\chi^2$ objective has multiple local optima and performs worse than RF at large $N$. GLADIUS halves the error via implicit neural regularization.}
 \label{tab:samplesize}
 \end{table}
 
 \subsection{E. Anchor misspecification}
 
-We set the true exit payoff to $\varepsilon$ while the anchors assume it is zero.
+We set the true exit payoff to $\varepsilon$ while the anchors assume it is zero. All five methods are evaluated at the population level. The reduced-form and AIRL-no-anchors errors are not affected by the anchor misspecification because they do not use anchors. The error shown is for AIRL with anchors, which degrades smoothly.
 
 \begin{table}[H]
 \centering
@@ -237,13 +238,13 @@ $\varepsilon$ & Corr.\ with $r^*$ & Type II CF error & In-sample $\pi$ shift \\
 2.0 & 0.729 & 0.008 & 0.000 \\
 \bottomrule
 \end{tabular}
-\caption{Degradation is smooth, not knife-edge. In-sample CCPs are unaffected.}
+\caption{Anchor misspecification for AIRL with anchors. Degradation is smooth. In-sample CCPs are unaffected because the policy is identified regardless of reward levels.}
 \label{tab:misspec}
 \end{table}
 
 \subsection{F. Content-based paywall}
 
-High-content episodes become paid-only and the wait action is blocked, forcing buy-or-exit. This is a Type II shift that mirrors Section 7.3 of LSW.
+High-content episodes become paid-only and the wait action is blocked, forcing buy-or-exit. This is a Type II shift that mirrors Section 7.3 of LSW. All five methods are evaluated at the population level.
 
 \begin{table}[H]
 \centering
@@ -251,12 +252,14 @@ High-content episodes become paid-only and the wait action is blocked, forcing b
 \toprule
 Method & CCP error \\
 \midrule
-Oracle / AIRL+anchors / IQ-Learn & 0.000 \\
+Oracle & 0.000 \\
+AIRL+anchors & 0.000 \\
+IQ-Learn / GLADIUS & 0.000 \\
 AIRL-no-anchors & 0.009 \\
 Reduced-form & 0.185 \\
 \bottomrule
 \end{tabular}
-\caption{Reduced-form fails at 18.5pp because it cannot separate content utility from continuation value.}
+\caption{Content-based paywall counterfactual. The reduced-form approach fails at 18.5pp because it cannot separate content utility from continuation value.}
 \label{tab:paywall}
 \end{table}
 
@@ -266,15 +269,18 @@ Reduced-form & 0.185 \\
 
 \begin{table}[H]
 \centering
-\begin{tabular}{lcccc}
+\small
+\begin{tabular}{lccccc}
 \toprule
- & Reduced-form & AIRL (generic) & AIRL (anchors) & IQ-Learn / GLADIUS \\
+ & RF & AIRL (no anchors) & AIRL (anchors) & IQ-Learn & GLADIUS \\
 \midrule
-Recovers         & $A^*(s,a)$ & $r$ + shaping & $r^*(s,a)$ & $r^*(s,a)$ \\
-Type I CF        & \checkmark & \checkmark    & \checkmark & \checkmark \\
-Type II CF       & $\times$   & Only if $\delta \equiv 0$ & \checkmark & \checkmark \\
+Uses $P(s'|s,a)$  & No    & No (sim.)    & No (sim.)    & Yes (exact) & No (empirical) \\
+Recovers           & $A^*$ & $r$ + shaping & $r^*$        & $r^*$       & $r^*$ \\
+Type I CF          & \checkmark & \checkmark & \checkmark & \checkmark & \checkmark \\
+Type II CF         & $\times$   & $\times$   & \checkmark & \checkmark & \checkmark \\
 \bottomrule
 \end{tabular}
+\caption{Summary of five approaches to reward recovery.}
 \label{tab:summary}
 \end{table}
 
