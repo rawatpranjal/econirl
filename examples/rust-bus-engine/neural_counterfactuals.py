@@ -90,6 +90,10 @@ def main():
         data=df, state="mileage_bin", action="replaced", id="bus_id",
     )
     print(f"  Epochs trained: {gladius.n_epochs_}")
+    # NeuralGLADIUS infers n_states from the max observed state index.
+    # The Rust bus data may not visit all 90 bins, so we override to
+    # ensure the reward matrix covers the full state space.
+    gladius._n_states = 90
     print(f"  P(replace | s=50) = {gladius.policy_[50, 1]:.4f}")
     print()
 
@@ -204,12 +208,6 @@ def main():
           f"{float(result.counterfactual_policy[:, 1].mean()):.4f}")
     print(f"  Welfare change:                 {result.welfare_change:.2f}")
     print()
-
-    # Compare to structural counterfactual (NFXP)
-    nfxp_cf_hi_rc = nfxp.counterfactual(RC=nfxp.params_["RC"] * 1.5)
-    print(f"  For comparison, NFXP structural counterfactual (RC * 1.5):")
-    print(f"    Mean P(replace) under RC={nfxp_cf_hi_rc.params['RC']:.2f}: "
-          f"{nfxp_cf_hi_rc.policy[:, 1].mean():.4f}")
 
     # ==================================================================
     #  SECTION D: Choice set counterfactual
