@@ -622,7 +622,10 @@ class NeuralGLADIUS(NeuralEstimatorMixin):
 
                 elif self.alternating_updates and batch_idx % 2 == 1:
                     # Odd batch: update Q network only.
-                    # NLL + Bellman consistency penalty.
+                    # In the IRL setting (no observed rewards), Q is
+                    # trained only by NLL. Bellman consistency is enforced
+                    # by the zeta step. Passing Bellman gradients through
+                    # V_Q(s') = logsumexp(Q) causes Q-value explosion.
                     q_all = self._q_net.all_actions(
                         s_feat, ctx_feat, self.n_actions
                     )
@@ -633,27 +636,7 @@ class NeuralGLADIUS(NeuralEstimatorMixin):
                     weights = class_weights[a.long()]
                     nll = (per_obs_nll * weights).mean()
 
-                    # Bellman penalty: push V_Q(s') toward zeta(s,a)
-                    q_next_all = self._q_net.all_actions(
-                        ns_feat, ctx_feat, self.n_actions
-                    )
-                    v_next = self.scale * torch.logsumexp(
-                        q_next_all / self.scale, dim=1
-                    )
-                    with torch.no_grad():
-                        zeta_sa = self._ev_net(s_feat, ctx_feat, a_oh)
-
-                    # Optional anchor action filtering
-                    if self.anchor_action is not None:
-                        mask = (a == self.anchor_action).float()
-                        bellman = (
-                            (mask * (v_next - zeta_sa) ** 2).sum()
-                            / mask.sum().clamp(min=1.0)
-                        )
-                    else:
-                        bellman = ((v_next - zeta_sa) ** 2).mean()
-
-                    loss = ce_weight * nll + self.bellman_weight * bellman
+                    loss = ce_weight * nll
 
                     q_optimizer.zero_grad()
                     loss.backward()

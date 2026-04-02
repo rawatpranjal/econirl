@@ -556,19 +556,25 @@ class GLADIUSEstimator(BaseEstimator):
                 )
                 nll = -log_probs[jnp.arange(len(a_batch)), a_batch].mean()
 
-                # Bellman consistency penalty.
-                # V_Q(s') should match zeta(s,a) (frozen).
-                # This gives Q gradients at s' via V = logsumexp(Q(s',:)).
-                q_sp_all = q_net_inner.forward_all_actions(sp_feat)
-                v_sp = sigma * jax.scipy.special.logsumexp(
-                    q_sp_all / sigma, axis=1
-                )
+                # In the IRL setting (no observed rewards), Q is trained
+                # only by NLL. The Bellman consistency is enforced entirely
+                # by the zeta step, which fits zeta(s,a) to V_Q(s').
+                # Giving Q Bellman gradients through V_Q(s') = logsumexp(Q)
+                # causes Q-value explosion because there is no observed
+                # reward to anchor the scale.
+                #
+                # The Bellman penalty is still computed for logging but
+                # does not flow gradients to Q (stop_gradient on both sides).
                 zeta_sa = jax.lax.stop_gradient(
                     zeta_net.forward(s_feat, a_onehot)
                 )
+                q_sp_all = jax.lax.stop_gradient(
+                    q_net_inner.forward_all_actions(sp_feat)
+                )
+                v_sp = sigma * jax.scipy.special.logsumexp(
+                    q_sp_all / sigma, axis=1
+                )
 
-                # Optional anchor action filtering: only compute Bellman
-                # error for transitions where a equals the anchor action.
                 if anchor_action is not None:
                     mask = (a_batch == anchor_action).astype(jnp.float32)
                     bellman_loss = jnp.sum(
@@ -577,7 +583,7 @@ class GLADIUSEstimator(BaseEstimator):
                 else:
                     bellman_loss = jnp.mean((v_sp - zeta_sa) ** 2)
 
-                total_loss = ce_weight * nll + bellman_weight * bellman_loss
+                total_loss = ce_weight * nll
                 return total_loss, (nll, bellman_loss)
 
             (loss, aux), grads = eqx.filter_value_and_grad(
