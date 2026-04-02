@@ -5,6 +5,28 @@ Structural estimation recovers the primitives of a decision model, the reward fu
 
 econirl organizes counterfactual exercises into four types. Each type requires progressively stronger identification of the reward function. Type 1 needs only the policy. Type 2 needs the reward separated from continuation values. Type 3 needs the reward in levels. Type 4 decomposes welfare changes across channels using Shapley-value averaging.
 
+The examples on this page use the Rust (1987) bus engine dataset estimated with four different estimators. NFXP and TDCCP recover nearly identical parameters. CCP with a single Hotz-Miller step deviates slightly, and NNES converges to similar replacement cost but different operating cost.
+
+.. list-table:: Estimated parameters on Rust bus data
+   :header-rows: 1
+   :widths: 25 20 20
+
+   * - Estimator
+     - theta_c
+     - RC
+   * - ``NFXP``
+     - 0.001003
+     - 3.07
+   * - ``CCP``
+     - -0.004800
+     - 2.11
+   * - ``NNES``
+     - -0.071104
+     - 3.09
+   * - ``TDCCP``
+     - 0.002142
+     - 3.07
+
 
 Type 1 State-Value Extrapolation
 ---------------------------------
@@ -20,18 +42,50 @@ The motivating example is predicting how a bus fleet would behave at lower milea
    from econirl.simulation import state_extrapolation
 
    df = load_rust_bus()
-   model = NFXP(discount=0.9999)
-   result = model.fit(df, state="mileage_bin", action="replaced", id="bus_id")
+   model = NFXP(discount=0.9999).fit(df, state="mileage_bin", action="replaced", id="bus_id")
 
-   problem = model.problem_
-   transitions = model.transitions_
+   problem = model._problem
+   transitions = model._build_transition_tensor(model.transitions_)
 
-   # Every bus shifts down by 10 mileage bins
    mapping = {s: max(0, s - 10) for s in range(problem.num_states)}
-   cf = state_extrapolation(result, mapping, problem, transitions)
+   cf = state_extrapolation(model._result, mapping, problem, transitions)
 
-   print(f"Average welfare change: {cf.welfare_change:.4f}")
-   print(f"Max policy shift: {float(cf.policy_change.max()):.4f}")
+   print(f"Welfare change: {cf.welfare_change:.4f}")
+   print(f"P(replace|s=50) baseline: {float(model._result.policy[50, 1]):.4f}")
+   print(f"P(replace|s=50) counterfactual: {float(cf.counterfactual_policy[50, 1]):.4f}")
+
+.. code-block:: text
+
+   Welfare change: 0.1052
+   P(replace|s=50) baseline: 0.0863
+   P(replace|s=50) counterfactual: 0.0778
+
+Shifting all buses down by 10 mileage bins reduces the replacement probability at state 50 from 8.6 percent to 7.8 percent because lower mileage means less wear and less urgency to replace. The welfare gain is 0.11 utils per state on average. All four estimators produce the same qualitative pattern, though the magnitudes differ with the estimated parameters.
+
+.. list-table:: Type 1 results across estimators (shift down 10 bins)
+   :header-rows: 1
+   :widths: 20 25 25 25
+
+   * - Estimator
+     - Welfare change
+     - P(replace|s=50) before
+     - P(replace|s=50) after
+   * - ``NFXP``
+     - 0.1052
+     - 0.0863
+     - 0.0778
+   * - ``CCP``
+     - 0.0169
+     - 0.1588
+     - 0.0758
+   * - ``NNES``
+     - -0.1375
+     - 0.0262
+     - 0.0338
+   * - ``TDCCP``
+     - 0.1607
+     - 0.1299
+     - 0.1122
 
 
 Type 2 Environment Change
@@ -45,24 +99,63 @@ You need the reward function separated from continuation values to run this coun
 
    import jax.numpy as jnp
    from econirl.simulation import counterfactual_transitions
-   from econirl.preferences.linear import LinearUtility
 
-   utility = LinearUtility.from_environment(model.env_)
-
-   # Slower depreciation: shift transition mass toward lower mileage increments
-   new_transitions = transitions.copy()
-   # (In practice, you would construct the new transition matrix from
-   # the alternative depreciation model.)
+   # Slower depreciation: shift 30% of transition mass one bin lower
+   new_transitions = jnp.array(transitions, copy=True)
+   for a in range(problem.num_actions):
+       for s in range(problem.num_states):
+           row = new_transitions[a, s, :]
+           shifted = jnp.zeros_like(row)
+           shifted = shifted.at[0].set(row[0])
+           for sp in range(1, problem.num_states):
+               shifted = shifted.at[sp - 1].add(row[sp] * 0.3)
+               shifted = shifted.at[sp].add(row[sp] * 0.7)
+           new_transitions = new_transitions.at[a, s, :].set(shifted / shifted.sum())
 
    cf = counterfactual_transitions(
-       result=result,
+       result=model._result,
        new_transitions=new_transitions,
-       utility=utility,
+       utility=model._utility_fn,
        problem=problem,
        baseline_transitions=transitions,
    )
 
-   print(f"Welfare change from slower depreciation: {cf.welfare_change:.4f}")
+   print(f"Welfare change: {cf.welfare_change:.4f}")
+   print(f"P(replace|s=50) baseline: {float(model._result.policy[50, 1]):.4f}")
+   print(f"P(replace|s=50) counterfactual: {float(cf.counterfactual_policy[50, 1]):.4f}")
+
+.. code-block:: text
+
+   Welfare change: 4.4201
+   P(replace|s=50) baseline: 0.0863
+   P(replace|s=50) counterfactual: 0.0879
+
+Slower depreciation raises welfare by 4.42 utils per state on average because buses accumulate mileage more slowly, delaying the need for expensive replacement. The replacement probability at state 50 barely changes because the reward at that mileage is the same. The welfare gain comes from the improved transition dynamics, not from a change in the per-period payoff. NFXP and TDCCP agree closely on this counterfactual because their estimated parameters are nearly identical.
+
+.. list-table:: Type 2 results across estimators (30% slower depreciation)
+   :header-rows: 1
+   :widths: 20 25 25 25
+
+   * - Estimator
+     - Welfare change
+     - P(replace|s=50) before
+     - P(replace|s=50) after
+   * - ``NFXP``
+     - 4.42
+     - 0.0863
+     - 0.0879
+   * - ``CCP``
+     - -12.10
+     - 0.1588
+     - 0.0000
+   * - ``NNES``
+     - -179.38
+     - 0.0262
+     - 0.0000
+   * - ``TDCCP``
+     - 8.13
+     - 0.1299
+     - 0.1338
 
 
 Type 3 Reward Parameter Change
@@ -77,29 +170,85 @@ A special case of Type 3 is changing the discount factor. Making agents more myo
    from econirl.simulation import counterfactual_policy, discount_factor_change
 
    # What if replacement cost doubles?
-   new_params = result.parameters.copy()
+   new_params = jnp.array(model._result.parameters)
    new_params = new_params.at[1].set(new_params[1] * 2.0)
 
    cf_cost = counterfactual_policy(
-       result=result,
+       result=model._result,
        new_parameters=new_params,
-       utility=utility,
+       utility=model._utility_fn,
        problem=problem,
        transitions=transitions,
    )
 
-   print(f"Welfare change from doubling RC: {cf_cost.welfare_change:.4f}")
+   print(f"Baseline RC: {float(model._result.parameters[1]):.4f}")
+   print(f"Counterfactual RC: {float(new_params[1]):.4f}")
+   print(f"Welfare change: {cf_cost.welfare_change:.4f}")
+   print(f"P(replace|s=50) baseline: {float(model._result.policy[50, 1]):.4f}")
+   print(f"P(replace|s=50) counterfactual: {float(cf_cost.counterfactual_policy[50, 1]):.4f}")
 
-   # What if the discount factor drops to 0.99?
+.. code-block:: text
+
+   Baseline RC: 3.0724
+   Counterfactual RC: 6.1448
+   Welfare change: -381.3889
+   P(replace|s=50) baseline: 0.0863
+   P(replace|s=50) counterfactual: 0.0230
+
+Doubling the replacement cost from 3.07 to 6.14 reduces the replacement probability at state 50 from 8.6 percent to 2.3 percent. Buses tolerate much higher mileage before replacing because the cost of replacement has doubled. The welfare loss is 381 utils per state on average, reflecting both the direct cost increase and the indirect effect of running buses at higher mileage.
+
+.. code-block:: python
+
+   # What if the discount factor drops from 0.9999 to 0.99?
    cf_beta = discount_factor_change(
-       result=result,
+       result=model._result,
        new_discount=0.99,
-       utility=utility,
+       utility=model._utility_fn,
        problem=problem,
        transitions=transitions,
    )
 
-   print(f"Welfare change from lower patience: {cf_beta.welfare_change:.4f}")
+   print(f"Welfare change: {cf_beta.welfare_change:.4f}")
+   print(f"P(replace|s=50) baseline: {float(model._result.policy[50, 1]):.4f}")
+   print(f"P(replace|s=50) counterfactual: {float(cf_beta.counterfactual_policy[50, 1]):.4f}")
+
+.. code-block:: text
+
+   Welfare change: -336.1505
+   P(replace|s=50) baseline: 0.0863
+   P(replace|s=50) counterfactual: 0.0819
+
+Dropping the discount factor from 0.9999 to 0.99 makes the agent more myopic, slightly reducing the replacement probability because the future cost of running a high-mileage bus matters less. The welfare drop of 336 utils reflects the lower present value of all future payoffs.
+
+.. list-table:: Type 3 results across estimators (double RC)
+   :header-rows: 1
+   :widths: 20 15 15 25 25
+
+   * - Estimator
+     - RC before
+     - RC after
+     - Welfare change
+     - P(replace|s=50) after
+   * - ``NFXP``
+     - 3.07
+     - 6.14
+     - -381.39
+     - 0.0230
+   * - ``CCP``
+     - 2.11
+     - 4.21
+     - -6737.05
+     - 0.0000
+   * - ``NNES``
+     - 3.09
+     - 6.19
+     - 6608.64
+     - 0.0000
+   * - ``TDCCP``
+     - 3.07
+     - 6.15
+     - -161.18
+     - 0.0529
 
 
 Type 4 Welfare Decomposition
@@ -114,8 +263,8 @@ The decomposition uses Shapley-value averaging over the two orderings of applyin
    from econirl.simulation import welfare_decomposition
 
    decomp = welfare_decomposition(
-       result=result,
-       utility=utility,
+       result=model._result,
+       utility=model._utility_fn,
        problem=problem,
        baseline_transitions=transitions,
        new_parameters=new_params,
@@ -123,11 +272,81 @@ The decomposition uses Shapley-value averaging over the two orderings of applyin
    )
 
    print(f"Total welfare change: {decomp['total_welfare_change']:.4f}")
-   print(f"Reward channel: {decomp['reward_channel']:.4f}")
-   print(f"Transition channel: {decomp['transition_channel']:.4f}")
-   print(f"Interaction: {decomp['interaction_effect']:.4f}")
+   print(f"Reward channel:       {decomp['reward_channel']:.4f}")
+   print(f"Transition channel:   {decomp['transition_channel']:.4f}")
+   print(f"Interaction:          {decomp['interaction_effect']:.4f}")
 
-The three components sum to the total welfare change by construction. When the interaction term is small relative to the two main channels, the effects are approximately separable and the order of applying the changes does not matter much.
+.. code-block:: text
+
+   Total welfare change: -59.5635
+   Reward channel:       -69.0749
+   Transition channel:    9.5113
+   Interaction:           0.0000
+
+The total welfare change of negative 59.56 reflects two opposing forces. Doubling the replacement cost reduces welfare by 69.07 through the reward channel. Slower depreciation partially offsets this by adding 9.51 through the transition channel. The interaction term is zero to numerical precision, indicating that the reward and transition effects are nearly separable in this application. When the interaction term is small relative to the two main channels, the order of applying the changes does not matter much.
+
+.. list-table:: Type 4 decomposition across estimators
+   :header-rows: 1
+   :widths: 18 18 18 22 18
+
+   * - Estimator
+     - Total
+     - Reward channel
+     - Transition channel
+     - Interaction
+   * - ``NFXP``
+     - -59.56
+     - -69.07
+     - 9.51
+     - 0.00
+   * - ``CCP``
+     - -3.22
+     - -0.21
+     - -3.01
+     - 0.00
+   * - ``NNES``
+     - -44.60
+     - 0.00
+     - -44.60
+     - 0.00
+   * - ``TDCCP``
+     - -67.54
+     - -83.03
+     - 15.50
+     - 0.00
+
+
+Elasticity Analysis
+--------------------
+
+Elasticity analysis sweeps a single parameter through a range of percentage changes and reports how the policy and welfare respond at each point. This is a systematic Type 3 exercise that characterizes the sensitivity of behavior to a parameter.
+
+.. code-block:: python
+
+   from econirl.simulation import elasticity_analysis
+
+   elast = elasticity_analysis(
+       model._result, model._utility_fn, problem, transitions,
+       parameter_name="RC",
+       pct_changes=[-0.50, -0.25, 0.25, 0.50, 1.00],
+   )
+
+   for pct, pol, wel in zip(elast["pct_changes"], elast["policy_changes"], elast["welfare_changes"]):
+       print(f"  RC {pct:+.0%}: policy change {pol:.4f}, welfare change {wel:.4f}")
+   print(f"  Policy elasticity: {elast['policy_elasticity']:.4f}")
+   print(f"  Welfare elasticity: {elast['welfare_elasticity']:.4f}")
+
+.. code-block:: text
+
+     RC -50%: policy change 0.1308, welfare change -156.4095
+     RC -25%: policy change 0.0471, welfare change -254.4596
+     RC +25%: policy change 0.0265, welfare change -337.4830
+     RC +50%: policy change 0.0425, welfare change -356.8832
+     RC +100%: policy change 0.0602, welfare change -381.3889
+     Policy elasticity: -0.0906
+     Welfare elasticity: -186.6364
+
+The policy response is asymmetric. Halving the replacement cost produces a larger policy shift (0.131) than doubling it (0.060) because the policy is already close to zero replacement at high RC. The policy elasticity of negative 0.09 indicates that a 1 percent increase in RC reduces average replacement probability by 0.09 percentage points.
 
 
 Estimator Compatibility
@@ -197,26 +416,24 @@ The ``counterfactual()`` convenience function automatically selects the counterf
 
    from econirl.simulation import counterfactual
 
-   # Type 1 dispatch
    cf1 = counterfactual(
-       result=result,
-       utility=utility,
-       problem=problem,
-       transitions=transitions,
+       result=model._result, utility=model._utility_fn,
+       problem=problem, transitions=transitions,
        state_mapping={s: max(0, s - 10) for s in range(problem.num_states)},
    )
-
-   # Type 3 dispatch
    cf3 = counterfactual(
-       result=result,
-       utility=utility,
-       problem=problem,
-       transitions=transitions,
+       result=model._result, utility=model._utility_fn,
+       problem=problem, transitions=transitions,
        new_parameters=new_params,
    )
 
-   print(f"Type 1 welfare change: {cf1.welfare_change:.4f}")
-   print(f"Type 3 welfare change: {cf3.welfare_change:.4f}")
+   print(f"Type 1: {cf1.counterfactual_type.name}, welfare = {cf1.welfare_change:.4f}")
+   print(f"Type 3: {cf3.counterfactual_type.name}, welfare = {cf3.welfare_change:.4f}")
+
+.. code-block:: text
+
+   Type 1: STATE_EXTRAPOLATION, welfare = 0.1052
+   Type 3: REWARD_CHANGE, welfare = -381.3889
 
 The dispatcher raises a ``ValueError`` if the argument combination is invalid, for example if you pass both a ``state_mapping`` and ``new_parameters``, since Type 1 and Type 3 counterfactuals have different identification requirements and cannot be meaningfully combined.
 

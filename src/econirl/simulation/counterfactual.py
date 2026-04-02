@@ -38,6 +38,17 @@ from econirl.inference.results import EstimationSummary
 from econirl.preferences.base import UtilityFunction
 
 
+def _to_jax(x):
+    """Convert any array-like (torch Tensor, numpy, etc.) to JAX array."""
+    try:
+        import torch
+        if isinstance(x, torch.Tensor):
+            return jnp.array(x.detach().cpu().numpy())
+    except ImportError:
+        pass
+    return jnp.asarray(x)
+
+
 class CounterfactualType(IntEnum):
     """Taxonomy of counterfactual exercises.
 
@@ -192,8 +203,8 @@ def counterfactual_policy(
     baseline_value = result.value_function
 
     # Counterfactual
-    operator = SoftBellmanOperator(problem, transitions)
-    new_utility = utility.compute(new_params)
+    operator = SoftBellmanOperator(problem, _to_jax(transitions))
+    new_utility = _to_jax(utility.compute(new_params))
     cf_result = value_iteration(operator, new_utility)
 
     counterfactual_policy = cf_result.policy
@@ -247,12 +258,12 @@ def counterfactual_transitions(
         CounterfactualResult
     """
     # Baseline
-    baseline_operator = SoftBellmanOperator(problem, baseline_transitions)
-    baseline_utility = utility.compute(result.parameters)
+    baseline_operator = SoftBellmanOperator(problem, _to_jax(baseline_transitions))
+    baseline_utility = _to_jax(utility.compute(result.parameters))
     baseline_result = value_iteration(baseline_operator, baseline_utility)
 
     # Counterfactual
-    cf_operator = SoftBellmanOperator(problem, new_transitions)
+    cf_operator = SoftBellmanOperator(problem, _to_jax(new_transitions))
     cf_result = value_iteration(cf_operator, baseline_utility)
 
     policy_change = cf_result.policy - baseline_result.policy
@@ -496,8 +507,8 @@ def discount_factor_change(
         discount_factor=new_discount,
         scale_parameter=problem.scale_parameter,
     )
-    cf_operator = SoftBellmanOperator(cf_problem, transitions)
-    reward = utility.compute(result.parameters)
+    cf_operator = SoftBellmanOperator(cf_problem, _to_jax(transitions))
+    reward = _to_jax(utility.compute(result.parameters))
     cf_result = value_iteration(cf_operator, reward)
 
     policy_change = cf_result.policy - baseline_policy
@@ -559,15 +570,19 @@ def welfare_decomposition(
             "At least one of new_parameters or new_transitions must be provided"
         )
 
-    old_reward = utility.compute(result.parameters)
+    old_reward = _to_jax(utility.compute(result.parameters))
     new_reward = (
-        utility.compute(new_parameters) if new_parameters is not None else old_reward
+        _to_jax(utility.compute(new_parameters))
+        if new_parameters is not None
+        else old_reward
     )
     cf_transitions = (
-        new_transitions if new_transitions is not None else baseline_transitions
+        _to_jax(new_transitions)
+        if new_transitions is not None
+        else _to_jax(baseline_transitions)
     )
 
-    operator_old_p = SoftBellmanOperator(problem, baseline_transitions)
+    operator_old_p = SoftBellmanOperator(problem, _to_jax(baseline_transitions))
     operator_new_p = SoftBellmanOperator(problem, cf_transitions)
 
     # Four corners: (old_r, old_P), (new_r, old_P), (old_r, new_P), (new_r, new_P)
@@ -688,12 +703,12 @@ def counterfactual(
         else:
             new_params = new_parameters
 
-        baseline_operator = SoftBellmanOperator(problem, transitions)
-        baseline_utility = utility.compute(result.parameters)
+        baseline_operator = SoftBellmanOperator(problem, _to_jax(transitions))
+        baseline_utility = _to_jax(utility.compute(result.parameters))
         baseline_result = value_iteration(baseline_operator, baseline_utility)
 
-        cf_operator = SoftBellmanOperator(problem, new_transitions)
-        cf_utility = utility.compute(new_params)
+        cf_operator = SoftBellmanOperator(problem, _to_jax(new_transitions))
+        cf_utility = _to_jax(utility.compute(new_params))
         cf_result = value_iteration(cf_operator, cf_utility)
 
         policy_change = cf_result.policy - baseline_result.policy
