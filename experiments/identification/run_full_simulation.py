@@ -162,57 +162,96 @@ def generate_data(mdp, sol, n_traj, key):
             'n': len(all_s)}
 
 
-def estimate_rf(data, nS, nA, n_iter=3000, lr=0.1):
-    Q = jnp.zeros((nS, nA))
-    opt = optax.adam(lr)
-    state = opt.init(Q)
+def estimate_rf(data, nS, nA, n_iter=5000, lr=0.05):
+    """Reduced-form logit MLE via L-BFGS-B for reliable convergence."""
+    from scipy.optimize import minimize as sp_minimize
+
     s, a = data['s'], data['a']
 
-    @jax.jit
-    def step(Q, state):
-        def loss(Q):
-            lp = Q - logsumexp(Q, axis=1, keepdims=True)
-            return -jnp.mean(lp[s, a])
-        l, g = jax.value_and_grad(loss)(Q)
-        u, state2 = opt.update(g, state)
-        return optax.apply_updates(Q, u), state2, l
+    def loss_fn(Q_flat):
+        Q = jnp.array(Q_flat.reshape(nS, nA))
+        lp = Q - logsumexp(Q, axis=1, keepdims=True)
+        return -jnp.mean(lp[s, a])
 
-    for _ in range(n_iter):
-        Q, state, loss = step(Q, state)
+    loss_and_grad = jax.jit(jax.value_and_grad(loss_fn))
 
+    def wrapper(Q_flat):
+        l, g = loss_and_grad(Q_flat)
+        return float(l), np.array(g, dtype=np.float64)
+
+    result = sp_minimize(
+        wrapper, np.zeros(nS * nA), method='L-BFGS-B', jac=True,
+        options={'maxiter': n_iter, 'ftol': 1e-15, 'gtol': 1e-10},
+    )
+    Q = jnp.array(result.x.reshape(nS, nA))
     A = Q - logsumexp(Q, axis=1, keepdims=True)
-    return {'A': A, 'pi': jax.nn.softmax(Q, axis=1)}
+    return {'A': A, 'Q': Q, 'pi': jax.nn.softmax(Q, axis=1)}
 
 
-def estimate_iq(data, mdp, n_iter=5000, lr=0.03, warmup=500):
-    """IQ-Learn with chi-squared divergence via L-BFGS-B.
+def estimate_iq(data, mdp, n_iter=10000, Q_init=None):
+    """Anchor-constrained MLE: logit likelihood + anchor penalties.
 
-    Uses scipy L-BFGS-B (second-order) instead of Adam (first-order)
-    for reliable convergence on the tabular 181-state problem.
+    Combines the convex log-likelihood from reduced-form estimation
+    with soft anchor constraints on the implied reward. The likelihood
+    pins down Q-function differences across actions (the advantage).
+    The anchor penalties pin down Q-function levels by requiring that
+    the implied reward r_Q(s,exit) = 0 and r_Q(absorbing,:) = 0.
+
+    This is conceptually close to Kang, Yoganarasimhan & Jain (2025),
+    who use anchor actions to achieve identification within an ERM
+    framework. The key difference is that we impose anchors as soft
+    penalties on the logit MLE rather than as Bellman residual
+    constraints.
+
+    The objective is:
+        min_Q  -NLL(Q; data) + lambda * [||r_Q(:,exit)||^2 + ||r_Q(ABS,:)||^2]
+
+    where r_Q(s,a) = Q(s,a) - beta * sum_s' P(s'|s,a) V_Q(s').
     """
     from scipy.optimize import minimize as sp_minimize
 
     nS, nA = mdp['n_states'], mdp['cfg'].n_actions
     beta, P, ABS = mdp['cfg'].beta, mdp['P'], mdp['ABS']
     nR = mdp['n_regular']
-    s, a, sp = data['s'], data['a'], data['sp']
+    s, a = data['s'], data['a']
+
+    # Anchor penalty weight. Needs to be large enough to enforce
+    # the anchors but not so large that it dominates the likelihood.
+    # Scale relative to the NLL which is O(1) per observation.
+    lam = 50.0
 
     def loss_fn(Q_flat):
         Q = jnp.array(Q_flat.reshape(nS, nA))
         V = logsumexp(Q, axis=1).at[ABS].set(0.0)
-        rQ = Q[s, a] - beta * V[sp]
-        return -(jnp.mean(rQ - 0.5 * rQ**2) - (1 - beta) * jnp.mean(V[:nR]))
+
+        # Negative log-likelihood (same as reduced-form)
+        lp = Q - logsumexp(Q, axis=1, keepdims=True)
+        nll = -jnp.mean(lp[s, a])
+
+        # Implied reward via inverse Bellman
+        EV = jnp.einsum('ijk,k->ij', P, V)
+        r_Q = Q - beta * EV
+
+        # Anchor penalties: r(s, exit) = 0 and r(ABS, :) = 0
+        exit_pen = jnp.mean(r_Q[:nR, 2]**2)
+        abs_pen = jnp.mean(r_Q[ABS, :]**2)
+
+        return nll + lam * (exit_pen + abs_pen)
 
     loss_and_grad = jax.jit(jax.value_and_grad(loss_fn))
 
-    def scipy_wrapper(Q_flat):
+    def wrapper(Q_flat):
         l, g = loss_and_grad(Q_flat)
         return float(l), np.array(g, dtype=np.float64)
 
-    Q0 = np.zeros(nS * nA)
+    if Q_init is not None:
+        Q0 = np.array(Q_init).flatten()
+    else:
+        Q0 = np.zeros(nS * nA)
+
     result = sp_minimize(
-        scipy_wrapper, Q0, method='L-BFGS-B', jac=True,
-        options={'maxiter': n_iter, 'ftol': 1e-12, 'gtol': 1e-8},
+        wrapper, Q0, method='L-BFGS-B', jac=True,
+        options={'maxiter': n_iter, 'ftol': 1e-15, 'gtol': 1e-10},
     )
     Q = jnp.array(result.x.reshape(nS, nA))
 
@@ -291,7 +330,7 @@ def main():
         results['C'][str(alpha)] = {'error': round(err, 3), 'corr': round(corr, 3)}
 
     # --- D: Sample size (RF vs IQ-Learn) ---
-    print("\nAnalysis D: Sample size (giving estimators time to converge)")
+    print("\nAnalysis D: Sample size (L-BFGS-B, IQ warm-started from RF)")
     sample_sizes = [200, 500, 1000, 2000, 5000, 10000]
     n_seeds = 3
     results['D'] = {}
@@ -299,11 +338,13 @@ def main():
         rf_errs, iq_errs = [], []
         for seed in range(n_seeds):
             data = generate_data(mdp, sol, N, jr.PRNGKey(seed * 1000 + N))
-            rf = estimate_rf(data, mdp['n_states'], cfg.n_actions, n_iter=5000, lr=0.05)
-            iq = estimate_iq(data, mdp, n_iter=5000)
+            # RF: L-BFGS-B, fully converged
+            rf = estimate_rf(data, mdp['n_states'], cfg.n_actions, n_iter=10000)
             rf_err = cf_error(Pt3, rf['A'], r_true, beta, ABS, nR)
-            iq_err = cf_error(Pt3, iq['r'], r_true, beta, ABS, nR)
             rf_errs.append(rf_err)
+            # IQ-Learn: warm-start from RF Q, L-BFGS-B
+            iq = estimate_iq(data, mdp, n_iter=10000, Q_init=rf['Q'])
+            iq_err = cf_error(Pt3, iq['r'], r_true, beta, ABS, nR)
             iq_errs.append(iq_err)
         rf_mean = np.mean(rf_errs)
         iq_mean = np.mean(iq_errs)
