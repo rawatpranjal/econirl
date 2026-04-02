@@ -796,13 +796,18 @@ class GLADIUSEstimator(BaseEstimator):
     def _extract_parameters(
         self, utility: UtilityFunction, reward_table: jnp.ndarray
     ) -> jnp.ndarray:
-        """Extract structural parameters by regressing rewards onto features.
+        """Extract structural parameters via action-difference projection.
 
-        If the utility has a feature_matrix attribute (linear utility), solves
-        the least-squares problem:
-            theta = argmin ||feature_matrix @ theta - r||^2
+        IRL rewards are identified only up to additive constants (Kim et al.
+        2021, Cao & Cohen 2021). To eliminate the unidentified constant, we
+        project action DIFFERENCES onto feature DIFFERENCES relative to
+        action 0. For each state s and action a > 0:
 
-        Otherwise returns the flattened reward table.
+            dr(s) = r(s, a) - r(s, 0)
+            dphi(s) = phi(s, a) - phi(s, 0)
+
+        The constant in the absolute reward cancels in the difference, so
+        both level and slope parameters are identified.
 
         Args:
             utility: Utility function specification.
@@ -816,14 +821,23 @@ class GLADIUSEstimator(BaseEstimator):
         if feature_matrix is not None:
             # feature_matrix shape: (n_states, n_actions, n_features)
             n_states, n_actions, n_features = feature_matrix.shape
+            feature_matrix = jnp.asarray(feature_matrix)
 
-            # Flatten to (n_states * n_actions, n_features) and (n_states * n_actions,)
-            X = jnp.asarray(feature_matrix).reshape(-1, n_features)
-            y = reward_table.reshape(-1)
+            # Action-difference projection: for each action a > 0,
+            # compute dr(s) = r(s,a) - r(s,0) and
+            # dphi(s) = phi(s,a) - phi(s,0).
+            dr_list = []
+            dphi_list = []
+            for a in range(1, n_actions):
+                dr = reward_table[:, a] - reward_table[:, 0]
+                dphi = feature_matrix[:, a, :] - feature_matrix[:, 0, :]
+                dr_list.append(dr)
+                dphi_list.append(dphi)
 
-            # Least-squares: theta = (X^T X)^{-1} X^T y
+            X = jnp.concatenate(dphi_list, axis=0)
+            y = jnp.concatenate(dr_list, axis=0)
+
             parameters, _residuals, _rank, _sv = jnp.linalg.lstsq(X, y)
             return parameters
         else:
-            # No feature matrix: return flattened rewards
             return reward_table.flatten()
