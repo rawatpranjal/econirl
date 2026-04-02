@@ -24,8 +24,6 @@ Optimal stopping problems where an agent decides when to replace or maintain dur
    :maxdepth: 1
 
    rust_bus
-   counterfactual_sim_bus
-   counterfactual_real_bus
    scania_component
    rdw_scrappage
 
@@ -94,3 +92,4 @@ Cross-cutting tools for post-estimation diagnostics, model comparison, and infer
    :maxdepth: 1
 
    post_estimation
+   neural_counterfactuals
