@@ -1,0 +1,72 @@
+{
+  "parameters": {
+    "NNES": {
+      "distance_weight": -0.9900000095367432,
+      "popularity_weight": 0.009999999776482582,
+      "peak_weight": 0.009999999776482582
+    },
+    "CCP": {
+      "distance_weight": -1.0350112915039062,
+      "popularity_weight": 0.016470151022076607,
+      "peak_weight": 0.22623522579669952
+    },
+    "MCE-IRL": {
+      "distance_weight": -1.0304454565048218,
+      "popularity_weight": -4.4452730207922286e-07,
+      "peak_weight": -4.972137503500562e-06
+    }
+  },
+  "standard_errors": {
+    "NNES": {
+      "distance_weight": NaN,
+      "popularity_weight": NaN,
+      "peak_weight": NaN
+    },
+    "CCP": {
+      "distance_weight": 6.16056809121801e-07,
+      "popularity_weight": 4.546361651591724e-07,
+      "peak_weight": 8.638809845251672e-07
+    },
+    "MCE-IRL": {
+      "distance_weight": 0.02012641914188862,
+      "popularity_weight": 1.61693719746836e-06,
+      "peak_weight": 7.102157542249188e-05
+    }
+  },
+  "log_likelihoods": {
+    "NNES": -124968.765625,
+    "CCP": -118434.015625,
+    "MCE-IRL": -118433.96875
+  },
+  "true_parameters": {
+    "distance_weight": -1.0,
+    "popularity_weight": 0.5,
+    "peak_weight": 0.3
+  },
+  "counterfactual": {
+    "welfare_change": 4.024661540985107
+  },
+  "elasticity": {
+    "pct_changes": [
+      -0.5,
+      -0.25,
+      0.25,
+      0.5,
+      1.0
+    ],
+    "welfare_changes": [
+      4.024661540985107,
+      1.9694147109985352,
+      -1.8875869512557983,
+      -3.697125196456909,
+      -7.096172332763672
+    ],
+    "policy_changes": [
+      0.005390222184360027,
+      0.0026572810020297766,
+      0.0025756072718650103,
+      0.0050689540803432465,
+      0.009806851856410503
+    ]
+  }
+}

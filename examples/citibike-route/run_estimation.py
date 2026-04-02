@@ -1,6 +1,6 @@
 """Citibike Route Choice: IRL estimation of destination preferences.
 
-Demonstrates NFXP and MCE-IRL on Citibike station-to-station
+Demonstrates NNES, MCE-IRL, and CCP on Citibike station-to-station
 destination choice. Falls back to synthetic data if the real
 Citibike data has not been downloaded.
 
@@ -8,7 +8,9 @@ Usage:
     python examples/citibike-route/run_estimation.py
 """
 
+import json
 import time
+from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
@@ -16,11 +18,13 @@ import numpy as np
 from econirl.core.types import DDCProblem, Panel
 from econirl.datasets.citibike_route import load_citibike_route
 from econirl.environments.citibike_route import CitibikeRouteEnvironment
+from econirl.estimation.ccp import CCPEstimator
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
-from econirl.estimation.nfxp import NFXPEstimator
+from econirl.estimation.nnes import NNESEstimator
 from econirl.inference import etable
 from econirl.inference.fit_metrics import brier_score, kl_divergence
 from econirl.preferences.linear import LinearUtility
+from econirl.simulation.counterfactual import counterfactual_policy, elasticity_analysis
 
 
 def main():
@@ -36,6 +40,7 @@ def main():
     test = Panel(trajectories=panel.trajectories[cutoff:])
     print(f"  Train: {train.num_individuals} riders, {train.num_observations} obs")
     print(f"  Test:  {test.num_individuals} riders, {test.num_observations} obs")
+    print(f"  True: {env.true_parameters}")
 
     transitions = env.transition_matrices
     problem = env.problem_spec
@@ -47,10 +52,16 @@ def main():
     results = {}
 
     t0 = time.time()
-    nfxp = NFXPEstimator(se_method="robust")
-    results["NFXP"] = nfxp.estimate(train, utility, problem, transitions)
-    print(f"\nNFXP: {time.time() - t0:.1f}s")
-    print(results["NFXP"].summary())
+    nnes = NNESEstimator(se_method="asymptotic")
+    results["NNES"] = nnes.estimate(train, utility, problem, transitions)
+    print(f"\nNNES: {time.time() - t0:.1f}s")
+    print(results["NNES"].summary())
+
+    t0 = time.time()
+    ccp = CCPEstimator(num_policy_iterations=20, se_method="robust")
+    results["CCP"] = ccp.estimate(train, utility, problem, transitions)
+    print(f"\nCCP: {time.time() - t0:.1f}s")
+    print(results["CCP"].summary())
 
     t0 = time.time()
     mce_config = MCEIRLConfig(learning_rate=0.05, outer_max_iter=500)
@@ -59,13 +70,26 @@ def main():
     print(f"\nMCE-IRL: {time.time() - t0:.1f}s")
     print(results["MCE-IRL"].summary())
 
+    # Parameter recovery
+    print("\n" + "=" * 65)
+    print("Parameter Recovery Table")
+    print("=" * 65)
+    print(f"{'Parameter':<20} {'True':>8} {'NNES':>8} {'CCP':>8} {'MCE-IRL':>8}")
+    print("-" * 60)
+    for i, name in enumerate(env.parameter_names):
+        true_val = env.true_parameters[name]
+        print(f"{name:<20} {true_val:>8.4f} "
+              f"{float(results['NNES'].parameters[i]):>8.4f} "
+              f"{float(results['CCP'].parameters[i]):>8.4f} "
+              f"{float(results['MCE-IRL'].parameters[i]):>8.4f}")
+
     # Diagnostics
     print("\n" + "=" * 65)
     print("Post-Estimation Diagnostics")
     print("=" * 65)
 
     print("\n--- etable() ---")
-    print(etable(results["NFXP"], results["MCE-IRL"]))
+    print(etable(results["NNES"], results["CCP"], results["MCE-IRL"]))
 
     obs_states = jnp.array(train.get_all_states())
     obs_actions = jnp.array(train.get_all_actions())
@@ -81,6 +105,58 @@ def main():
     for name, r in results.items():
         kl = kl_divergence(data_ccps, r.policy)
         print(f"  {name}: {kl['kl_divergence']:.6f}")
+
+    # Counterfactual: halve distance disutility (better bike infrastructure)
+    print("\n" + "=" * 65)
+    print("Counterfactual: Halve Distance Disutility")
+    print("=" * 65)
+    best = results["MCE-IRL"]
+    dist_idx = env.parameter_names.index("distance_weight")
+    new_params = best.parameters.at[dist_idx].set(best.parameters[dist_idx] / 2)
+    cf = counterfactual_policy(best, new_params, utility, problem, transitions)
+    print(f"Welfare change: {float(cf.welfare_change):+.3f}")
+
+    # Elasticity on distance_weight
+    print("\n--- Distance Weight Elasticity ---")
+    ea = elasticity_analysis(
+        best, utility, problem, transitions,
+        parameter_name="distance_weight",
+        pct_changes=[-0.50, -0.25, 0.25, 0.50, 1.0],
+    )
+    print(f"{'% Change':>10} {'Welfare':>12} {'Avg Policy':>12}")
+    print("-" * 36)
+    for i, pct in enumerate(ea["pct_changes"]):
+        wc = ea["welfare_changes"][i]
+        pc = ea["policy_changes"][i]
+        print(f"{pct:>+10.0%} {float(wc):>+12.3f} {float(pc):>12.3f}")
+
+    # Save results to JSON
+    out = {
+        "parameters": {},
+        "standard_errors": {},
+        "log_likelihoods": {},
+    }
+    for name, r in results.items():
+        out["parameters"][name] = {
+            pname: float(r.parameters[i])
+            for i, pname in enumerate(env.parameter_names)
+        }
+        out["standard_errors"][name] = {
+            pname: float(r.standard_errors[i])
+            for i, pname in enumerate(env.parameter_names)
+        }
+        out["log_likelihoods"][name] = float(r.log_likelihood)
+    out["true_parameters"] = {k: float(v) for k, v in env.true_parameters.items()}
+    out["counterfactual"] = {"welfare_change": float(cf.welfare_change)}
+    out["elasticity"] = {
+        "pct_changes": [float(p) for p in ea["pct_changes"]],
+        "welfare_changes": [float(w) for w in ea["welfare_changes"]],
+        "policy_changes": [float(p) for p in ea["policy_changes"]],
+    }
+    results_path = Path(__file__).parent / "results.json"
+    with open(results_path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"\nResults saved to {results_path}")
 
 
 if __name__ == "__main__":
