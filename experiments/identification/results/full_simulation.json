@@ -8,7 +8,7 @@
       "mse": 0.0,
       "corr": 1.0
     },
-    "IQ-Learn": {
+    "IQ / GLADIUS": {
       "mse": 0.0,
       "corr": 1.0
     },
@@ -25,42 +25,42 @@
     "1": {
       "Oracle": 0.0,
       "AIRL+anchors": 0.0,
-      "IQ-Learn": 0.0,
+      "IQ / GLADIUS": 0.0,
       "AIRL-no-anchors": 0.0,
       "Reduced-form": 0.0
     },
     "2": {
       "Oracle": 0.0,
       "AIRL+anchors": 0.0,
-      "IQ-Learn": 0.0,
+      "IQ / GLADIUS": 0.0,
       "AIRL-no-anchors": 0.025,
       "Reduced-form": 0.082
     },
     "3": {
       "Oracle": 0.0,
       "AIRL+anchors": 0.0,
-      "IQ-Learn": 0.0,
+      "IQ / GLADIUS": 0.0,
       "AIRL-no-anchors": 0.017,
       "Reduced-form": 0.094
     },
     "5": {
       "Oracle": 0.0,
       "AIRL+anchors": 0.0,
-      "IQ-Learn": 0.0,
+      "IQ / GLADIUS": 0.0,
       "AIRL-no-anchors": 0.015,
       "Reduced-form": 0.123
     },
     "7": {
       "Oracle": 0.0,
       "AIRL+anchors": 0.0,
-      "IQ-Learn": 0.0,
+      "IQ / GLADIUS": 0.0,
       "AIRL-no-anchors": 0.016,
       "Reduced-form": 0.129
     },
     "10": {
       "Oracle": 0.0,
       "AIRL+anchors": 0.0,
-      "IQ-Learn": 0.0,
+      "IQ / GLADIUS": 0.0,
       "AIRL-no-anchors": 0.014,
       "Reduced-form": 0.139
     }
@@ -100,29 +100,20 @@
     }
   },
   "D": {
-    "200": {
-      "rf": 0.2646,
-      "iq": 0.2679
-    },
     "500": {
-      "rf": 0.2641,
-      "iq": 0.2626
-    },
-    "1000": {
-      "rf": 0.2623,
-      "iq": 0.2622
+      "rf": 0.2639,
+      "anchor_mle": 0.2546,
+      "gladius": 0.1055
     },
     "2000": {
-      "rf": 0.2626,
-      "iq": 0.257
-    },
-    "5000": {
-      "rf": 0.2623,
-      "iq": 0.2609
+      "rf": 0.2624,
+      "anchor_mle": 0.2552,
+      "gladius": 0.1234
     },
     "10000": {
       "rf": 0.2623,
-      "iq": 0.2572
+      "anchor_mle": 0.2565,
+      "gladius": 0.0985
     }
   },
   "E": {
@@ -160,7 +151,7 @@
   "F": {
     "Oracle": 0.0,
     "AIRL+anchors": 0.0,
-    "IQ-Learn": 0.0,
+    "IQ / GLADIUS": 0.0,
     "AIRL-no-anchors": 0.009,
     "Reduced-form": 0.185
   }

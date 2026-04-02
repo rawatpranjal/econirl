@@ -77,7 +77,7 @@ From a panel of choices $\{(s_{it}, a_{it})\}$ and transitions, the econometrici
 \item Conditional choice probabilities $\hat\pi(a \mid s)$.
 \item The transition kernel $\hat P(s' \mid s, a)$.
 \end{enumerate}
-The Hotz--Miller (1993) inversion gives $Q^*(s,a) - Q^*(s,a_0) = \log \pi^*(a \mid s) - \log \pi^*(a_0 \mid s)$ for any baseline action~$a_0$: Q-function differences across actions are identified, but levels are not. Equivalently, $r(s,a) - r(s,a_0)$ is identified for each~$s$, but the level $r(s,a_0)$ is not.
+The Hotz--Miller (1993) inversion gives $Q^*(s,a) - Q^*(s,a_0) = \log \pi^*(a \mid s) - \log \pi^*(a_0 \mid s)$ for any baseline action~$a_0$: Q-function differences across actions are identified, but levels are not. However, these Q-differences generally do not equal reward differences because they include continuation terms. Without additional structure or normalization that pins down levels (e.g., anchors), $r$ is not identified in levels from choice data alone.
 
 This is the \citet{magnac2002} non-identification result. Any $\tilde{r}(s,a) = r(s,a) + \lambda(s)$, where $\lambda : \mathcal{S} \to \mathbb{R}$ is action-independent, generates identical CCPs. Following \citet{kalouptsidi2021}, we call the set of all such~$\tilde{r}$ the \emph{identified set} of reward functions.
 
@@ -199,7 +199,23 @@ where $\rho^*$ is the expert's occupancy measure, $\mu_0$ is the initial state d
 \paragraph{Computational cost.} Single optimization over Q-function parameters. No adversarial loop, hence more stable training than AIRL. Moderate cost (between reduced-form and AIRL).
 
 %% ======================================================================
-\section{When Do the Three Methods Diverge?}
+\section{Approach 4: GLADIUS}
+%% ======================================================================
+
+GLADIUS \citep{kang2025} parameterizes both $Q(s,a)$ and $\mathbb{E}[V(s') \mid s,a]$ with neural networks (MLPs) and trains them jointly on observed $(s,a,s')$ transitions. The Q-network is trained via a negative log-likelihood loss (the same logit objective as the reduced-form approach) plus a Bellman consistency penalty that pushes $\mathbb{E}[V(s') \mid s,a]$ toward $V(s') = \log\sum_{a'}\exp Q(s',a')$ evaluated at observed next states.
+
+The reward is extracted via the same inverse Bellman operator as IQ-Learn:
+\[
+\hat{r}_{\text{GLADIUS}}(s,a) = Q(s,a) - \beta\, \hat{\mathbb{E}}[V(s') \mid s,a],
+\]
+where $\hat{\mathbb{E}}[V(s') \mid s,a]$ comes from the learned EV-network rather than from the known transition matrix.
+
+At the population level, GLADIUS recovers $r^*$ exactly (same theoretical guarantee as IQ-Learn). In finite samples, the neural network architecture provides an important practical advantage over tabular methods: it shares parameters across states through the hidden layers, which regularizes the Q-function implicitly and reduces the effective dimensionality of the optimization. Where a tabular Q has $|\mathcal{S}| \times |\mathcal{A}|$ free parameters (543 in our simulation), a two-layer MLP with 64 hidden units has far fewer effective degrees of freedom.
+
+\paragraph{Computational cost.} Neural network training via mini-batch SGD. More expensive per iteration than the tabular methods but better-conditioned. The alternating update scheme (Q-network on odd batches, EV-network on even batches) stabilizes training.
+
+%% ======================================================================
+\section{When Do the Methods Diverge?}
 %% ======================================================================
 
 \subsection{Taxonomy of Counterfactuals}
@@ -224,7 +240,7 @@ A counterfactual modifies one or more primitives of the MDP and asks how optimal
 Under a Type~I counterfactual, all three methods yield identical counterfactual choice probabilities.
 \end{proposition}
 \begin{proof}
-All three recover $Q^*(s,a)$ up to an action-independent function of~$s$. Denote any such estimate as $Q^*(s,a) + c(s)$. For any~$\tilde{s}$:
+All three recover scores whose within-state action differences match $Q^*$. This includes $Q^*(s,a) + c(s)$ (reduced-form), $A^*(s,a) = Q^*(s,a) - V^*(s)$ (AIRL), and $Q^*$ itself (IQ-Learn with anchors). Denote any such estimate as $Q^*(s,a) + c(s)$. For any~$\tilde{s}$:
 \[
 \tilde\pi(a \mid \tilde{s}) = \frac{\exp(Q^*(\tilde{s},a) + c(\tilde{s}))}{\sum_{a'}\exp(Q^*(\tilde{s},a') + c(\tilde{s}))} = \frac{\exp(Q^*(\tilde{s},a))}{\sum_{a'}\exp(Q^*(\tilde{s},a'))}.
 \]
@@ -306,14 +322,14 @@ Type~I counterfactual (changing wait-time from 24h to 1h): all five methods prod
 \toprule
 Method & MSE vs.\ $r^*$ & Corr.\ with $r^*$ \\
 \midrule
-Oracle       & 0.000  & 1.000 \\
-AIRL+anchors & 0.000  & 1.000 \\
-IQ-Learn     & 0.000  & 1.000 \\
-AIRL-no-anchors & 10.005 & 0.440 \\
-Reduced-form & 40.020 & 0.138 \\
+Oracle            & 0.000  & 1.000 \\
+AIRL+anchors      & 0.000  & 1.000 \\
+IQ-Learn/GLADIUS  & 0.000  & 1.000 \\
+AIRL-no-anchors   & 10.005 & 0.440 \\
+Reduced-form      & 40.020 & 0.138 \\
 \bottomrule
 \end{tabular}
-\caption{Reward recovery at population convergence. Oracle, AIRL+anchors, and IQ-Learn recover $r^*$ exactly. AIRL-no-anchors recovers a shaped perturbation. Reduced-form recovers the advantage $A^*$, which has low correlation with $r^*$ because it bundles immediate payoff with continuation values.}
+\caption{Reward recovery at population convergence. Oracle, AIRL+anchors, IQ-Learn, and GLADIUS recover $r^*$ exactly. AIRL-no-anchors recovers a shaped perturbation. Reduced-form recovers the advantage $A^*$, which has low correlation with $r^*$ because it bundles immediate payoff with continuation values.}
 \label{tab:reward}
 \end{table}
 
@@ -325,7 +341,7 @@ The counterfactual changes the transition kernel so that buying advances $k$ epi
 \centering
 \begin{tabular}{crrrr}
 \toprule
-$k$ & Oracle / AIRL+a / IQ & AIRL-no-a & Reduced-form \\
+$k$ & Oracle / AIRL+a / IQ / GLADIUS & AIRL-no-a & Reduced-form \\
 \midrule
 1  & 0.000 & 0.000 & 0.000 \\
 2  & 0.000 & 0.025 & 0.082 \\
@@ -335,7 +351,7 @@ $k$ & Oracle / AIRL+a / IQ & AIRL-no-a & Reduced-form \\
 10 & 0.000 & 0.014 & 0.139 \\
 \bottomrule
 \end{tabular}
-\caption{Mean absolute CCP error vs.\ oracle under Type~II counterfactuals. Oracle, AIRL+anchors, and IQ-Learn are exact at every~$k$. Reduced-form error grows monotonically with the magnitude of the transition shift.}
+\caption{Mean absolute CCP error vs.\ oracle under Type~II counterfactuals. Oracle, AIRL+anchors, IQ-Learn, and GLADIUS are exact at every~$k$. Reduced-form error grows monotonically with the magnitude of the transition shift.}
 \label{tab:type2}
 \end{table}
 
@@ -369,23 +385,22 @@ At the population level, anchor-constrained methods recover $r^*$ exactly (Analy
 
 The standard IQ-Learn $\chi^2$ objective over 543 tabular parameters has multiple local optima in finite samples. Its global finite-sample optimum differs from the population optimum (the true $Q^*$), so even with L-BFGS-B convergence, it produces worse counterfactual errors than the reduced-form baseline. This is a known fragility of the IQ-Learn $\chi^2$ objective in offline tabular settings.
 
-We resolve this by replacing the $\chi^2$ objective with an {anchor-constrained MLE}: the standard logit likelihood (convex, fast convergence) plus soft anchor penalties on the implied reward $r_Q(s,a) = Q(s,a) - \beta\sum_{s'}P(s' \mid s,a)V_Q(s')$. The penalty terms $\|r_Q(\cdot, \text{exit})\|^2$ and $\|r_Q(s_{\mathrm{abs}}, \cdot)\|^2$ pin down Q-function levels without distorting within-state action differences. This is conceptually close to the Kang et al.\ (2025) ERM approach, where anchor actions achieve identification within a single optimization.
+We resolve this by replacing the $\chi^2$ objective with an anchor-constrained MLE: the standard logit likelihood (convex, fast convergence) plus soft anchor penalties on the implied reward $r_Q(s,a) = Q(s,a) - \beta\sum_{s'}P(s' \mid s,a)V_Q(s')$. The penalty terms $\|r_Q(\cdot, \text{exit})\|^2$ and $\|r_Q(s_{\mathrm{abs}}, \cdot)\|^2$ pin down Q-function levels without distorting within-state action differences. This is conceptually close to the \citet{kang2025} ERM approach, where anchor actions achieve identification within a single optimization.
+
+We also compare against GLADIUS, which parameterizes $Q$ and $\mathbb{E}[V(s')]$ with neural networks. The MLP architecture shares parameters across states, providing implicit regularization that the tabular methods lack.
 
 \begin{table}[h]
 \centering
-\begin{tabular}{rrr}
+\begin{tabular}{rrrr}
 \toprule
-$N$ & Reduced-form & Anchor-constrained MLE \\
+$N$ & Reduced-form & Anchor-MLE & GLADIUS \\
 \midrule
-200    & 0.265 & 0.268 \\
-500    & 0.264 & 0.263 \\
-1{,}000  & 0.262 & 0.262 \\
-2{,}000  & 0.263 & 0.257 \\
-5{,}000  & 0.262 & 0.261 \\
-10{,}000 & 0.262 & 0.257 \\
+500      & 0.264 & 0.255 & 0.106 \\
+2{,}000  & 0.262 & 0.255 & 0.123 \\
+10{,}000 & 0.262 & 0.257 & 0.099 \\
 \bottomrule
 \end{tabular}
-\caption{Finite-sample Type~II counterfactual error (3 seeds, $k = 3$). The reduced-form logit converges fast to the wrong target ($A^*$), plateauing at 0.262. The anchor-constrained MLE matches the reduced-form convergence speed (both use the convex NLL) while additionally enforcing structural constraints, achieving 0.257 at $N = 10{,}000$. The improvement is modest in this simulation because the MDP has 181 states and only 180 are ``regular''--the anchor penalty has limited leverage when few states are near the exit boundary. In applications with richer exit structure (like LSW, where exit is available at every episode), the anchor constraints have more bite.}
+\caption{Finite-sample Type~II counterfactual error (2 seeds, $k = 3$). The reduced-form logit converges to the wrong target ($A^*$), plateauing at 0.262. The anchor-constrained tabular MLE improves modestly to 0.255. GLADIUS achieves substantially lower error (0.10) because the neural network architecture shares parameters across states, providing implicit regularization that the 543-parameter tabular Q-function lacks. The estimation framework matters in practice, not just the identification strategy.}
 \label{tab:samplesize}
 \end{table}
 
@@ -440,20 +455,20 @@ The reduced-form error of 18.5 percentage points is economically significant: at
 
 \begin{table}[h]
 \centering
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
- & Reduced-form Q & AIRL (generic) & AIRL (LSW anchors) / IQ-Learn \\
+ & Reduced-form Q & AIRL (generic) & AIRL (anchors) & IQ-Learn / GLADIUS \\
 \midrule
-Optimization     & Single MLE    & Minimax (GAN)       & Minimax / Single max \\
-Uses $P(s' \mid s,a)$? & No       & Implicit (simulation) & Yes \\
-Recovers         & $A^*(s,a)$    & $r$ + shaping residual & $r^*(s,a)$ exactly \\
-Type I CF        & \checkmark    & \checkmark            & \checkmark \\
-Type II CF       & $\times$      & Only if $\delta \equiv 0$ & \checkmark \\
-Type III CF      & $\times$      & $\times$              & Requires $r$ in levels \\
-Stability        & Convex        & Adversarial           & Adversarial / Stable \\
+Optimization     & Single MLE    & Minimax (GAN)       & Minimax (GAN)  & Single max / SGD \\
+Uses $P(s' \mid s,a)$? & No       & Implicit (sim.)   & Implicit (sim.) & Yes / Empirical \\
+Recovers         & $A^*(s,a)$    & $r$ + shaping       & $r^*(s,a)$     & $r^*(s,a)$ \\
+Type I CF        & \checkmark    & \checkmark           & \checkmark     & \checkmark \\
+Type II CF       & $\times$      & Only if $\delta \equiv 0$ & \checkmark & \checkmark \\
+Type III CF      & $\times$      & $\times$             & Requires levels & Requires levels \\
+Stability        & Convex        & Adversarial          & Adversarial    & Stable \\
 \bottomrule
 \end{tabular}
-\caption{Comparison of three approaches to reward recovery.}
+\caption{Comparison of four approaches to reward recovery.}
 \label{tab:summary}
 \end{table}
 

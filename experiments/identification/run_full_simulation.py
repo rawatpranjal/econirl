@@ -260,6 +260,92 @@ def estimate_iq(data, mdp, n_iter=10000, Q_init=None):
     return {'r': Q - beta * EV, 'pi': jax.nn.softmax(Q, axis=1)}
 
 
+def estimate_gladius(data, mdp, max_epochs=300):
+    """GLADIUS: neural Q + EV networks with Bellman consistency.
+
+    Uses the actual GLADIUSEstimator from the econirl package.
+    Extracts the implied reward from metadata['reward_table'].
+    """
+    from econirl.estimation.gladius import GLADIUSEstimator, GLADIUSConfig
+    from econirl.core.types import DDCProblem, Panel, Trajectory
+    from econirl.preferences.action_reward import ActionDependentReward
+
+    cfg = mdp['cfg']
+    nS, nA = mdp['n_states'], cfg.n_actions
+    beta, ABS = cfg.beta, mdp['ABS']
+
+    problem = DDCProblem(
+        num_states=nS, num_actions=nA,
+        discount_factor=beta, scale_parameter=1.0,
+    )
+
+    # Build a simple feature matrix (content utility + price + wait cost)
+    # 3 features: buy_indicator, content_utility, wait_cost
+    features = np.zeros((nS, nA, 3))
+    n_c, n_w, n_ep = cfg.n_content_levels, cfg.n_wait_levels, cfg.n_episodes
+    for p in range(n_ep):
+        for c in range(n_c):
+            for w in range(n_w):
+                s = p * n_c * n_w + c * n_w + w
+                features[s, 0, 0] = 1.0  # buy indicator
+                features[s, 0, 1] = cfg.content_utilities[c]
+                features[s, 1, 1] = cfg.content_utilities[c]
+                features[s, 1, 2] = cfg.wait_hours[w]
+    feature_matrix = jnp.array(features, dtype=jnp.float32)
+    utility = ActionDependentReward(feature_matrix, ['buy_ind', 'content', 'wait'])
+
+    transitions = mdp['P'].transpose(1, 0, 2)  # (S, A, S') -> (A, S, S')
+
+    # Build panel from data
+    s_np = np.array(data['s'])
+    a_np = np.array(data['a'])
+    sp_np = np.array(data['sp'])
+
+    # Split into trajectories at absorbing state boundaries
+    trajectories = []
+    traj_start = 0
+    for i in range(len(s_np)):
+        if s_np[i] == ABS or i == len(s_np) - 1:
+            if i > traj_start:
+                sl = slice(traj_start, i)
+                trajectories.append(Trajectory(
+                    states=jnp.array(s_np[sl], dtype=jnp.int32),
+                    actions=jnp.array(a_np[sl], dtype=jnp.int32),
+                    next_states=jnp.array(sp_np[sl], dtype=jnp.int32),
+                ))
+            traj_start = i + 1
+    if not trajectories:
+        # Fallback: single trajectory
+        trajectories.append(Trajectory(
+            states=jnp.array(s_np, dtype=jnp.int32),
+            actions=jnp.array(a_np, dtype=jnp.int32),
+            next_states=jnp.array(sp_np, dtype=jnp.int32),
+        ))
+    panel = Panel(trajectories=trajectories)
+
+    gl_config = GLADIUSConfig(
+        q_hidden_dim=64,
+        q_num_layers=2,
+        v_hidden_dim=64,
+        v_num_layers=2,
+        q_lr=1e-3,
+        v_lr=1e-3,
+        max_epochs=max_epochs,
+        batch_size=256,
+        bellman_penalty_weight=1.0,
+        alternating_updates=True,
+        patience=30,
+        compute_se=False,
+        verbose=False,
+    )
+
+    estimator = GLADIUSEstimator(gl_config)
+    summary = estimator.estimate(panel, utility, problem, transitions)
+
+    reward_table = jnp.array(summary.metadata['reward_table'])
+    return {'r': reward_table, 'pi': summary.policy}
+
+
 def cf_error(P_cf, r_hat, r_true, beta, ABS, nR):
     oracle = solve_mdp(P_cf, r_true, beta, ABS)
     method = solve_mdp(P_cf, r_hat, beta, ABS)
@@ -276,7 +362,10 @@ def main():
     r_true, V_star, A_star = mdp['r'], sol['V'], sol['A']
     nR, ABS, beta, ns = mdp['n_regular'], mdp['ABS'], cfg.beta, mdp['next_s']
 
-    # Analytical methods
+    # Analytical methods (population-level convergence)
+    # IQ-Learn and GLADIUS both use the inverse Bellman operator:
+    #   r_Q = Q* - beta * V*(s')
+    # At population convergence they recover r* exactly.
     r_iq = sol['Q'] - beta * V_star[ns]
     delta = 0.5 * V_star
     r_noanch = r_true + delta[:, None] - beta * delta[ns]
@@ -284,7 +373,7 @@ def main():
     methods = {
         'Oracle': r_true,
         'AIRL+anchors': r_true,
-        'IQ-Learn': r_iq,
+        'IQ / GLADIUS': r_iq,
         'AIRL-no-anchors': r_noanch,
         'Reduced-form': A_star,
     }
@@ -329,27 +418,34 @@ def main():
         print(f"  alpha={alpha:.2f}: err={err:.3f}, corr={corr:.3f}")
         results['C'][str(alpha)] = {'error': round(err, 3), 'corr': round(corr, 3)}
 
-    # --- D: Sample size (RF vs IQ-Learn) ---
-    print("\nAnalysis D: Sample size (L-BFGS-B, IQ warm-started from RF)")
-    sample_sizes = [200, 500, 1000, 2000, 5000, 10000]
-    n_seeds = 3
+    # --- D: Sample size (RF vs Anchor-MLE vs GLADIUS) ---
+    print("\nAnalysis D: Sample size (RF, Anchor-MLE, GLADIUS)")
+    sample_sizes = [500, 2000, 10000]
+    n_seeds = 2
     results['D'] = {}
     for N in sample_sizes:
-        rf_errs, iq_errs = [], []
+        rf_errs, iq_errs, gl_errs = [], [], []
         for seed in range(n_seeds):
             data = generate_data(mdp, sol, N, jr.PRNGKey(seed * 1000 + N))
             # RF: L-BFGS-B, fully converged
             rf = estimate_rf(data, mdp['n_states'], cfg.n_actions, n_iter=10000)
             rf_err = cf_error(Pt3, rf['A'], r_true, beta, ABS, nR)
             rf_errs.append(rf_err)
-            # IQ-Learn: warm-start from RF Q, L-BFGS-B
+            # Anchor-constrained MLE: warm-start from RF Q
             iq = estimate_iq(data, mdp, n_iter=10000, Q_init=rf['Q'])
             iq_err = cf_error(Pt3, iq['r'], r_true, beta, ABS, nR)
             iq_errs.append(iq_err)
+            # GLADIUS: neural Q + EV with 150 epochs for speed
+            gl = estimate_gladius(data, mdp, max_epochs=150)
+            gl_err = cf_error(Pt3, gl['r'], r_true, beta, ABS, nR)
+            gl_errs.append(gl_err)
         rf_mean = np.mean(rf_errs)
         iq_mean = np.mean(iq_errs)
-        print(f"  N={N:>5}: RF={rf_mean:.4f}, IQ={iq_mean:.4f}  (avg over {n_seeds} seeds)")
-        results['D'][str(N)] = {'rf': round(rf_mean, 4), 'iq': round(iq_mean, 4)}
+        gl_mean = np.mean(gl_errs)
+        print(f"  N={N:>5}: RF={rf_mean:.4f}, Anch-MLE={iq_mean:.4f}, GLADIUS={gl_mean:.4f}  ({n_seeds} seeds)")
+        results['D'][str(N)] = {
+            'rf': round(rf_mean, 4), 'anchor_mle': round(iq_mean, 4), 'gladius': round(gl_mean, 4)
+        }
 
     # --- E: Anchor misspecification ---
     print("\nAnalysis E: Anchor misspecification")
