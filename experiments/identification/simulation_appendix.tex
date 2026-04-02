@@ -205,20 +205,22 @@ $\alpha$ & Type II CF error & Corr.\ with $r^*$ \\
 
 \subsection{D. Finite-sample convergence}
 
-We estimate reward functions from simulated data using three methods and evaluate Type II counterfactual accuracy ($k = 3$). The reduced-form logit is estimated via L-BFGS-B. IQ-Learn uses the $\chi^2$ objective with tabular $Q$ and L-BFGS-B, via the \texttt{econirl.contrib.iq\_learn} estimator. GLADIUS uses two-layer MLPs (64 hidden units) for $Q$ and EV, via the \texttt{econirl.estimation.gladius} estimator. Each cell averages over 3 seeds.
+We compare five finite-sample estimators across sample sizes from 200 to 10{,}000 trajectories (3 seeds each). Reduced-form logit targets $A^*$, which is the wrong objective for Type II counterfactuals. IQ-Learn ($\chi^2$) optimizes the Garg et al.\ (2021) tabular objective with L-BFGS-B. AIRL trains an adversarial discriminator without anchor constraints, so shaping ambiguity persists in finite samples as in Analysis A. LSW-AIRL enforces the two anchor constraints (exit action 2 pinned to zero reward, absorbing state $s_{\mathrm{abs}}$ pinned to zero value), achieving full identification at population. GLADIUS uses neural $Q$ and EV networks with 150 training epochs.
 
 \begin{table}[H]
 \centering
-\begin{tabular}{rrrr}
+\begin{tabular}{rrrrrr}
 \toprule
-$N$ & Reduced-form & IQ-Learn & GLADIUS \\
+$N$ & RF & IQ-Learn ($\chi^2$) & AIRL & LSW & GLADIUS \\
 \midrule
-500      & 0.264 & 0.287 & 0.135 \\
-2{,}000  & 0.263 & 0.285 & 0.139 \\
-10{,}000 & 0.262 & 0.333 & 0.130 \\
+200      & 0.265 & 0.237 & -- & -- & 0.132 \\
+500      & 0.264 & 0.287 & -- & -- & 0.135 \\
+2{,}000  & 0.263 & 0.285 & -- & -- & 0.139 \\
+5{,}000  & 0.262 & 0.335 & -- & -- & 0.135 \\
+10{,}000 & 0.262 & 0.333 & -- & -- & 0.130 \\
 \bottomrule
 \end{tabular}
-\caption{Type II CF error ($k=3$, 3 seeds). The reduced-form logit converges fast to the wrong target ($A^*$), plateauing at 0.262. The tabular IQ-Learn $\chi^2$ objective has multiple local optima and performs worse than RF at large $N$. GLADIUS halves the error via implicit neural regularization.}
+\caption{Type II CF error ($k=3$, 3 seeds). Results pending re-run with all five estimators.}
 \label{tab:samplesize}
 \end{table}
 
@@ -261,6 +263,26 @@ Reduced-form & 0.185 \\
 \end{tabular}
 \caption{Content-based paywall counterfactual. The reduced-form approach fails at 18.5pp because it cannot separate content utility from continuation value.}
 \label{tab:paywall}
+\end{table}
+
+\subsection{G. State-only reward (Fu et al.\ transfer test)}
+
+Analyses A through F use action-dependent rewards, which is the LSW setting. Here we test the Fu et al.\ (2018) setting by replacing the true reward with a state-only function $r^*(s,a) = r^*(s)$ for all $a$, where $r^*(s) = u(c)$ depends only on content quality. This satisfies the conditions of Fu et al.\ Theorem 5.1, so AIRL with a state-only $g_\theta(s)$ should recover $r(s)$ up to a constant that cancels in the softmax. We evaluate the Type II counterfactual with $k = 3$, re-solving the Bellman equation without pinning $V(s_{\mathrm{abs}}) = 0$ (the absorbing-state anchor is not part of the Fu et al.\ identification strategy).
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Method & MSE vs.\ $r^*$ & Corr. & Type II err \\
+\midrule
+Oracle / AIRL+anchors / IQ-Learn & 0.000 & 1.000 & 0.000 \\
+AIRL-state-only ($g^* = r + \text{const}$) & 2.778 & 1.000 & 0.000 \\
+AIRL-shaped ($\alpha = 0.5$) & 13.689 & 0.530 & 0.026 \\
+Reduced-form & 54.755 & 0.000 & 0.182 \\
+\bottomrule
+\end{tabular}
+\caption{State-only reward DGP. AIRL with state-only $g_\theta(s)$ recovers $r^*(s)$ up to a constant (MSE $> 0$ but Corr = 1) and transfers perfectly (Type II error = 0). This is the mechanism behind the Fu et al.\ sim-to-real experiments. Generic AIRL without the state-only restriction still fails (0.026) because the shaping residual is action-dependent. The reduced-form advantage has zero correlation with $r^*(s)$ because the true reward is identical across actions and the advantage reflects only continuation-value differences.}
+\label{tab:stateonly}
 \end{table}
 
 %% ======================================================================

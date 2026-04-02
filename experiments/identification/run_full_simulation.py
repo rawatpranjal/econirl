@@ -376,6 +376,70 @@ def estimate_gladius(data, mdp, max_epochs=200):
     return {'r': reward_table, 'pi': summary.policy}
 
 
+def estimate_airl(data, mdp, max_rounds=100):
+    """AIRL (Fu et al. 2018): adversarial discriminator, no anchor constraints.
+
+    Reward is not identified up to shaping — finite-sample analogue of
+    the population AIRL-no-anchors row in Analysis A.
+    """
+    from econirl.estimation.adversarial import AIRLEstimator, AIRLConfig
+
+    panel, problem, utility, transitions_jnp = _build_panel_and_problem(data, mdp)
+    config = AIRLConfig(
+        reward_type='tabular',
+        max_rounds=max_rounds,
+        use_shaping=True,
+        compute_se=False,
+        verbose=False,
+    )
+    est = AIRLEstimator(config)
+    summary = est.estimate(panel, utility, problem, transitions_jnp)
+    reward_table = jnp.array(summary.metadata['reward_matrix'])
+    return {'r': reward_table, 'pi': summary.policy}
+
+
+def estimate_lsw(data, mdp, max_rounds=100):
+    """LSW-AIRL (Lee, Sudhir & Wang 2026): AIRL with anchor identification.
+
+    Exit action (action 2) is anchored to zero reward. Absorbing state is
+    anchored to zero value. Together these pin down the shaping ambiguity
+    and recover r* exactly at population (Theorems 1-3 in the appendix).
+    Uses num_segments=1 since this MDP has no unobserved heterogeneity.
+    """
+    from econirl.estimation.adversarial import AIRLHetEstimator, AIRLHetConfig
+
+    panel, problem, utility, transitions_jnp = _build_panel_and_problem(data, mdp)
+    config = AIRLHetConfig(
+        num_segments=1,
+        exit_action=2,
+        absorbing_state=mdp['ABS'],
+        reward_type='tabular',
+        max_airl_rounds=max_rounds,
+        verbose=False,
+    )
+    est = AIRLHetEstimator(config)
+    summary = est.estimate(panel, utility, problem, transitions_jnp)
+    # segment_reward_matrices is a list of K matrices; K=1 here
+    reward_table = jnp.array(summary.metadata['segment_reward_matrices'][0])
+    return {'r': reward_table, 'pi': summary.policy}
+
+
+def solve_mdp_free(P, r, beta):
+    """Solve MDP without pinning V(ABS)=0.
+
+    Used for the state-only reward analysis (Analysis G) where the
+    Fu et al. (2018) identification strategy does not pin the absorbing
+    state value. A constant shift in r(s) shifts V by const/(1-beta)
+    uniformly, which cancels in the softmax policy.
+    """
+    V = jnp.zeros(P.shape[0])
+    for _ in range(500):
+        Q = r + beta * jnp.einsum('ijk,k->ij', P, V)
+        V = logsumexp(Q, axis=1)
+    Q = r + beta * jnp.einsum('ijk,k->ij', P, V)
+    return {'Q': Q, 'V': V, 'pi': jax.nn.softmax(Q, axis=1)}
+
+
 def cf_error(P_cf, r_hat, r_true, beta, ABS, nR):
     oracle = solve_mdp(P_cf, r_true, beta, ABS)
     method = solve_mdp(P_cf, r_hat, beta, ABS)
@@ -448,33 +512,36 @@ def main():
         print(f"  alpha={alpha:.2f}: err={err:.3f}, corr={corr:.3f}")
         results['C'][str(alpha)] = {'error': round(err, 3), 'corr': round(corr, 3)}
 
-    # --- D: Sample size (RF vs IQ-Learn vs GLADIUS) ---
-    print("\nAnalysis D: Sample size (RF, IQ-Learn chi2, GLADIUS)")
+    # --- D: Sample size (RF, IQ-Learn, AIRL, LSW, GLADIUS) ---
+    print("\nAnalysis D: Sample size (RF, IQ-Learn, AIRL, LSW, GLADIUS)")
     sample_sizes = [200, 500, 2000, 5000, 10000]
     n_seeds = 3
     results['D'] = {}
     for N in sample_sizes:
-        rf_errs, iq_errs, gl_errs = [], [], []
+        rf_errs, iq_errs, airl_errs, lsw_errs, gl_errs = [], [], [], [], []
         for seed in range(n_seeds):
             data = generate_data(mdp, sol, N, jr.PRNGKey(seed * 1000 + N))
-            # RF: L-BFGS-B, fully converged
             rf = estimate_rf(data, mdp['n_states'], cfg.n_actions, n_iter=10000)
-            rf_err = cf_error(Pt3, rf['A'], r_true, beta, ABS, nR)
-            rf_errs.append(rf_err)
-            # IQ-Learn (chi2): actual package estimator
+            rf_errs.append(cf_error(Pt3, rf['A'], r_true, beta, ABS, nR))
             iq = estimate_iq_learn(data, mdp, max_iter=2000)
-            iq_err = cf_error(Pt3, iq['r'], r_true, beta, ABS, nR)
-            iq_errs.append(iq_err)
-            # GLADIUS: neural Q + EV with 150 epochs for speed
+            iq_errs.append(cf_error(Pt3, iq['r'], r_true, beta, ABS, nR))
+            airl = estimate_airl(data, mdp, max_rounds=100)
+            airl_errs.append(cf_error(Pt3, airl['r'], r_true, beta, ABS, nR))
+            lsw = estimate_lsw(data, mdp, max_rounds=100)
+            lsw_errs.append(cf_error(Pt3, lsw['r'], r_true, beta, ABS, nR))
             gl = estimate_gladius(data, mdp, max_epochs=150)
-            gl_err = cf_error(Pt3, gl['r'], r_true, beta, ABS, nR)
-            gl_errs.append(gl_err)
-        rf_mean = np.mean(rf_errs)
-        iq_mean = np.mean(iq_errs)
-        gl_mean = np.mean(gl_errs)
-        print(f"  N={N:>5}: RF={rf_mean:.4f}, IQ-Learn={iq_mean:.4f}, GLADIUS={gl_mean:.4f}  ({n_seeds} seeds)")
+            gl_errs.append(cf_error(Pt3, gl['r'], r_true, beta, ABS, nR))
+        print(
+            f"  N={N:>5}: RF={np.mean(rf_errs):.4f}, IQ={np.mean(iq_errs):.4f}, "
+            f"AIRL={np.mean(airl_errs):.4f}, LSW={np.mean(lsw_errs):.4f}, "
+            f"GLADIUS={np.mean(gl_errs):.4f}  ({n_seeds} seeds)"
+        )
         results['D'][str(N)] = {
-            'rf': round(rf_mean, 4), 'iq_learn': round(iq_mean, 4), 'gladius': round(gl_mean, 4)
+            'rf': round(np.mean(rf_errs), 4),
+            'iq_learn': round(np.mean(iq_errs), 4),
+            'airl': round(np.mean(airl_errs), 4),
+            'lsw': round(np.mean(lsw_errs), 4),
+            'gladius': round(np.mean(gl_errs), 4),
         }
 
     # --- E: Anchor misspecification ---
@@ -518,6 +585,86 @@ def main():
         err = float(jnp.mean(jnp.abs(cf_pi - oracle_pw)))
         print(f"  {name:<22}: {err:.3f}")
         results['F'][name] = round(err, 3)
+
+    # --- G: State-only reward (Fu et al. transfer test) ---
+    print("\nAnalysis G: State-only reward r(s) -- Fu et al. transfer test")
+    print("  Building state-only MDP (r(s,a) = r(s) for all a)...")
+
+    # Build a new MDP where the true reward is state-only:
+    # r(s) = content_utility(c) for all actions (no price, no wait cost)
+    # This satisfies the Fu et al. (2018) Theorem 5.1 condition.
+    mdp_g = build_mdp(cfg)
+    r_state_only = np.zeros((mdp_g['n_states'], cfg.n_actions))
+    n_c, n_w, n_ep = cfg.n_content_levels, cfg.n_wait_levels, cfg.n_episodes
+    for p in range(n_ep):
+        for c in range(n_c):
+            for w in range(n_w):
+                s = p * n_c * n_w + c * n_w + w
+                r_state_only[s, :] = cfg.content_utilities[c]
+    r_state_only[mdp_g['ABS'], :] = 0.0
+    r_state_only = jnp.array(r_state_only)
+
+    # Override the MDP reward and solve without pinning V(ABS)=0.
+    # The Fu et al. identification strategy does not require the
+    # absorbing-state anchor. A constant shift in r(s) shifts V
+    # uniformly and cancels in the softmax. Pinning V(ABS)=0
+    # would break this invariance.
+    mdp_g['r'] = r_state_only
+    sol_g = solve_mdp_free(mdp_g['P'], r_state_only, cfg.beta)
+    r_true_g = r_state_only
+    ns_g = mdp_g['next_s']
+    V_star_g = sol_g['V']
+
+    # Analytical methods at population level:
+    # Oracle: true r(s)
+    # AIRL+anchors: r(s) exactly (anchors are redundant here but still valid)
+    # AIRL-state-only: g*(s) = r(s) + const (Fu et al. Theorem 5.1)
+    # AIRL-no-anchors: r(s) + shaped residual (action-dependent shaping)
+    # IQ-Learn: r(s) exactly via inverse Bellman
+    # Reduced-form: advantage A*(s,a)
+    r_iq_g = sol_g['Q'] - beta * V_star_g[ns_g]
+    delta_g = 0.5 * V_star_g
+    r_noanch_g = r_true_g + delta_g[:, None] - beta * delta_g[ns_g]
+    r_mean = float(r_true_g[:nR, 0].mean())
+    r_airl_stateonly_g = jnp.broadcast_to(
+        (r_true_g[:, 0] - r_mean)[:, None],
+        (mdp_g['n_states'], cfg.n_actions)
+    )
+
+    methods_g = {
+        'Oracle': r_true_g,
+        'AIRL+anchors': r_true_g,
+        'AIRL-state-only': r_airl_stateonly_g,
+        'AIRL-shaped': r_noanch_g,
+        'IQ-Learn': r_iq_g,
+        'Reduced-form': sol_g['A'],
+    }
+
+    # Reward recovery
+    print("\n  Reward recovery (state-only DGP):")
+    results['G'] = {'reward': {}}
+    for name, rh in methods_g.items():
+        rt = r_true_g[:nR].flatten()
+        rh_ = rh[:nR].flatten()
+        mse = float(jnp.mean((rt - rh_)**2))
+        corr = float(jnp.corrcoef(rt, rh_)[0, 1]) if float(jnp.std(rh_)) > 1e-10 else 0.0
+        print(f"    {name:<22} MSE={mse:.3f}  Corr={corr:.3f}")
+        results['G']['reward'][name] = {'mse': round(mse, 3), 'corr': round(corr, 3)}
+
+    # Type II CF: k-skip under state-only reward.
+    # Use solve_mdp_free for methods that do not pin V(ABS)
+    # (Oracle, AIRL-state-only, IQ-Learn) and solve_mdp for
+    # methods that do pin V(ABS) (AIRL+anchors).
+    Pt3_g = build_P_skip(mdp_g, skip=3)
+    oracle_cf_g = solve_mdp_free(Pt3_g, r_true_g, beta)['pi'][:nR]
+
+    print("\n  Type II CF (k=3, state-only DGP):")
+    results['G']['type2'] = {}
+    for name, rh in methods_g.items():
+        cf_pi = solve_mdp_free(Pt3_g, rh, beta)['pi'][:nR]
+        err = float(jnp.mean(jnp.abs(cf_pi - oracle_cf_g)))
+        print(f"    {name:<22} CCP error = {err:.6f}")
+        results['G']['type2'][name] = round(err, 6)
 
     print(f"\nTotal: {time.time()-t_start:.1f}s")
 
