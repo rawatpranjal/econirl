@@ -166,14 +166,14 @@ Not every estimator supports every counterfactual type. The table below shows wh
      - Yes
    * - ``NeuralGLADIUS``
      - Yes
+     - Yes (tabularized)
      - No
-     - No
-     - No
+     - Yes (tabularized)
    * - ``NeuralAIRL``
      - Yes
+     - Yes (tabularized)
      - No
-     - No
-     - No
+     - Yes (tabularized)
    * - ``BehavioralCloning``
      - Yes
      - No
@@ -185,7 +185,7 @@ Not every estimator supports every counterfactual type. The table below shows wh
      - Yes
      - Yes
 
-Type 1 works for every estimator because it only requires the policy. Types 2 through 4 require structural identification of the reward, which neural estimators like NeuralGLADIUS and NeuralAIRL do not provide directly. Sieve projection can partially bridge this gap by projecting a neural reward onto an interpretable basis, but the projection R-squared must be high for the counterfactual to be credible.
+Type 1 works for every estimator because it only requires the policy. Types 2 and 4 require the structural reward separated from continuation values. Neural estimators like NeuralGLADIUS and NeuralAIRL can handle these types by tabularizing their neural reward into an explicit matrix over all state-action pairs. Type 3 requires structural parameters in levels, which neural estimators do not provide because "change theta_c by 20 percent" has no meaning for a neural reward network. Behavioral cloning recovers no reward at all and can only handle Type 1.
 
 
 Unified Dispatcher

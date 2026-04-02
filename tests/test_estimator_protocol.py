@@ -12,6 +12,7 @@ class _MockEstimator:
         self.pvalues_ = {"a": 0.01}
         self.policy_ = np.array([[0.5, 0.5]])
         self.value_ = np.array([1.0])
+        self.reward_matrix_ = np.array([[0.1, -0.2]])
 
     def fit(self, data, state, action, id, **kwargs):
         return self

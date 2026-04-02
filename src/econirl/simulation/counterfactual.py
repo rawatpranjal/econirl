@@ -2,22 +2,30 @@
 
 This module provides tools for analyzing how changes in the economic
 environment (parameters, transitions, constraints) affect optimal
-behavior and outcomes.
+behavior and outcomes. Every counterfactual falls into one of four
+types, following the taxonomy in Rawat (2026).
 
-Counterfactual analysis is a key application of structural estimation:
-once we have estimated preferences, we can predict behavior under
-scenarios not observed in the data.
+Type 1 (state extrapolation) shifts realized state values while
+holding the MDP fixed. No Bellman equation is re-solved.
 
-Common counterfactual exercises:
-- Policy changes: What if costs/benefits change?
-- Transition changes: What if state dynamics change?
-- Constraint changes: What if some actions become unavailable?
+Type 2 (environment change) modifies the transition kernel or action
+sets while holding the reward fixed. The Bellman equation must be
+re-solved with the structural reward under new dynamics.
+
+Type 3 (reward parameter change) modifies the reward function itself
+through parameter perturbations, taxes, subsidies, or discount factor
+shifts. This requires knowledge of the reward in levels.
+
+Type 4 (welfare decomposition) decomposes a total welfare change into
+the reward channel, the transition channel, and their interaction
+using Shapley-value averaging over orderings.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from enum import IntEnum
+from typing import Any, Callable
 
 import numpy as np
 import jax
@@ -28,6 +36,22 @@ from econirl.core.solvers import value_iteration
 from econirl.core.types import DDCProblem, Panel
 from econirl.inference.results import EstimationSummary
 from econirl.preferences.base import UtilityFunction
+
+
+class CounterfactualType(IntEnum):
+    """Taxonomy of counterfactual exercises.
+
+    Each type requires progressively stronger identification of the
+    reward function. Type 1 needs only the advantage function. Type 2
+    needs the structural reward separated from continuation values.
+    Type 3 needs the reward in levels. Type 4 decomposes welfare
+    changes into interpretable channels.
+    """
+
+    STATE_EXTRAPOLATION = 1
+    ENVIRONMENT_CHANGE = 2
+    REWARD_CHANGE = 3
+    WELFARE_DECOMPOSITION = 4
 
 
 @dataclass
@@ -42,6 +66,7 @@ class CounterfactualResult:
         policy_change: Change in choice probabilities
         value_change: Change in value function
         welfare_change: Average change in expected utility
+        counterfactual_type: Which of the four counterfactual types
         description: Description of the counterfactual
     """
 
@@ -52,8 +77,74 @@ class CounterfactualResult:
     policy_change: jnp.ndarray
     value_change: jnp.ndarray
     welfare_change: float
-    description: str
-    metadata: dict[str, Any]
+    counterfactual_type: CounterfactualType = CounterfactualType.REWARD_CHANGE
+    description: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def state_extrapolation(
+    result: EstimationSummary,
+    state_mapping: dict[int, int] | jnp.ndarray,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+) -> CounterfactualResult:
+    """Type 1 counterfactual: evaluate policy at shifted state values.
+
+    The MDP structure (transitions and reward) is unchanged. Only the
+    realized state values shift. The counterfactual evaluates the
+    existing policy at new state indices without re-solving any
+    Bellman equation.
+
+    Every estimator that produces a policy can handle Type 1,
+    including behavioral cloning and reduced-form Q-estimation.
+
+    Args:
+        result: Estimation result with baseline policy and value function
+        state_mapping: Maps each state index to the index it should be
+            evaluated as. A dict {50: 30} means state 50 behaves as
+            state 30. An ndarray of shape (S,) maps every state.
+        problem: Problem specification
+        transitions: Transition matrices (unused, for API consistency)
+
+    Returns:
+        CounterfactualResult with Type 1 tag
+
+    Example:
+        >>> # What if all states shift down by 10 mileage bins?
+        >>> mapping = {s: max(0, s - 10) for s in range(problem.num_states)}
+        >>> cf = state_extrapolation(result, mapping, problem, transitions)
+    """
+    baseline_policy = result.policy
+    baseline_value = result.value_function
+
+    # Build full mapping array
+    if isinstance(state_mapping, dict):
+        mapping_arr = jnp.arange(problem.num_states)
+        for src, dst in state_mapping.items():
+            mapping_arr = mapping_arr.at[src].set(dst)
+    else:
+        mapping_arr = jnp.asarray(state_mapping, dtype=jnp.int32)
+
+    # Evaluate policy and value at mapped states
+    cf_policy = baseline_policy[mapping_arr]
+    cf_value = baseline_value[mapping_arr]
+
+    policy_change = cf_policy - baseline_policy
+    value_change = cf_value - baseline_value
+    welfare_change = float(value_change.mean())
+
+    return CounterfactualResult(
+        baseline_policy=baseline_policy,
+        counterfactual_policy=cf_policy,
+        baseline_value=baseline_value,
+        counterfactual_value=cf_value,
+        policy_change=policy_change,
+        value_change=value_change,
+        welfare_change=welfare_change,
+        counterfactual_type=CounterfactualType.STATE_EXTRAPOLATION,
+        description="Type 1: state-value extrapolation",
+        metadata={"state_mapping": mapping_arr.tolist()},
+    )
 
 
 def counterfactual_policy(
@@ -124,7 +215,8 @@ def counterfactual_policy(
         policy_change=policy_change,
         value_change=value_change,
         welfare_change=welfare_change,
-        description="Parameter change counterfactual",
+        counterfactual_type=CounterfactualType.REWARD_CHANGE,
+        description="Type 3: reward parameter change",
         metadata={
             "baseline_parameters": result.parameters.tolist(),
             "counterfactual_parameters": new_params.tolist(),
@@ -175,7 +267,8 @@ def counterfactual_transitions(
         policy_change=policy_change,
         value_change=value_change,
         welfare_change=welfare_change,
-        description="Transition dynamics counterfactual",
+        counterfactual_type=CounterfactualType.ENVIRONMENT_CHANGE,
+        description="Type 2: environment change",
         metadata={},
     )
 
@@ -367,6 +460,266 @@ def compute_welfare_effect(
             "max_value_change": counterfactual.value_change.max(),
             "min_value_change": counterfactual.value_change.min(),
         }
+
+
+def discount_factor_change(
+    result: EstimationSummary,
+    new_discount: float,
+    utility: UtilityFunction,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+) -> CounterfactualResult:
+    """Type 3 counterfactual: change the discount factor.
+
+    Re-solves the Bellman equation with the same reward function but
+    a different discount factor beta. A lower beta makes the agent
+    more myopic and less sensitive to future consequences.
+
+    Args:
+        result: Estimation result with baseline policy
+        new_discount: New discount factor beta-tilde
+        utility: Utility function specification
+        problem: Problem specification (contains original beta)
+        transitions: Transition matrices
+
+    Returns:
+        CounterfactualResult with Type 3 tag
+    """
+    # Baseline
+    baseline_policy = result.policy
+    baseline_value = result.value_function
+
+    # Counterfactual: new DDCProblem with different discount factor
+    cf_problem = DDCProblem(
+        num_states=problem.num_states,
+        num_actions=problem.num_actions,
+        discount_factor=new_discount,
+        scale_parameter=problem.scale_parameter,
+    )
+    cf_operator = SoftBellmanOperator(cf_problem, transitions)
+    reward = utility.compute(result.parameters)
+    cf_result = value_iteration(cf_operator, reward)
+
+    policy_change = cf_result.policy - baseline_policy
+    value_change = cf_result.V - baseline_value
+    welfare_change = float(value_change.mean())
+
+    return CounterfactualResult(
+        baseline_policy=baseline_policy,
+        counterfactual_policy=cf_result.policy,
+        baseline_value=baseline_value,
+        counterfactual_value=cf_result.V,
+        policy_change=policy_change,
+        value_change=value_change,
+        welfare_change=welfare_change,
+        counterfactual_type=CounterfactualType.REWARD_CHANGE,
+        description="Type 3: discount factor change",
+        metadata={
+            "baseline_discount": problem.discount_factor,
+            "counterfactual_discount": new_discount,
+        },
+    )
+
+
+def welfare_decomposition(
+    result: EstimationSummary,
+    utility: UtilityFunction,
+    problem: DDCProblem,
+    baseline_transitions: jnp.ndarray,
+    new_parameters: jnp.ndarray | None = None,
+    new_transitions: jnp.ndarray | None = None,
+) -> dict[str, float]:
+    """Type 4 counterfactual: decompose welfare change into channels.
+
+    When a counterfactual involves both a reward change and a
+    transition change, the total welfare effect can be decomposed
+    into the reward channel (direct effect of preference change),
+    the transition channel (indirect effect of environment change),
+    and their interaction. The decomposition uses Shapley-value
+    averaging over the two orderings, which requires four Bellman
+    solves.
+
+    At least one of new_parameters or new_transitions must be provided.
+
+    Args:
+        result: Estimation result
+        utility: Utility function specification
+        problem: Problem specification
+        baseline_transitions: Original transition matrices
+        new_parameters: Counterfactual parameter values (or None)
+        new_transitions: Counterfactual transition matrices (or None)
+
+    Returns:
+        Dictionary with total_welfare_change, reward_channel,
+        transition_channel, and interaction_effect. The three
+        components sum to the total.
+    """
+    if new_parameters is None and new_transitions is None:
+        raise ValueError(
+            "At least one of new_parameters or new_transitions must be provided"
+        )
+
+    old_reward = utility.compute(result.parameters)
+    new_reward = (
+        utility.compute(new_parameters) if new_parameters is not None else old_reward
+    )
+    cf_transitions = (
+        new_transitions if new_transitions is not None else baseline_transitions
+    )
+
+    operator_old_p = SoftBellmanOperator(problem, baseline_transitions)
+    operator_new_p = SoftBellmanOperator(problem, cf_transitions)
+
+    # Four corners: (old_r, old_P), (new_r, old_P), (old_r, new_P), (new_r, new_P)
+    res_oo = value_iteration(operator_old_p, old_reward)
+    res_ro = value_iteration(operator_old_p, new_reward)
+    res_ot = value_iteration(operator_new_p, old_reward)
+    res_rt = value_iteration(operator_new_p, new_reward)
+
+    # Welfare = stationary-distribution-weighted expected value
+    def _welfare(vi_result, transitions_used):
+        mu = compute_stationary_distribution(vi_result.policy, transitions_used)
+        return float((mu * vi_result.V).sum())
+
+    w_oo = _welfare(res_oo, baseline_transitions)
+    w_ro = _welfare(res_ro, baseline_transitions)
+    w_ot = _welfare(res_ot, cf_transitions)
+    w_rt = _welfare(res_rt, cf_transitions)
+
+    total = w_rt - w_oo
+
+    # Shapley values: average marginal contributions over both orderings
+    # Ordering 1: reward first, then transition
+    reward_first = w_ro - w_oo
+    transition_second = w_rt - w_ro
+    # Ordering 2: transition first, then reward
+    transition_first = w_ot - w_oo
+    reward_second = w_rt - w_ot
+
+    reward_channel = (reward_first + reward_second) / 2
+    transition_channel = (transition_first + transition_second) / 2
+    interaction = total - reward_channel - transition_channel
+
+    return {
+        "total_welfare_change": total,
+        "reward_channel": reward_channel,
+        "transition_channel": transition_channel,
+        "interaction_effect": interaction,
+        "welfare_baseline": w_oo,
+        "welfare_counterfactual": w_rt,
+    }
+
+
+def counterfactual(
+    result: EstimationSummary,
+    utility: UtilityFunction,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+    new_parameters: jnp.ndarray | dict[str, float] | None = None,
+    new_transitions: jnp.ndarray | None = None,
+    state_mapping: dict[int, int] | jnp.ndarray | None = None,
+    new_discount: float | None = None,
+) -> CounterfactualResult:
+    """Unified counterfactual dispatcher.
+
+    Automatically selects the counterfactual type based on which
+    arguments are provided. Provide exactly one type of change, or
+    combine new_parameters with new_transitions for a joint
+    Type 2 and Type 3 counterfactual.
+
+    Args:
+        result: Estimation result
+        utility: Utility function specification
+        problem: Problem specification
+        transitions: Baseline transition matrices
+        new_parameters: Changed parameters (Type 3)
+        new_transitions: Changed transitions (Type 2)
+        state_mapping: State index remapping (Type 1)
+        new_discount: Changed discount factor (Type 3)
+
+    Returns:
+        CounterfactualResult with the appropriate type tag
+
+    Raises:
+        ValueError: If argument combination is invalid
+    """
+    has_mapping = state_mapping is not None
+    has_params = new_parameters is not None
+    has_transitions = new_transitions is not None
+    has_discount = new_discount is not None
+
+    # Type 1: state mapping only
+    if has_mapping:
+        if has_params or has_transitions or has_discount:
+            raise ValueError(
+                "state_mapping (Type 1) cannot be combined with other changes"
+            )
+        return state_extrapolation(result, state_mapping, problem, transitions)
+
+    # Type 3: discount factor change
+    if has_discount:
+        if has_params or has_transitions:
+            raise ValueError(
+                "new_discount cannot be combined with new_parameters or "
+                "new_transitions in the unified dispatcher. Use the "
+                "individual functions directly for combined changes."
+            )
+        return discount_factor_change(result, new_discount, utility, problem, transitions)
+
+    # Type 2: transition change only
+    if has_transitions and not has_params:
+        return counterfactual_transitions(
+            result, new_transitions, utility, problem, transitions
+        )
+
+    # Type 3: parameter change only
+    if has_params and not has_transitions:
+        return counterfactual_policy(
+            result, new_parameters, utility, problem, transitions
+        )
+
+    # Combined Type 2+3: both parameter and transition change
+    if has_params and has_transitions:
+        if isinstance(new_parameters, dict):
+            new_params = jnp.array(
+                [new_parameters[name] for name in utility.parameter_names],
+                dtype=jnp.float32,
+            )
+        else:
+            new_params = new_parameters
+
+        baseline_operator = SoftBellmanOperator(problem, transitions)
+        baseline_utility = utility.compute(result.parameters)
+        baseline_result = value_iteration(baseline_operator, baseline_utility)
+
+        cf_operator = SoftBellmanOperator(problem, new_transitions)
+        cf_utility = utility.compute(new_params)
+        cf_result = value_iteration(cf_operator, cf_utility)
+
+        policy_change = cf_result.policy - baseline_result.policy
+        value_change = cf_result.V - baseline_result.V
+        welfare_change = float(value_change.mean())
+
+        return CounterfactualResult(
+            baseline_policy=baseline_result.policy,
+            counterfactual_policy=cf_result.policy,
+            baseline_value=baseline_result.V,
+            counterfactual_value=cf_result.V,
+            policy_change=policy_change,
+            value_change=value_change,
+            welfare_change=welfare_change,
+            counterfactual_type=CounterfactualType.ENVIRONMENT_CHANGE,
+            description="Type 2+3: joint parameter and environment change",
+            metadata={
+                "baseline_parameters": result.parameters.tolist(),
+                "counterfactual_parameters": new_params.tolist(),
+            },
+        )
+
+    raise ValueError(
+        "No counterfactual change specified. Provide at least one of: "
+        "state_mapping, new_parameters, new_transitions, or new_discount."
+    )
 
 
 def elasticity_analysis(
