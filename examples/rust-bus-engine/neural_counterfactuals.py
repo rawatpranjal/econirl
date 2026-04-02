@@ -120,9 +120,15 @@ def main():
         scale_parameter=1.0,
     )
 
+    # Also compute the NFXP (linear) reward matrix for comparison.
+    # This is R(s,a) = theta' * phi(s,a), the structural reward.
+    nfxp_reward = jnp.array(nfxp.reward_matrix_)
+
     print(f"Neural reward shape: {reward_matrix.shape}")
-    print(f"Reward range: [{float(reward_matrix.min()):.3f}, "
+    print(f"Neural reward range: [{float(reward_matrix.min()):.3f}, "
           f"{float(reward_matrix.max()):.3f}]")
+    print(f"NFXP reward range:   [{float(nfxp_reward.min()):.3f}, "
+          f"{float(nfxp_reward.max()):.3f}]")
 
     # ==================================================================
     #  SECTION A: Global perturbation sweep
@@ -139,15 +145,24 @@ def main():
         problem=problem, transitions=transitions,
     )
 
-    print(f"{'Delta':>8s}  {'Mean P(replace)':>16s}  {'Welfare':>10s}")
-    print(f"{'-----':>8s}  {'---------------':>16s}  {'-------':>10s}")
+    # Run same sweep on NFXP reward for comparison
+    sweep_nfxp = neural_perturbation_sweep(
+        nfxp_reward, action=1, delta_grid=delta_grid,
+        problem=problem, transitions=transitions,
+    )
+
+    print(f"{'Delta':>8s}  {'Neural P(repl)':>16s}  {'NFXP P(repl)':>14s}  {'Diff':>8s}")
+    print(f"{'-----':>8s}  {'--------------':>16s}  {'------------':>14s}  {'----':>8s}")
     for i, delta in enumerate(deltas):
-        print(f"{delta:8.1f}  {sweep['mean_action_prob'][i]:16.4f}  "
-              f"{sweep['welfare'][i]:10.2f}")
+        n_p = sweep['mean_action_prob'][i]
+        s_p = sweep_nfxp['mean_action_prob'][i]
+        print(f"{delta:8.1f}  {n_p:16.4f}  {s_p:14.4f}  {n_p - s_p:+8.4f}")
 
     print()
-    print(f"Baseline replacement rate: {sweep['baseline_action_prob']:.4f}")
-    print(f"Baseline welfare:          {sweep['baseline_welfare']:.2f}")
+    print(f"The neural model has higher baseline replacement (nonlinear")
+    print(f"reward surface) but both respond in the same direction to the")
+    print(f"penalty. The gap narrows at large delta because both converge")
+    print(f"toward zero replacement.")
 
     # ==================================================================
     #  SECTION B: Local perturbation at high mileage
@@ -159,20 +174,26 @@ def main():
 
     high_mileage_mask = jnp.arange(n_states) > 60
 
-    for delta in [1.0, 2.0, 5.0]:
-        result = neural_local_perturbation(
+    affected_states = jnp.where(high_mileage_mask)[0]
+    print(f"  {'delta':>6s}  {'Neural P(r|s>60)':>18s}  {'NFXP P(r|s>60)':>16s}")
+    print(f"  {'-----':>6s}  {'----------------':>18s}  {'--------------':>16s}")
+    for delta in [0.0, 1.0, 2.0, 5.0]:
+        result_n = neural_local_perturbation(
             reward_matrix, action=0, delta=delta,
             state_mask=high_mileage_mask,
             problem=problem, transitions=transitions,
         )
-        # Mean replacement probability shift at affected states
-        affected_states = jnp.where(high_mileage_mask)[0]
-        baseline_repl = float(result.baseline_policy[affected_states, 1].mean())
-        cf_repl = float(result.counterfactual_policy[affected_states, 1].mean())
-
-        print(f"  delta={delta:.0f}: P(replace | s>60) shifts from "
-              f"{baseline_repl:.4f} to {cf_repl:.4f}  "
-              f"(welfare change = {result.welfare_change:.2f})")
+        result_s = neural_local_perturbation(
+            nfxp_reward, action=0, delta=delta,
+            state_mask=high_mileage_mask,
+            problem=problem, transitions=transitions,
+        )
+        n_p = float(result_n.counterfactual_policy[affected_states, 1].mean())
+        s_p = float(result_s.counterfactual_policy[affected_states, 1].mean())
+        print(f"  {delta:6.0f}  {n_p:18.4f}  {s_p:16.4f}")
+    print()
+    print(f"  Both models shift replacement upward when operating costs rise")
+    print(f"  at high mileage, but the neural baseline is already much higher.")
 
     # ==================================================================
     #  SECTION C: Transition counterfactual (faster depreciation)
@@ -202,14 +223,23 @@ def main():
                     row = row.at[dest].add(p)
                 new_transitions = new_transitions.at[a, s, :].set(row)
 
-    result = neural_transition_counterfactual(
+    result_n = neural_transition_counterfactual(
         reward_matrix, new_transitions, problem, transitions,
     )
-    print(f"  Baseline mean P(replace):      "
-          f"{float(result.baseline_policy[:, 1].mean()):.4f}")
-    print(f"  Counterfactual mean P(replace): "
-          f"{float(result.counterfactual_policy[:, 1].mean()):.4f}")
-    print(f"  Welfare change:                 {result.welfare_change:.2f}")
+    result_s = neural_transition_counterfactual(
+        nfxp_reward, new_transitions, problem, transitions,
+    )
+    print(f"  {'':>30s}  {'Neural':>10s}  {'NFXP':>10s}")
+    print(f"  {'':>30s}  {'------':>10s}  {'----':>10s}")
+    print(f"  {'Baseline mean P(replace)':>30s}  "
+          f"{float(result_n.baseline_policy[:, 1].mean()):10.4f}  "
+          f"{float(result_s.baseline_policy[:, 1].mean()):10.4f}")
+    print(f"  {'Counterfactual mean P(replace)':>30s}  "
+          f"{float(result_n.counterfactual_policy[:, 1].mean()):10.4f}  "
+          f"{float(result_s.counterfactual_policy[:, 1].mean()):10.4f}")
+    print(f"  {'Welfare change':>30s}  "
+          f"{result_n.welfare_change:10.2f}  "
+          f"{result_s.welfare_change:10.2f}")
     print()
 
     # ==================================================================
@@ -228,29 +258,39 @@ def main():
     # Warranty below bin 10: block replace (action 1)
     action_mask = action_mask.at[:10, 1].set(False)
 
-    result = neural_choice_set_counterfactual(
+    result_n = neural_choice_set_counterfactual(
         reward_matrix, action_mask, problem, transitions,
+    )
+    result_s = neural_choice_set_counterfactual(
+        nfxp_reward, action_mask, problem, transitions,
     )
 
     n_blocked = int((~action_mask).sum())
     print(f"  State-action pairs blocked: {n_blocked}")
     print()
 
-    # Show policy at key states
-    print(f"  {'State':>6s}  {'Baseline P(repl)':>16s}  {'CF P(repl)':>12s}  {'Note'}")
-    print(f"  {'-----':>6s}  {'----------------':>16s}  {'----------':>12s}  {'----'}")
+    print(f"  {'State':>6s}  {'Neural base':>12s}  {'Neural CF':>10s}  "
+          f"{'NFXP base':>10s}  {'NFXP CF':>8s}  {'Note'}")
+    print(f"  {'-----':>6s}  {'-----------':>12s}  {'---------':>10s}  "
+          f"{'---------':>10s}  {'-------':>8s}  {'----'}")
     for s in [5, 9, 10, 50, 79, 80, 85]:
-        b = float(result.baseline_policy[s, 1])
-        c = float(result.counterfactual_policy[s, 1])
+        nb = float(result_n.baseline_policy[s, 1])
+        nc = float(result_n.counterfactual_policy[s, 1])
+        sb = float(result_s.baseline_policy[s, 1])
+        sc = float(result_s.counterfactual_policy[s, 1])
         note = ""
         if s < 10:
-            note = "warranty (replace blocked)"
+            note = "warranty"
         elif s > 80:
-            note = "mandatory replace (keep blocked)"
-        print(f"  {s:6d}  {b:16.4f}  {c:12.4f}  {note}")
+            note = "mandatory"
+        print(f"  {s:6d}  {nb:12.4f}  {nc:10.4f}  {sb:10.4f}  {sc:8.4f}  {note}")
 
     print()
-    print(f"  Welfare change: {result.welfare_change:.2f}")
+    print(f"  Neural welfare change: {result_n.welfare_change:.2f}")
+    print(f"  NFXP welfare change:   {result_s.welfare_change:.2f}")
+    print()
+    print(f"  Both models agree on forced states (0.0 or 1.0). The gap at")
+    print(f"  unconstrained states (10-79) reflects the nonlinear reward.")
 
     # ==================================================================
     #  SECTION E: Sieve compression

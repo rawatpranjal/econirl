@@ -482,9 +482,9 @@ class NFXP:
         if self.params_ is None or self._utility_fn is None or self._result is None:
             return None
         param_names = self._result.parameter_names
-        param_vector = torch.tensor(
+        param_vector = np.array(
             [self.params_[name] for name in param_names],
-            dtype=torch.float32,
+            dtype=np.float32,
         )
         utility_matrix = self._utility_fn.compute(param_vector)
         return np.asarray(utility_matrix)
