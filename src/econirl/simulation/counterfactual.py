@@ -802,3 +802,428 @@ def elasticity_analysis(
         results["welfare_elasticity"] = welfare_elasticity
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Neural reward counterfactuals
+#
+# These functions accept a raw (S, A) reward matrix from any neural
+# estimator (NeuralGLADIUS, NeuralAIRL, or a tabularized neural reward),
+# instead of requiring EstimationSummary + UtilityFunction. The reward
+# matrix is the only structural object needed. All Bellman re-solving
+# happens in JAX regardless of the estimator's framework.
+# ---------------------------------------------------------------------------
+
+
+def neural_reward_counterfactual(
+    reward_matrix: jnp.ndarray,
+    counterfactual_reward: jnp.ndarray,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+    baseline_policy: jnp.ndarray | None = None,
+    baseline_value: jnp.ndarray | None = None,
+    description: str = "",
+) -> CounterfactualResult:
+    """Re-solve the Bellman equation under a modified neural reward.
+
+    This is the core helper for all neural counterfactuals. It takes
+    a baseline reward matrix and a counterfactual reward matrix, solves
+    for the optimal policy under both, and returns the comparison.
+
+    If baseline_policy and baseline_value are provided, the baseline
+    Bellman solve is skipped.
+
+    Args:
+        reward_matrix: Baseline neural reward, shape (S, A)
+        counterfactual_reward: Modified reward, shape (S, A)
+        problem: Problem specification
+        transitions: Transition matrices, shape (A, S, S)
+        baseline_policy: Pre-computed baseline policy (optional)
+        baseline_value: Pre-computed baseline value function (optional)
+        description: Human-readable description of the counterfactual
+
+    Returns:
+        CounterfactualResult with REWARD_CHANGE type tag
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    counterfactual_reward = _to_jax(counterfactual_reward)
+    transitions = _to_jax(transitions)
+
+    operator = SoftBellmanOperator(problem, transitions)
+
+    if baseline_policy is None or baseline_value is None:
+        baseline_result = value_iteration(operator, reward_matrix)
+        baseline_policy = baseline_result.policy
+        baseline_value = baseline_result.V
+
+    cf_result = value_iteration(operator, counterfactual_reward)
+
+    policy_change = cf_result.policy - baseline_policy
+    value_change = cf_result.V - baseline_value
+    welfare_change = float(value_change.mean())
+
+    return CounterfactualResult(
+        baseline_policy=baseline_policy,
+        counterfactual_policy=cf_result.policy,
+        baseline_value=baseline_value,
+        counterfactual_value=cf_result.V,
+        policy_change=policy_change,
+        value_change=value_change,
+        welfare_change=welfare_change,
+        counterfactual_type=CounterfactualType.REWARD_CHANGE,
+        description=description or "Neural reward counterfactual",
+        metadata={},
+    )
+
+
+def neural_global_perturbation(
+    reward_matrix: jnp.ndarray,
+    action: int,
+    delta: float,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+) -> CounterfactualResult:
+    """Additive perturbation to one action's reward at all states.
+
+    Subtracts delta from the reward of the specified action at every
+    state. This answers questions like "what if engine replacement
+    becomes more costly by delta utility units?" The perturbation is
+    in utility units scaled by sigma, not dollars.
+
+    Args:
+        reward_matrix: Neural reward, shape (S, A)
+        action: Which action to penalize (e.g., 1 for replacement)
+        delta: Penalty magnitude (positive = more costly)
+        problem: Problem specification
+        transitions: Transition matrices, shape (A, S, S)
+
+    Returns:
+        CounterfactualResult
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    cf_reward = reward_matrix.at[:, action].add(-delta)
+    return neural_reward_counterfactual(
+        reward_matrix, cf_reward, problem, transitions,
+        description=f"Global perturbation: action {action}, delta={delta}",
+    )
+
+
+def neural_local_perturbation(
+    reward_matrix: jnp.ndarray,
+    action: int,
+    delta: float,
+    state_mask: jnp.ndarray,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+) -> CounterfactualResult:
+    """Additive perturbation to one action's reward at selected states.
+
+    Subtracts delta from the reward only at states where state_mask
+    is True. This answers questions like "what if operating costs
+    increase for high-mileage buses (states above 60)?"
+
+    Args:
+        reward_matrix: Neural reward, shape (S, A)
+        action: Which action to penalize
+        delta: Penalty magnitude (positive = more costly)
+        state_mask: Boolean array of shape (S,), True where perturbation applies
+        problem: Problem specification
+        transitions: Transition matrices, shape (A, S, S)
+
+    Returns:
+        CounterfactualResult
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    state_mask = jnp.asarray(state_mask, dtype=jnp.bool_)
+    perturbation = jnp.where(state_mask, -delta, 0.0)
+    cf_reward = reward_matrix.at[:, action].add(perturbation)
+    return neural_reward_counterfactual(
+        reward_matrix, cf_reward, problem, transitions,
+        description=f"Local perturbation: action {action}, delta={delta}, "
+                    f"{int(state_mask.sum())} states affected",
+    )
+
+
+def neural_transition_counterfactual(
+    reward_matrix: jnp.ndarray,
+    new_transitions: jnp.ndarray,
+    problem: DDCProblem,
+    baseline_transitions: jnp.ndarray,
+) -> CounterfactualResult:
+    """Re-solve Bellman with neural reward under new transitions.
+
+    Holds the neural reward fixed and changes only the transition
+    dynamics. This answers questions like "what if engines deteriorate
+    faster?" No reward interpretation or parameter semantics needed.
+
+    Args:
+        reward_matrix: Neural reward, shape (S, A)
+        new_transitions: Counterfactual transitions, shape (A, S, S)
+        problem: Problem specification
+        baseline_transitions: Original transitions, shape (A, S, S)
+
+    Returns:
+        CounterfactualResult with ENVIRONMENT_CHANGE type tag
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    baseline_transitions = _to_jax(baseline_transitions)
+    new_transitions = _to_jax(new_transitions)
+
+    operator_base = SoftBellmanOperator(problem, baseline_transitions)
+    operator_cf = SoftBellmanOperator(problem, new_transitions)
+
+    baseline = value_iteration(operator_base, reward_matrix)
+    cf = value_iteration(operator_cf, reward_matrix)
+
+    policy_change = cf.policy - baseline.policy
+    value_change = cf.V - baseline.V
+
+    return CounterfactualResult(
+        baseline_policy=baseline.policy,
+        counterfactual_policy=cf.policy,
+        baseline_value=baseline.V,
+        counterfactual_value=cf.V,
+        policy_change=policy_change,
+        value_change=value_change,
+        welfare_change=float(value_change.mean()),
+        counterfactual_type=CounterfactualType.ENVIRONMENT_CHANGE,
+        description="Neural transition counterfactual",
+        metadata={},
+    )
+
+
+def neural_choice_set_counterfactual(
+    reward_matrix: jnp.ndarray,
+    action_mask: jnp.ndarray,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+) -> CounterfactualResult:
+    """Counterfactual with constrained action sets.
+
+    Blocks or forces actions at certain states by setting the reward
+    of disallowed actions to negative infinity. The softmax policy
+    assigns zero probability to blocked actions because
+    exp(-inf / sigma) = 0.
+
+    Use cases include mandatory replacement above a mileage threshold
+    (block keep for s > 80) and warranty periods that prevent early
+    replacement (block replace for s < 10).
+
+    Args:
+        reward_matrix: Neural reward, shape (S, A)
+        action_mask: Boolean array of shape (S, A). True means the
+            action is allowed at that state. False means blocked.
+        problem: Problem specification
+        transitions: Transition matrices, shape (A, S, S)
+
+    Returns:
+        CounterfactualResult
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    action_mask = jnp.asarray(action_mask, dtype=jnp.bool_)
+    # Set blocked actions to -1e30 (not literal -inf to avoid NaN in gradients)
+    cf_reward = jnp.where(action_mask, reward_matrix, -1e30)
+    n_blocked = int((~action_mask).sum())
+    return neural_reward_counterfactual(
+        reward_matrix, cf_reward, problem, transitions,
+        description=f"Choice set counterfactual: {n_blocked} state-action pairs blocked",
+    )
+
+
+def neural_sieve_compression(
+    reward_matrix: jnp.ndarray,
+    feature_matrix: jnp.ndarray,
+    parameter_names: list[str] | None = None,
+) -> dict[str, Any]:
+    """Project neural reward onto a linear feature basis.
+
+    Regresses the neural reward surface onto the same features used
+    in the structural model, using action differences for identification.
+    The unidentified action-independent constant cancels in the
+    differences dr(s) = r(s,a) - r(s,0). The resulting coefficients
+    have the same interpretation as the structural parameters (e.g.,
+    theta_c and RC in the Rust bus model).
+
+    The R-squared of the projection indicates how well the linear
+    basis captures the neural reward surface. A high R-squared means
+    the sieve coefficients are reliable for counterfactuals.
+
+    Following Kim et al. (2021) and Cao and Cohen (2021), rewards
+    in IRL are identified only up to action-independent constants.
+    The action-difference formulation eliminates this ambiguity.
+
+    Args:
+        reward_matrix: Neural reward, shape (S, A)
+        feature_matrix: Linear features, shape (S, A, K)
+        parameter_names: Names for each feature dimension (optional)
+
+    Returns:
+        Dictionary with theta, se, r_squared, residuals, fitted_reward,
+        and parameter_names.
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    feature_matrix = _to_jax(feature_matrix)
+
+    S, A, K = feature_matrix.shape
+
+    # Use action differences to eliminate unidentified constant
+    # Reference action is a=0
+    dr_list = []
+    dphi_list = []
+    for a in range(1, A):
+        dr_list.append(reward_matrix[:, a] - reward_matrix[:, 0])
+        dphi_list.append(feature_matrix[:, a, :] - feature_matrix[:, 0, :])
+
+    dr = jnp.concatenate(dr_list)               # ((A-1)*S,)
+    dphi = jnp.concatenate(dphi_list, axis=0)    # ((A-1)*S, K)
+
+    # Least-squares: theta = (dPhi'dPhi)^{-1} dPhi' dr
+    theta, residuals_arr, rank, sv = jnp.linalg.lstsq(dphi, dr, rcond=None)
+
+    predicted = dphi @ theta
+    resid = dr - predicted
+    ss_res = float((resid ** 2).sum())
+    ss_tot = float(((dr - dr.mean()) ** 2).sum())
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+    # Pseudo standard errors: sigma^2 = RSS / (N - K)
+    N = len(dr)
+    sigma2 = ss_res / max(N - K, 1)
+    try:
+        cov = sigma2 * jnp.linalg.inv(dphi.T @ dphi)
+        se = jnp.sqrt(jnp.clip(jnp.diag(cov), 0))
+    except Exception:
+        se = jnp.full(K, float("nan"))
+
+    # Reconstruct the fitted reward from sieve coefficients
+    fitted_reward = jnp.einsum("sak,k->sa", feature_matrix, theta)
+
+    if parameter_names is None:
+        parameter_names = [f"theta_{k}" for k in range(K)]
+
+    return {
+        "theta": np.asarray(theta),
+        "se": np.asarray(se),
+        "r_squared": r_squared,
+        "residuals": np.asarray(resid),
+        "fitted_reward": np.asarray(fitted_reward),
+        "parameter_names": parameter_names,
+    }
+
+
+def neural_policy_jacobian(
+    reward_matrix: jnp.ndarray,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+    epsilon: float = 1e-4,
+    target_action: int = 1,
+) -> jnp.ndarray:
+    """Compute the sensitivity of the policy to reward perturbations.
+
+    For each state-action pair (s', a'), perturbs the reward by epsilon,
+    re-solves the Bellman equation, and records the change in the
+    probability of target_action at every state s. The result is a
+    Jacobian matrix J[s, s', a'] = d pi(s, target_action) / d r(s', a').
+
+    This is the discrete functional derivative of the optimal policy
+    with respect to the reward surface, evaluated at the current
+    neural reward. It reveals which parts of the reward function
+    have the most influence on replacement behavior at each state.
+
+    For the Rust bus model with 90 states and 2 actions this requires
+    180 Bellman solves. Each solve takes milliseconds in JAX after
+    the first JIT compilation.
+
+    Args:
+        reward_matrix: Neural reward, shape (S, A)
+        problem: Problem specification
+        transitions: Transition matrices, shape (A, S, S)
+        epsilon: Perturbation size for finite differences
+        target_action: Which action's probability to track (default 1 = replace)
+
+    Returns:
+        Jacobian array of shape (S, S, A) where entry [s, s', a']
+        is the change in pi(s, target_action) per unit reward change
+        at (s', a').
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    transitions = _to_jax(transitions)
+
+    operator = SoftBellmanOperator(problem, transitions)
+    baseline = value_iteration(operator, reward_matrix)
+    baseline_pi = baseline.policy[:, target_action]
+
+    S = problem.num_states
+    A = problem.num_actions
+    jacobian = jnp.zeros((S, S, A))
+
+    for sp in range(S):
+        for ap in range(A):
+            perturbed = reward_matrix.at[sp, ap].add(epsilon)
+            result = value_iteration(operator, perturbed)
+            dpi = (result.policy[:, target_action] - baseline_pi) / epsilon
+            jacobian = jacobian.at[:, sp, ap].set(dpi)
+
+    return jacobian
+
+
+def neural_perturbation_sweep(
+    reward_matrix: jnp.ndarray,
+    action: int,
+    delta_grid: jnp.ndarray,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+    state_mask: jnp.ndarray | None = None,
+) -> dict[str, Any]:
+    """Sweep a reward perturbation over a grid of magnitudes.
+
+    For each delta in the grid, perturbs the reward of the specified
+    action (globally or at masked states) and records the resulting
+    replacement rate and welfare. The output traces how the optimal
+    policy responds to increasing reward penalties.
+
+    Args:
+        reward_matrix: Neural reward, shape (S, A)
+        action: Which action to penalize
+        delta_grid: 1D array of delta values to sweep
+        problem: Problem specification
+        transitions: Transition matrices, shape (A, S, S)
+        state_mask: If provided, only perturb at these states (boolean, shape S)
+
+    Returns:
+        Dictionary with delta_grid, mean_action_prob (per delta),
+        welfare (per delta), and policy_matrix (delta, S, A).
+    """
+    reward_matrix = _to_jax(reward_matrix)
+    transitions = _to_jax(transitions)
+    delta_grid = jnp.asarray(delta_grid)
+
+    operator = SoftBellmanOperator(problem, transitions)
+    baseline = value_iteration(operator, reward_matrix)
+
+    action_probs = []
+    welfares = []
+    policies = []
+
+    for delta in delta_grid:
+        delta = float(delta)
+        if state_mask is not None:
+            mask = jnp.asarray(state_mask, dtype=jnp.bool_)
+            perturbation = jnp.where(mask, -delta, 0.0)
+            cf_reward = reward_matrix.at[:, action].add(perturbation)
+        else:
+            cf_reward = reward_matrix.at[:, action].add(-delta)
+
+        result = value_iteration(operator, cf_reward)
+        action_probs.append(float(result.policy[:, action].mean()))
+        welfares.append(float(result.V.mean()))
+        policies.append(result.policy)
+
+    return {
+        "delta_grid": np.asarray(delta_grid),
+        "mean_action_prob": np.array(action_probs),
+        "welfare": np.array(welfares),
+        "policy_matrix": jnp.stack(policies),
+        "baseline_action_prob": float(baseline.policy[:, action].mean()),
+        "baseline_welfare": float(baseline.V.mean()),
+    }

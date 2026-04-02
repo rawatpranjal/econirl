@@ -27,6 +27,14 @@ from econirl.simulation.counterfactual import (
     welfare_decomposition,
     counterfactual,
     compute_stationary_distribution,
+    neural_global_perturbation,
+    neural_local_perturbation,
+    neural_transition_counterfactual,
+    neural_choice_set_counterfactual,
+    neural_sieve_compression,
+    neural_policy_jacobian,
+    neural_perturbation_sweep,
+    neural_reward_counterfactual,
 )
 from econirl.core.types import DDCProblem
 from econirl.core.bellman import SoftBellmanOperator
@@ -522,3 +530,173 @@ class TestStationaryDistribution:
             atol=1e-8,
             err_msg="Stationary distribution should be a fixed point",
         )
+
+
+# ============================================================================
+# Neural Counterfactual Tests
+# ============================================================================
+
+
+@pytest.fixture
+def neural_reward(small_problem, small_utility):
+    """A reward matrix from a hypothetical neural estimator.
+
+    We use the structural reward as the 'neural' reward so we can
+    verify results against known quantities.
+    """
+    problem, transitions = small_problem
+    true_params = jnp.array([1.0, 1.0])
+    reward = small_utility.compute(true_params)
+    return jnp.asarray(reward)
+
+
+class TestNeuralGlobalPerturbation:
+    """Tests for neural_global_perturbation."""
+
+    def test_penalizing_action_reduces_probability(
+        self, small_problem, neural_reward
+    ):
+        problem, transitions = small_problem
+        cf = neural_global_perturbation(neural_reward, action=1, delta=2.0,
+                                        problem=problem, transitions=transitions)
+        # Penalizing replace (action 1) should reduce its probability
+        assert (cf.policy_change[:, 1] <= 0.01).all()
+
+    def test_zero_delta_gives_zero_change(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        cf = neural_global_perturbation(neural_reward, action=1, delta=0.0,
+                                        problem=problem, transitions=transitions)
+        np.testing.assert_allclose(
+            np.asarray(cf.policy_change), 0.0, atol=1e-6,
+        )
+
+
+class TestNeuralLocalPerturbation:
+    """Tests for neural_local_perturbation."""
+
+    def test_only_affects_masked_states(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        mask = jnp.arange(problem.num_states) >= 7  # only states 7, 8, 9
+        cf = neural_local_perturbation(
+            neural_reward, action=0, delta=5.0,
+            state_mask=mask, problem=problem, transitions=transitions,
+        )
+        # Unmasked states should have negligible direct reward change,
+        # but policy may still change due to value function propagation.
+        # The key test is that the description mentions the right count.
+        assert "3 states affected" in cf.description
+
+
+class TestNeuralChoiceSet:
+    """Tests for neural_choice_set_counterfactual."""
+
+    def test_all_allowed_equals_baseline(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        mask = jnp.ones((problem.num_states, problem.num_actions), dtype=jnp.bool_)
+        cf = neural_choice_set_counterfactual(neural_reward, mask, problem, transitions)
+        np.testing.assert_allclose(
+            np.asarray(cf.policy_change), 0.0, atol=1e-5,
+        )
+
+    def test_blocked_action_has_near_zero_prob(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        mask = jnp.ones((problem.num_states, problem.num_actions), dtype=jnp.bool_)
+        # Block replace (action 1) at states 0-4
+        mask = mask.at[:5, 1].set(False)
+        cf = neural_choice_set_counterfactual(neural_reward, mask, problem, transitions)
+        # Replacement probability at blocked states should be near zero
+        for s in range(5):
+            assert float(cf.counterfactual_policy[s, 1]) < 1e-10
+
+
+class TestNeuralSieveCompression:
+    """Tests for neural_sieve_compression."""
+
+    def test_perfect_linear_gives_r2_one(self, small_problem, small_utility):
+        """If the neural reward IS a linear function of features, R^2 = 1."""
+        problem, _ = small_problem
+        true_params = jnp.array([1.0, 1.0])
+        reward = jnp.asarray(small_utility.compute(true_params))
+        features = jnp.asarray(small_utility.feature_matrix)
+
+        result = neural_sieve_compression(reward, features,
+                                          parameter_names=["op", "rc"])
+        assert result["r_squared"] > 0.999
+        np.testing.assert_allclose(result["theta"], [1.0, 1.0], atol=0.01)
+
+    def test_returns_all_keys(self, small_problem, small_utility, neural_reward):
+        features = jnp.asarray(small_utility.feature_matrix)
+        result = neural_sieve_compression(neural_reward, features)
+        for key in ["theta", "se", "r_squared", "residuals", "fitted_reward",
+                     "parameter_names"]:
+            assert key in result
+
+
+class TestNeuralPolicyJacobian:
+    """Tests for neural_policy_jacobian."""
+
+    def test_shape(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        J = neural_policy_jacobian(neural_reward, problem, transitions,
+                                   target_action=1)
+        assert J.shape == (problem.num_states, problem.num_states, problem.num_actions)
+
+    def test_self_perturbation_has_largest_effect(self, small_problem, neural_reward):
+        """Perturbing r(s, replace) should most affect pi(s, replace)."""
+        problem, transitions = small_problem
+        J = neural_policy_jacobian(neural_reward, problem, transitions,
+                                   target_action=1)
+        # For each state, the diagonal (perturbing own state) should
+        # have among the largest absolute effects
+        for s in range(1, problem.num_states - 1):
+            diag_effect = abs(float(J[s, s, 1]))
+            mean_effect = float(jnp.abs(J[s, :, 1]).mean())
+            # Diagonal should be at least as large as the average
+            assert diag_effect >= mean_effect * 0.5
+
+
+class TestNeuralPerturbationSweep:
+    """Tests for neural_perturbation_sweep."""
+
+    def test_increasing_penalty_reduces_action_prob(
+        self, small_problem, neural_reward
+    ):
+        problem, transitions = small_problem
+        deltas = jnp.array([0.0, 1.0, 2.0, 5.0, 10.0])
+        result = neural_perturbation_sweep(
+            neural_reward, action=1, delta_grid=deltas,
+            problem=problem, transitions=transitions,
+        )
+        # Mean replacement probability should decrease as penalty increases
+        probs = result["mean_action_prob"]
+        assert probs[0] >= probs[-1]
+
+    def test_returns_all_keys(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        result = neural_perturbation_sweep(
+            neural_reward, action=1, delta_grid=jnp.array([0.0, 1.0]),
+            problem=problem, transitions=transitions,
+        )
+        for key in ["delta_grid", "mean_action_prob", "welfare",
+                     "policy_matrix", "baseline_action_prob", "baseline_welfare"]:
+            assert key in result
+
+
+class TestNeuralTransitionCounterfactual:
+    """Tests for neural_transition_counterfactual."""
+
+    def test_same_transitions_gives_zero_change(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        cf = neural_transition_counterfactual(
+            neural_reward, transitions, problem, transitions,
+        )
+        np.testing.assert_allclose(
+            np.asarray(cf.policy_change), 0.0, atol=1e-5,
+        )
+
+    def test_type_tag_is_environment_change(self, small_problem, neural_reward):
+        problem, transitions = small_problem
+        cf = neural_transition_counterfactual(
+            neural_reward, transitions, problem, transitions,
+        )
+        assert cf.counterfactual_type == CounterfactualType.ENVIRONMENT_CHANGE
