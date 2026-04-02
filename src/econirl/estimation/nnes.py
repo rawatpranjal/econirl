@@ -351,7 +351,14 @@ class NNESNFXPEstimator(BaseEstimator):
         patience_counter = 0
         max_patience = 100
 
-        for epoch in range(self._v_epochs):
+        from tqdm import tqdm
+        pbar = tqdm(
+            range(self._v_epochs),
+            desc="NNES V-net",
+            disable=not self._verbose,
+            leave=False,
+        )
+        for epoch in pbar:
             key, perm_key = jax.random.split(key)
             perm = jax.random.permutation(perm_key, n_samples)
             epoch_loss = 0.0
@@ -375,6 +382,8 @@ class NNESNFXPEstimator(BaseEstimator):
             avg_loss = epoch_loss / max(n_batches, 1)
             loss_history.append(avg_loss)
 
+            pbar.set_postfix({"loss": f"{avg_loss:.4f}", "best": f"{best_loss:.4f}"})
+
             # Early stopping with best model checkpoint
             if avg_loss < best_loss - 1e-8:
                 best_loss = avg_loss
@@ -383,14 +392,13 @@ class NNESNFXPEstimator(BaseEstimator):
             else:
                 patience_counter += 1
 
-            if self._verbose and (epoch + 1) % 100 == 0:
-                self._log(f"  V-net epoch {epoch+1}: loss={avg_loss:.6f}")
-
             # Stop if diverging or converged
             if patience_counter >= max_patience:
+                pbar.close()
                 self._log(f"  V-net early stopping at epoch {epoch+1} (patience={max_patience})")
                 break
             if avg_loss > 1e8:
+                pbar.close()
                 self._log(f"  V-net divergence detected at epoch {epoch+1}, reverting to best")
                 break
 

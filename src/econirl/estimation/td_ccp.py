@@ -310,7 +310,14 @@ class TDCCPEstimator(BaseEstimator):
             new_model = eqx.apply_updates(model, updates)
             return new_model, new_opt_state, loss
 
-        for avi_iter in range(cfg.avi_iterations):
+        from tqdm import tqdm
+        pbar = tqdm(
+            range(cfg.avi_iterations),
+            desc="TD-CCP AVI",
+            disable=not self._verbose,
+            leave=False,
+        )
+        for avi_iter in pbar:
             # Compute TD targets with current network (frozen for this AVI round)
             v_next = jax.lax.stop_gradient(jax.vmap(net)(feat_sp))
             targets = flow_s + gamma * v_next
@@ -336,6 +343,8 @@ class TDCCPEstimator(BaseEstimator):
 
                 avg_loss = epoch_loss / max(n_batches, 1)
                 losses.append(avg_loss)
+
+            pbar.set_postfix({"loss": f"{avg_loss:.4f}"})
 
         return net, losses
 

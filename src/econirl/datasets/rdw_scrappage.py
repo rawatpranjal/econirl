@@ -194,10 +194,12 @@ def _to_panel(df: pd.DataFrame) -> "Panel":
     from econirl.core.types import Panel, Trajectory
     import jax.numpy as jnp
 
+    from tqdm import tqdm
+
     vehicle_ids = df["vehicle_id"].unique()
     trajectories = []
 
-    for vid in vehicle_ids:
+    for vid in tqdm(vehicle_ids, desc="Building panel", leave=False):
         vdata = df[df["vehicle_id"] == vid].sort_values("year")
         states = jnp.array(vdata["state"].values, dtype=jnp.int32)
         actions = jnp.array(vdata["scrapped"].values, dtype=jnp.int32)

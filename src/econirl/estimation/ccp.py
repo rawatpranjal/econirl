@@ -492,9 +492,15 @@ class CCPEstimator(BaseEstimator):
         )
 
         # Step 2: Policy iteration loop
-        for k in range(max_iterations):
+        from tqdm import tqdm
+        pbar = tqdm(
+            range(max_iterations),
+            desc="CCP NPL",
+            disable=not self._verbose,
+            leave=True,
+        )
+        for k in pbar:
             num_policy_iterations = k + 1
-            self._log(f"Policy iteration {k + 1}")
 
             prev_params = jnp.array(current_params)
 
@@ -538,15 +544,14 @@ class CCPEstimator(BaseEstimator):
             current_params = jnp.array(result.x, dtype=jnp.float32)
             current_ll = -result.fun
 
-            self._log(f"  Parameters: {np.asarray(current_params)}")
-            self._log(f"  Log-likelihood: {current_ll:.4f}")
-
             # Check convergence for NPL
             param_change = float(jnp.linalg.norm(current_params - prev_params))
-            self._log(f"  Parameter change: {param_change:.6f}")
+            pbar.set_postfix({"LL": f"{current_ll:.2f}", "d_param": f"{param_change:.1e}"})
 
             if param_change < self._convergence_tol:
                 converged = True
+                pbar.set_postfix({"LL": f"{current_ll:.2f}", "status": "converged"})
+                pbar.close()
                 self._log("NPL converged!")
                 break
 

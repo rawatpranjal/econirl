@@ -43,15 +43,31 @@ class GLADIUSConfig:
     Attributes:
         q_hidden_dim: Hidden dimension for the Q-network MLP.
         q_num_layers: Number of hidden layers in the Q-network.
-        v_hidden_dim: Hidden dimension for the EV-network MLP.
-        v_num_layers: Number of hidden layers in the EV-network.
+        v_hidden_dim: Hidden dimension for the zeta-network MLP.
+        v_num_layers: Number of hidden layers in the zeta-network.
         q_lr: Learning rate for the Q-network optimizer.
-        v_lr: Learning rate for the EV-network optimizer.
+        v_lr: Learning rate for the zeta-network optimizer.
         max_epochs: Maximum number of training epochs.
         batch_size: Mini-batch size for SGD.
         bellman_penalty_weight: Weight on the Bellman consistency penalty.
         weight_decay: L2 regularization weight.
         gradient_clip: Maximum gradient norm for clipping.
+        patience: Early stopping patience (epochs without improvement).
+        alternating_updates: Use alternating zeta/Q optimization from
+            Algorithm 1 in Kang et al. (2025). When False, both networks
+            are updated jointly in each step (legacy behavior).
+        lr_decay_rate: Learning rate decay rate. The effective learning
+            rate decays as lr_0 / (1 + decay_rate * step). Set to 0.0
+            for constant learning rate.
+        tikhonov_annealing: When True, the NLL loss is scaled by
+            tikhonov_initial_weight / (1 + epoch), transitioning from
+            behavioral cloning early to Bellman-driven refinement later.
+        tikhonov_initial_weight: Initial weight on NLL when Tikhonov
+            annealing is enabled.
+        anchor_action: When set, Bellman error is only computed for
+            transitions where a equals this action index. Per the paper
+            (Assumption 3), this restricts the Bellman constraint to the
+            anchor action for identification.
         compute_se: Whether to compute standard errors via bootstrap.
         n_bootstrap: Number of bootstrap replications for SE computation.
         verbose: Whether to print progress messages.
@@ -68,6 +84,12 @@ class GLADIUSConfig:
     bellman_penalty_weight: float = 1.0
     weight_decay: float = 1e-4
     gradient_clip: float = 1.0
+    patience: int = 50
+    alternating_updates: bool = True
+    lr_decay_rate: float = 0.001
+    tikhonov_annealing: bool = False
+    tikhonov_initial_weight: float = 100.0
+    anchor_action: int | None = None
     compute_se: bool = True
     n_bootstrap: int = 100
     verbose: bool = False
@@ -396,10 +418,23 @@ class GLADIUSEstimator(BaseEstimator):
     ) -> EstimationResult:
         """Core GLADIUS optimization routine.
 
+        Implements Algorithm 1 from Kang et al. (2025). When alternating
+        updates are enabled (default), even-numbered batches update the
+        zeta network (value approximator) and odd-numbered batches update
+        the Q network (action-value function). This alternating scheme
+        stabilizes training by giving each network a stable target.
+
+        The zeta network approximates E[V(s')|s,a]. The Q network is
+        trained via negative log-likelihood of observed actions, with a
+        Bellman consistency penalty that pushes V_Q(s') toward zeta(s,a).
+        After training, implied rewards r(s,a) = Q(s,a) - beta*zeta(s,a)
+        are projected onto the feature matrix to recover structural
+        parameters.
+
         Steps:
             1. Extract (s, a, s') tuples from panel.
-            2. Build Q-network and EV-network.
-            3. Train via mini-batch SGD with NLL + Bellman penalty.
+            2. Build Q-network and zeta-network.
+            3. Train via alternating mini-batch SGD.
             4. Extract structural parameters via least-squares regression.
 
         Returns:
@@ -422,115 +457,215 @@ class GLADIUSEstimator(BaseEstimator):
         state_dim = problem.state_dim or 1
 
         key = jax.random.PRNGKey(0)
-        q_key, ev_key = jax.random.split(key)
+        q_key, zeta_key = jax.random.split(key)
 
         q_net = _QNetwork(
             state_dim, n_actions, self.config.q_hidden_dim,
             self.config.q_num_layers, key=q_key,
         )
-        ev_net = _EVNetwork(
+        # Zeta network approximates E[V(s')|s,a]. Same architecture as
+        # the EV network but trained with the corrected alternating scheme
+        # from Algorithm 1 in the paper. Kept as a separate network
+        # (rather than a shared-body multi-headed MLP) for cleaner
+        # gradient separation in the alternating update.
+        zeta_net = _EVNetwork(
             state_dim, n_actions, self.config.v_hidden_dim,
-            self.config.v_num_layers, key=ev_key,
+            self.config.v_num_layers, key=zeta_key,
         )
 
-        # Build optimizers with gradient clipping and weight decay
-        q_optimizer = optax.chain(
-            optax.clip_by_global_norm(self.config.gradient_clip),
-            optax.adamw(self.config.q_lr, weight_decay=self.config.weight_decay),
-        )
-        ev_optimizer = optax.chain(
-            optax.clip_by_global_norm(self.config.gradient_clip),
-            optax.adamw(self.config.v_lr, weight_decay=self.config.weight_decay),
-        )
+        # Build optimizers with gradient clipping, weight decay, and
+        # learning rate decay following Kang et al. (2025).
+        # LR decays as lr_0 / (1 + decay_rate * step).
+        decay = self.config.lr_decay_rate
+
+        def _make_optimizer(base_lr: float):
+            """Build an optax optimizer chain with LR decay."""
+            def lr_schedule(step):
+                return base_lr / (1.0 + decay * step)
+
+            return optax.chain(
+                optax.clip_by_global_norm(self.config.gradient_clip),
+                optax.scale_by_adam(),
+                optax.add_decayed_weights(self.config.weight_decay),
+                optax.scale_by_schedule(lr_schedule),
+                optax.scale(-1.0),
+            )
+
+        q_optimizer = _make_optimizer(self.config.q_lr)
+        zeta_optimizer = _make_optimizer(self.config.v_lr)
 
         q_opt_state = q_optimizer.init(eqx.filter(q_net, eqx.is_array))
-        ev_opt_state = ev_optimizer.init(eqx.filter(ev_net, eqx.is_array))
+        zeta_opt_state = zeta_optimizer.init(eqx.filter(zeta_net, eqx.is_array))
 
         bellman_weight = self.config.bellman_penalty_weight
+        anchor_action = self.config.anchor_action
 
-        # --- Define the training step ---
+        # --- Define alternating training steps ---
+
         @eqx.filter_jit
-        def train_step(
-            q_net: _QNetwork,
-            ev_net: _EVNetwork,
-            q_opt_state: optax.OptState,
-            ev_opt_state: optax.OptState,
-            s_feat: jax.Array,
-            a_batch: jax.Array,
-            sp_feat: jax.Array,
-        ):
-            """Single training step: compute loss, update both networks."""
+        def zeta_step(zeta_net, q_net, zeta_opt_state, s_feat, a_batch, sp_feat):
+            """Update zeta to approximate E[V(s')|s,a]. Q is frozen."""
 
-            def loss_fn(nets):
-                q_net_inner, ev_net_inner = nets
+            def zeta_loss_fn(zeta_net_inner):
+                a_onehot = jax.nn.one_hot(a_batch, n_actions)
+                zeta_sa = zeta_net_inner.forward(s_feat, a_onehot)
 
-                # Action one-hot encoding
+                # V(s') from frozen Q network
+                q_sp_all = jax.lax.stop_gradient(
+                    q_net.forward_all_actions(sp_feat)
+                )
+                v_sp = sigma * jax.scipy.special.logsumexp(
+                    q_sp_all / sigma, axis=1
+                )
+
+                # MSE loss: make zeta approximate E[V(s')|s,a]
+                mse = jnp.mean((zeta_sa - v_sp) ** 2)
+                return mse
+
+            loss, grads = eqx.filter_value_and_grad(zeta_loss_fn)(zeta_net)
+            updates, new_zeta_opt = zeta_optimizer.update(
+                grads, zeta_opt_state, eqx.filter(zeta_net, eqx.is_array)
+            )
+            zeta_net = eqx.apply_updates(zeta_net, updates)
+            return zeta_net, new_zeta_opt, loss
+
+        @eqx.filter_jit
+        def q_step(q_net, zeta_net, q_opt_state, s_feat, a_batch, sp_feat,
+                   ce_weight):
+            """Update Q to fit observed choices with Bellman consistency.
+
+            Loss = ce_weight * NLL + bellman_weight * Bellman_penalty
+
+            NLL: negative log-likelihood of observed actions under the
+            softmax policy derived from Q.
+
+            Bellman penalty: pushes V_Q(s') toward zeta(s,a), propagating
+            Bellman consistency through the Q network at the next state.
+            Zeta is frozen (no gradient).
+            """
+
+            def q_loss_fn(q_net_inner):
                 a_onehot = jax.nn.one_hot(a_batch, n_actions)
 
-                # Q(s, a) for the taken action
-                q_sa = q_net_inner.forward(s_feat, a_onehot)
-
                 # Q(s, all a) for NLL computation
-                q_all = q_net_inner.forward_all_actions(s_feat)  # (batch, n_actions)
+                q_all = q_net_inner.forward_all_actions(s_feat)
 
-                # NLL loss: -log P(a|s) = -[Q(s,a)/sigma - logsumexp(Q(s,:)/sigma)]
+                # NLL loss
                 log_probs = q_all / sigma - jax.scipy.special.logsumexp(
                     q_all / sigma, axis=1, keepdims=True
                 )
                 nll = -log_probs[jnp.arange(len(a_batch)), a_batch].mean()
 
-                # Bellman penalty
-                # EV(s, a)
-                ev_sa = ev_net_inner.forward(s_feat, a_onehot)
-
-                # V(s') = sigma * logsumexp(Q(s', :) / sigma)
-                q_sp_all = q_net_inner.forward_all_actions(sp_feat)  # (batch, n_actions)
+                # Bellman consistency penalty.
+                # V_Q(s') should match zeta(s,a) (frozen).
+                # This gives Q gradients at s' via V = logsumexp(Q(s',:)).
+                q_sp_all = q_net_inner.forward_all_actions(sp_feat)
                 v_sp = sigma * jax.scipy.special.logsumexp(
                     q_sp_all / sigma, axis=1
                 )
+                zeta_sa = jax.lax.stop_gradient(
+                    zeta_net.forward(s_feat, a_onehot)
+                )
 
-                # TD error: beta * (EV(s,a) - V(s'))
-                # Stop gradient on V(s') to stabilize learning
-                td_error = beta * (ev_sa - jax.lax.stop_gradient(v_sp))
+                # Optional anchor action filtering: only compute Bellman
+                # error for transitions where a equals the anchor action.
+                if anchor_action is not None:
+                    mask = (a_batch == anchor_action).astype(jnp.float32)
+                    bellman_loss = jnp.sum(
+                        mask * (v_sp - zeta_sa) ** 2
+                    ) / jnp.maximum(mask.sum(), 1.0)
+                else:
+                    bellman_loss = jnp.mean((v_sp - zeta_sa) ** 2)
+
+                total_loss = ce_weight * nll + bellman_weight * bellman_loss
+                return total_loss, (nll, bellman_loss)
+
+            (loss, aux), grads = eqx.filter_value_and_grad(
+                q_loss_fn, has_aux=True
+            )(q_net)
+
+            updates, new_q_opt = q_optimizer.update(
+                grads, q_opt_state, eqx.filter(q_net, eqx.is_array)
+            )
+            q_net = eqx.apply_updates(q_net, updates)
+            return q_net, new_q_opt, loss, aux
+
+        # Legacy joint step for backward compatibility when
+        # alternating_updates=False.
+        @eqx.filter_jit
+        def joint_step(q_net, zeta_net, q_opt_state, zeta_opt_state,
+                       s_feat, a_batch, sp_feat, ce_weight):
+            """Joint update of both networks in one step (legacy mode)."""
+
+            def loss_fn(nets):
+                q_net_inner, zeta_net_inner = nets
+                a_onehot = jax.nn.one_hot(a_batch, n_actions)
+                q_all = q_net_inner.forward_all_actions(s_feat)
+                log_probs = q_all / sigma - jax.scipy.special.logsumexp(
+                    q_all / sigma, axis=1, keepdims=True
+                )
+                nll = -log_probs[jnp.arange(len(a_batch)), a_batch].mean()
+
+                zeta_sa = zeta_net_inner.forward(s_feat, a_onehot)
+                q_sp_all = q_net_inner.forward_all_actions(sp_feat)
+                v_sp = sigma * jax.scipy.special.logsumexp(
+                    q_sp_all / sigma, axis=1
+                )
+                td_error = beta * (
+                    zeta_sa - jax.lax.stop_gradient(v_sp)
+                )
                 bellman_loss = jnp.mean(td_error ** 2)
 
-                total_loss = nll + bellman_weight * bellman_loss
+                total_loss = ce_weight * nll + bellman_weight * bellman_loss
                 return total_loss, (nll, bellman_loss)
 
             (loss, aux), grads = eqx.filter_value_and_grad(
                 loss_fn, has_aux=True
-            )((q_net, ev_net))
+            )((q_net, zeta_net))
 
-            q_grads, ev_grads = grads
-
+            q_grads, zeta_grads = grads
             q_updates, new_q_opt = q_optimizer.update(
                 q_grads, q_opt_state, eqx.filter(q_net, eqx.is_array)
             )
-            ev_updates, new_ev_opt = ev_optimizer.update(
-                ev_grads, ev_opt_state, eqx.filter(ev_net, eqx.is_array)
+            zeta_updates, new_zeta_opt = zeta_optimizer.update(
+                zeta_grads, zeta_opt_state,
+                eqx.filter(zeta_net, eqx.is_array)
             )
-
             q_net = eqx.apply_updates(q_net, q_updates)
-            ev_net = eqx.apply_updates(ev_net, ev_updates)
-
-            return q_net, ev_net, new_q_opt, new_ev_opt, loss, aux
+            zeta_net = eqx.apply_updates(zeta_net, zeta_updates)
+            return q_net, zeta_net, new_q_opt, new_zeta_opt, loss, aux
 
         # --- Step 3: Training loop ---
         best_loss = float("inf")
         epochs_no_improve = 0
-        patience = 50
         converged = False
-
         loss_history: list[float] = []
         rng_key = jax.random.PRNGKey(42)
+        alternating = self.config.alternating_updates
 
-        for epoch in range(self.config.max_epochs):
-            # Shuffle data
+        from tqdm import tqdm
+        pbar = tqdm(
+            range(self.config.max_epochs),
+            desc="GLADIUS",
+            disable=not self._verbose,
+            leave=True,
+        )
+        for epoch in pbar:
             rng_key, perm_key = jax.random.split(rng_key)
             perm = jax.random.permutation(perm_key, n_obs)
             epoch_loss = 0.0
             n_batches = 0
 
+            # Tikhonov annealing: decay CE weight over epochs so training
+            # transitions from behavioral cloning to Bellman-driven.
+            if self.config.tikhonov_annealing:
+                ce_weight = jnp.float32(
+                    self.config.tikhonov_initial_weight / (1.0 + epoch)
+                )
+            else:
+                ce_weight = jnp.float32(1.0)
+
+            batch_idx = 0
             for start_idx in range(0, n_obs, self.config.batch_size):
                 end_idx = min(start_idx + self.config.batch_size, n_obs)
                 idx = perm[start_idx:end_idx]
@@ -539,27 +674,38 @@ class GLADIUSEstimator(BaseEstimator):
                 a_batch = all_actions[idx]
                 sp_batch = all_next_states[idx]
 
-                # Build features
                 s_feat = self._build_state_features(s_batch, problem)
                 sp_feat = self._build_state_features(sp_batch, problem)
 
-                q_net, ev_net, q_opt_state, ev_opt_state, loss, _aux = train_step(
-                    q_net, ev_net, q_opt_state, ev_opt_state,
-                    s_feat, a_batch, sp_feat,
-                )
+                if alternating:
+                    if batch_idx % 2 == 0:
+                        # Even batch: update zeta only
+                        zeta_net, zeta_opt_state, loss = zeta_step(
+                            zeta_net, q_net, zeta_opt_state,
+                            s_feat, a_batch, sp_feat,
+                        )
+                    else:
+                        # Odd batch: update Q only
+                        q_net, q_opt_state, loss, _aux = q_step(
+                            q_net, zeta_net, q_opt_state,
+                            s_feat, a_batch, sp_feat, ce_weight,
+                        )
+                else:
+                    q_net, zeta_net, q_opt_state, zeta_opt_state, loss, _aux = (
+                        joint_step(
+                            q_net, zeta_net, q_opt_state, zeta_opt_state,
+                            s_feat, a_batch, sp_feat, ce_weight,
+                        )
+                    )
 
                 epoch_loss += float(loss)
                 n_batches += 1
+                batch_idx += 1
 
             avg_loss = epoch_loss / max(n_batches, 1)
             loss_history.append(avg_loss)
 
-            if self._verbose:
-                if (epoch + 1) % 50 == 0 or epoch == 0:
-                    self._log(
-                        f"Epoch {epoch + 1}/{self.config.max_epochs}: "
-                        f"loss={avg_loss:.6f}"
-                    )
+            pbar.set_postfix({"loss": f"{avg_loss:.4f}", "best": f"{best_loss:.4f}"})
 
             # Early stopping
             if avg_loss < best_loss - 1e-6:
@@ -568,31 +714,33 @@ class GLADIUSEstimator(BaseEstimator):
             else:
                 epochs_no_improve += 1
 
-            if epochs_no_improve >= patience:
+            if epochs_no_improve >= self.config.patience:
                 converged = True
+                pbar.set_postfix({"loss": f"{avg_loss:.4f}", "status": "early stop"})
+                pbar.close()
                 if self._verbose:
                     self._log(f"Early stopping at epoch {epoch + 1}")
                 break
 
         num_epochs = epoch + 1
         if num_epochs == self.config.max_epochs:
-            converged = True  # Reached max epochs
+            converged = True
 
         # --- Step 4: Extract parameters ---
         all_state_feat = self._build_state_features_all(problem)
 
         # Compute Q(s, a) for all (s, a)
-        q_table = q_net.forward_all_actions(all_state_feat)  # (n_states, n_actions)
+        q_table = q_net.forward_all_actions(all_state_feat)
 
-        # Compute EV(s, a) for all (s, a)
+        # Compute zeta(s, a) for all (s, a)
         eye = jnp.eye(n_actions)
         ev_columns = []
         for a in range(n_actions):
             a_oh = jnp.broadcast_to(eye[a], (n_states, n_actions))
-            ev_columns.append(ev_net.forward(all_state_feat, a_oh))
-        ev_table = jnp.stack(ev_columns, axis=1)  # (n_states, n_actions)
+            ev_columns.append(zeta_net.forward(all_state_feat, a_oh))
+        ev_table = jnp.stack(ev_columns, axis=1)
 
-        # Implied reward: r(s, a) = Q(s, a) - beta * EV(s, a)
+        # Implied reward: r(s, a) = Q(s, a) - beta * zeta(s, a)
         reward_table = q_table - beta * ev_table
 
         # Policy: softmax of Q values
@@ -607,13 +755,15 @@ class GLADIUSEstimator(BaseEstimator):
         parameters = self._extract_parameters(utility, reward_table)
 
         # Compute log-likelihood
-        ll = self._compute_log_likelihood(q_net, all_states, all_actions, problem, sigma)
+        ll = self._compute_log_likelihood(
+            q_net, all_states, all_actions, problem, sigma
+        )
 
         optimization_time = time.time() - start_time
 
-        # Store trained networks
+        # Store trained networks for post-estimation use
         self.q_net_ = q_net
-        self.ev_net_ = ev_net
+        self.ev_net_ = zeta_net
 
         message = f"GLADIUS converged after {num_epochs} epochs"
         if self._verbose:
@@ -637,7 +787,9 @@ class GLADIUSEstimator(BaseEstimator):
                 "q_table": np.asarray(q_table).tolist(),
                 "ev_table": np.asarray(ev_table).tolist(),
                 "loss_history": loss_history,
-                "final_loss": loss_history[-1] if loss_history else float("nan"),
+                "final_loss": (
+                    loss_history[-1] if loss_history else float("nan")
+                ),
             },
         )
 

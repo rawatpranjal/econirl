@@ -304,7 +304,14 @@ class NFXPEstimator(BaseEstimator):
         prev_ll = -float("inf")
         ll = prev_ll
 
-        for iteration in range(self._outer_max_iter):
+        from tqdm import tqdm
+        pbar = tqdm(
+            range(self._outer_max_iter),
+            desc="NFXP BHHH",
+            disable=not self._verbose,
+            leave=True,
+        )
+        for iteration in pbar:
             flow_utility = jnp.array(utility.compute(params), dtype=jnp.float64)
             solver_result = self._solve_inner(operator, flow_utility)
             total_inner += solver_result.num_iterations
@@ -315,15 +322,15 @@ class NFXPEstimator(BaseEstimator):
             n_evals += 1
 
             grad = scores.sum(axis=0)
-
-            if self._verbose and (iteration + 1) % 5 == 0:
-                self._log(f"BHHH iter {iteration+1}: LL = {ll:.4f}, |grad| = {float(jnp.linalg.norm(grad)):.2e}")
-
             grad_norm = float(jnp.abs(grad).max())
             ll_change = abs(ll - prev_ll) if prev_ll > -float("inf") else float("inf")
 
+            pbar.set_postfix({"LL": f"{ll:.2f}", "|grad|": f"{grad_norm:.1e}"})
+
             if grad_norm < self._outer_tol or (iteration > 10 and ll_change < 1e-10):
                 converged = True
+                pbar.set_postfix({"LL": f"{ll:.2f}", "|grad|": f"{grad_norm:.1e}", "status": "converged"})
+                pbar.close()
                 self._log(f"BHHH converged at iter {iteration+1}: |grad| = {grad_norm:.2e}")
                 break
 
