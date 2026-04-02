@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+import jax.numpy as jnp
 import numpy as np
 import torch
 from scipy import optimize
@@ -152,7 +153,7 @@ class IQLearnEstimator(BaseEstimator):
             aic=-2 * ll + 2 * n_params,
             bic=-2 * ll + n_params * torch.log(torch.tensor(n_obs)).item(),
             prediction_accuracy=self._compute_prediction_accuracy(
-                panel, result.policy
+                panel, jnp.array(result.policy.numpy())
             ),
         )
 
@@ -222,10 +223,15 @@ class IQLearnEstimator(BaseEstimator):
         sigma = problem.scale_parameter
         alpha = self.config.alpha
 
-        # Extract expert (s, a, s') from panel
-        expert_states = panel.get_all_states().long()
-        expert_actions = panel.get_all_actions().long()
-        expert_next_states = panel.get_all_next_states().long()
+        # Extract expert (s, a, s') from panel — handle JAX and torch arrays
+        def _to_torch_long(arr):
+            if isinstance(arr, torch.Tensor):
+                return arr.long()
+            return torch.tensor(np.array(arr), dtype=torch.long)
+
+        expert_states = _to_torch_long(panel.get_all_states())
+        expert_actions = _to_torch_long(panel.get_all_actions())
+        expert_next_states = _to_torch_long(panel.get_all_next_states())
 
         # Initial state distribution (needed for simple divergence)
         initial_dist = self._compute_initial_distribution(panel, n_states)
@@ -236,11 +242,16 @@ class IQLearnEstimator(BaseEstimator):
         # Setup Q parameterization
         if self.config.q_type == "linear":
             if isinstance(utility, ActionDependentReward):
-                feature_matrix = utility.feature_matrix.double()
+                fm = utility.feature_matrix
+                if not isinstance(fm, torch.Tensor):
+                    fm = torch.tensor(np.array(fm), dtype=torch.float64)
+                feature_matrix = fm.double()
                 n_params = feature_matrix.shape[2]
             elif isinstance(utility, LinearReward):
-                sf = utility.state_features.double()
-                feature_matrix = sf.unsqueeze(1).expand(-1, n_actions, -1).clone()
+                sf = utility.state_features
+                if not isinstance(sf, torch.Tensor):
+                    sf = torch.tensor(np.array(sf), dtype=torch.float64)
+                feature_matrix = sf.double().unsqueeze(1).expand(-1, n_actions, -1).clone()
                 n_params = sf.shape[1]
             else:
                 raise TypeError(f"Unsupported utility type for linear q_type: {type(utility)}")
@@ -372,9 +383,14 @@ class IQLearnEstimator(BaseEstimator):
             reward_params = None
             feat = None
             if hasattr(utility, 'feature_matrix'):
-                feat = utility.feature_matrix.float()
+                fm = utility.feature_matrix
+                if not isinstance(fm, torch.Tensor):
+                    fm = torch.tensor(np.array(fm), dtype=torch.float32)
+                feat = fm.float()
             elif isinstance(utility, LinearReward) and hasattr(utility, 'state_features'):
-                sf = utility.state_features.float()
+                sf = utility.state_features
+                if not isinstance(sf, torch.Tensor):
+                    sf = torch.tensor(np.array(sf), dtype=torch.float32)
                 feat = sf.unsqueeze(1).expand(-1, n_actions, -1)
 
             if feat is not None:

@@ -260,48 +260,41 @@ def estimate_iq(data, mdp, n_iter=10000, Q_init=None):
     return {'r': Q - beta * EV, 'pi': jax.nn.softmax(Q, axis=1)}
 
 
-def estimate_gladius(data, mdp, max_epochs=300):
-    """GLADIUS: neural Q + EV networks with Bellman consistency.
-
-    Uses the actual GLADIUSEstimator from the econirl package.
-    Extracts the implied reward from metadata['reward_table'].
-    """
-    from econirl.estimation.gladius import GLADIUSEstimator, GLADIUSConfig
+def _build_panel_and_problem(data, mdp):
+    """Shared helper: build Panel, DDCProblem, utility, and transitions."""
     from econirl.core.types import DDCProblem, Panel, Trajectory
     from econirl.preferences.action_reward import ActionDependentReward
 
     cfg = mdp['cfg']
     nS, nA = mdp['n_states'], cfg.n_actions
-    beta, ABS = cfg.beta, mdp['ABS']
+    ABS = mdp['ABS']
+    n_c, n_w, n_ep = cfg.n_content_levels, cfg.n_wait_levels, cfg.n_episodes
 
     problem = DDCProblem(
         num_states=nS, num_actions=nA,
-        discount_factor=beta, scale_parameter=1.0,
+        discount_factor=cfg.beta, scale_parameter=1.0,
     )
 
-    # Build a simple feature matrix (content utility + price + wait cost)
-    # 3 features: buy_indicator, content_utility, wait_cost
+    # 3-feature linear spec: buy_indicator, content_utility, wait_cost
     features = np.zeros((nS, nA, 3))
-    n_c, n_w, n_ep = cfg.n_content_levels, cfg.n_wait_levels, cfg.n_episodes
     for p in range(n_ep):
         for c in range(n_c):
             for w in range(n_w):
                 s = p * n_c * n_w + c * n_w + w
-                features[s, 0, 0] = 1.0  # buy indicator
+                features[s, 0, 0] = 1.0
                 features[s, 0, 1] = cfg.content_utilities[c]
                 features[s, 1, 1] = cfg.content_utilities[c]
                 features[s, 1, 2] = cfg.wait_hours[w]
     feature_matrix = jnp.array(features, dtype=jnp.float32)
     utility = ActionDependentReward(feature_matrix, ['buy_ind', 'content', 'wait'])
 
-    transitions = mdp['P'].transpose(1, 0, 2)  # (S, A, S') -> (A, S, S')
+    # Transitions (A, S, S') for econirl estimators
+    transitions_jnp = jnp.array(np.array(mdp['P']).transpose(1, 0, 2))
 
-    # Build panel from data
+    # Panel from (s, a, s') arrays, split at absorbing state
     s_np = np.array(data['s'])
     a_np = np.array(data['a'])
     sp_np = np.array(data['sp'])
-
-    # Split into trajectories at absorbing state boundaries
     trajectories = []
     traj_start = 0
     for i in range(len(s_np)):
@@ -315,7 +308,6 @@ def estimate_gladius(data, mdp, max_epochs=300):
                 ))
             traj_start = i + 1
     if not trajectories:
-        # Fallback: single trajectory
         trajectories.append(Trajectory(
             states=jnp.array(s_np, dtype=jnp.int32),
             actions=jnp.array(a_np, dtype=jnp.int32),
@@ -323,7 +315,47 @@ def estimate_gladius(data, mdp, max_epochs=300):
         ))
     panel = Panel(trajectories=trajectories)
 
-    gl_config = GLADIUSConfig(
+    return panel, problem, utility, transitions_jnp
+
+
+def estimate_iq_learn(data, mdp, max_iter=2000):
+    """IQ-Learn: chi² inverse soft-Q learning (Garg et al. 2021).
+
+    Uses the actual IQLearnEstimator from econirl.contrib.iq_learn.
+    Tabular Q-function, L-BFGS-B optimizer, chi² divergence.
+    """
+    import torch
+    from econirl.contrib.iq_learn import IQLearnEstimator, IQLearnConfig
+
+    panel, problem, utility, transitions_jnp = _build_panel_and_problem(data, mdp)
+    # IQLearnEstimator expects torch.Tensor for transitions
+    transitions_torch = torch.tensor(np.array(transitions_jnp), dtype=torch.float64)
+
+    config = IQLearnConfig(
+        q_type='tabular',
+        divergence='chi2',
+        alpha=1.0,
+        optimizer='L-BFGS-B',
+        max_iter=max_iter,
+        convergence_tol=1e-8,
+        verbose=False,
+    )
+    est = IQLearnEstimator(config=config)
+    summary = est.estimate(panel, utility, problem, transitions_torch)
+    reward_table = jnp.array(summary.metadata['reward_table'])
+    return {'r': reward_table, 'pi': summary.policy}
+
+
+def estimate_gladius(data, mdp, max_epochs=200):
+    """GLADIUS: neural Q + EV networks (Kang et al. 2025).
+
+    Uses the actual GLADIUSEstimator from econirl.estimation.gladius.
+    """
+    from econirl.estimation.gladius import GLADIUSEstimator, GLADIUSConfig
+
+    panel, problem, utility, transitions_jnp = _build_panel_and_problem(data, mdp)
+
+    config = GLADIUSConfig(
         q_hidden_dim=64,
         q_num_layers=2,
         v_hidden_dim=64,
@@ -338,10 +370,8 @@ def estimate_gladius(data, mdp, max_epochs=300):
         compute_se=False,
         verbose=False,
     )
-
-    estimator = GLADIUSEstimator(gl_config)
-    summary = estimator.estimate(panel, utility, problem, transitions)
-
+    est = GLADIUSEstimator(config)
+    summary = est.estimate(panel, utility, problem, transitions_jnp)
     reward_table = jnp.array(summary.metadata['reward_table'])
     return {'r': reward_table, 'pi': summary.policy}
 
@@ -418,10 +448,10 @@ def main():
         print(f"  alpha={alpha:.2f}: err={err:.3f}, corr={corr:.3f}")
         results['C'][str(alpha)] = {'error': round(err, 3), 'corr': round(corr, 3)}
 
-    # --- D: Sample size (RF vs Anchor-MLE vs GLADIUS) ---
-    print("\nAnalysis D: Sample size (RF, Anchor-MLE, GLADIUS)")
-    sample_sizes = [500, 2000, 10000]
-    n_seeds = 2
+    # --- D: Sample size (RF vs IQ-Learn vs GLADIUS) ---
+    print("\nAnalysis D: Sample size (RF, IQ-Learn chi2, GLADIUS)")
+    sample_sizes = [200, 500, 2000, 5000, 10000]
+    n_seeds = 3
     results['D'] = {}
     for N in sample_sizes:
         rf_errs, iq_errs, gl_errs = [], [], []
@@ -431,8 +461,8 @@ def main():
             rf = estimate_rf(data, mdp['n_states'], cfg.n_actions, n_iter=10000)
             rf_err = cf_error(Pt3, rf['A'], r_true, beta, ABS, nR)
             rf_errs.append(rf_err)
-            # Anchor-constrained MLE: warm-start from RF Q
-            iq = estimate_iq(data, mdp, n_iter=10000, Q_init=rf['Q'])
+            # IQ-Learn (chi2): actual package estimator
+            iq = estimate_iq_learn(data, mdp, max_iter=2000)
             iq_err = cf_error(Pt3, iq['r'], r_true, beta, ABS, nR)
             iq_errs.append(iq_err)
             # GLADIUS: neural Q + EV with 150 epochs for speed
@@ -442,9 +472,9 @@ def main():
         rf_mean = np.mean(rf_errs)
         iq_mean = np.mean(iq_errs)
         gl_mean = np.mean(gl_errs)
-        print(f"  N={N:>5}: RF={rf_mean:.4f}, Anch-MLE={iq_mean:.4f}, GLADIUS={gl_mean:.4f}  ({n_seeds} seeds)")
+        print(f"  N={N:>5}: RF={rf_mean:.4f}, IQ-Learn={iq_mean:.4f}, GLADIUS={gl_mean:.4f}  ({n_seeds} seeds)")
         results['D'][str(N)] = {
-            'rf': round(rf_mean, 4), 'anchor_mle': round(iq_mean, 4), 'gladius': round(gl_mean, 4)
+            'rf': round(rf_mean, 4), 'iq_learn': round(iq_mean, 4), 'gladius': round(gl_mean, 4)
         }
 
     # --- E: Anchor misspecification ---

@@ -202,20 +202,22 @@ $\alpha$ & Type II CF error & Corr.\ with $r^*$ \\
 
 \subsection{D. Finite-sample convergence}
 
-The tabular $\chi^2$ IQ-Learn objective has multiple local optima in finite samples. We compare three finite-sample estimators. The reduced-form logit converges to $A^*$, which is the wrong target for Type II counterfactuals. The anchor-constrained MLE adds soft penalties on the implied reward at exit and absorbing states to the logit NLL. GLADIUS uses neural $Q$ and EV networks.
+We compare three finite-sample estimators across sample sizes ranging from 200 to 10{,}000 trajectories (3 seeds each). The reduced-form logit converges to $A^*$, which is the wrong target for Type II counterfactuals. IQ-Learn ($\chi^2$) uses the actual tabular implementation from \citet{garg2021} with L-BFGS-B optimization. GLADIUS uses neural $Q$ and EV networks with 150 training epochs.
 
 \begin{table}[H]
 \centering
 \begin{tabular}{rrrr}
 \toprule
-$N$ & Reduced-form & Anchor-MLE & GLADIUS \\
+$N$ & Reduced-form & IQ-Learn ($\chi^2$) & GLADIUS \\
 \midrule
-500      & 0.264 & 0.255 & 0.106 \\
-2{,}000  & 0.262 & 0.255 & 0.123 \\
-10{,}000 & 0.262 & 0.257 & 0.099 \\
+200      & 0.265 & 0.237 & 0.132 \\
+500      & 0.264 & 0.287 & 0.135 \\
+2{,}000  & 0.263 & 0.285 & 0.139 \\
+5{,}000  & 0.262 & 0.335 & 0.135 \\
+10{,}000 & 0.262 & 0.333 & 0.130 \\
 \bottomrule
 \end{tabular}
-\caption{Type II CF error ($k=3$, 2 seeds). GLADIUS cuts error by 60\% over tabular methods via implicit neural regularization.}
+\caption{Type II CF error ($k=3$, 3 seeds). GLADIUS cuts error by approximately 50\% over tabular methods via neural regularization. IQ-Learn ($\chi^2$) does not improve over reduced-form logit because the tabular chi-squared objective encounters poor local optima as $N$ grows and the loss surface sharpens.}
 \label{tab:samplesize}
 \end{table}
 
