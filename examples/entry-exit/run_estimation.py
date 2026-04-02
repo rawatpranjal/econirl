@@ -9,7 +9,9 @@ Usage:
     python examples/entry-exit/run_estimation.py
 """
 
+import json
 import time
+from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
@@ -135,6 +137,35 @@ def main():
         wc = ea["welfare_changes"][i]
         pc = ea["policy_changes"][i]
         print(f"{pct:>+10.0%} {float(wc):>+12.3f} {float(pc):>12.3f}")
+
+
+    # Save results to JSON
+    out = {
+        "parameters": {},
+        "standard_errors": {},
+        "log_likelihoods": {},
+    }
+    for name, r in results.items():
+        out["parameters"][name] = {
+            pname: float(r.parameters[i])
+            for i, pname in enumerate(env.parameter_names)
+        }
+        out["standard_errors"][name] = {
+            pname: float(r.standard_errors[i])
+            for i, pname in enumerate(env.parameter_names)
+        }
+        out["log_likelihoods"][name] = float(r.log_likelihood)
+    out["true_parameters"] = {k: float(v) for k, v in env.true_parameters.items()}
+    out["counterfactual"] = {"welfare_change": float(cf.welfare_change)}
+    out["elasticity"] = {
+        "pct_changes": [float(p) for p in ea["pct_changes"]],
+        "welfare_changes": [float(w) for w in ea["welfare_changes"]],
+        "policy_changes": [float(p) for p in ea["policy_changes"]],
+    }
+    results_path = Path(__file__).parent / "results.json"
+    with open(results_path, "w") as f:
+        json.dump(out, f, indent=2)
+    print(f"\nResults saved to {results_path}")
 
 
 if __name__ == "__main__":
