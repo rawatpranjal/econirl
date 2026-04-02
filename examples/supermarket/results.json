@@ -1,45 +1,76 @@
 {
   "parameters": {
     "NFXP": {
-      "holding_cost": 0.8832720340992791,
-      "stockout_penalty": -1.448667196045299,
-      "net_promotion_effect": -0.6028492406324649
+      "holding_cost": -1.5788815021514893,
+      "stockout_penalty": -1.2916619777679443,
+      "net_promotion_effect": 0.527074933052063,
+      "lagged_promotion": -0.39203783869743347,
+      "order_cost": 1.7075470685958862
     },
     "CCP": {
-      "holding_cost": 0.8947589993476868,
-      "stockout_penalty": -1.4416979551315308,
-      "net_promotion_effect": -0.6041499972343445
+      "holding_cost": -1.5925928354263306,
+      "stockout_penalty": -1.3150477409362793,
+      "net_promotion_effect": -0.2891533374786377,
+      "lagged_promotion": 0.4702003300189972,
+      "order_cost": 1.7088258266448975
     },
     "MCE-IRL": {
-      "holding_cost": 0.8832744359970093,
-      "stockout_penalty": -1.4487067461013794,
-      "net_promotion_effect": -0.6028649806976318
+      "holding_cost": -1.579066514968872,
+      "stockout_penalty": -1.2916558980941772,
+      "net_promotion_effect": 0.08132163435220718,
+      "lagged_promotion": 0.07724714279174805,
+      "order_cost": 1.7075891494750977
     }
   },
   "standard_errors": {
     "NFXP": {
-      "holding_cost": 0.05707145854830742,
-      "stockout_penalty": 0.07262030988931656,
-      "net_promotion_effect": 0.025761032477021217
+      "holding_cost": 0.08355428278446198,
+      "stockout_penalty": 0.07343930751085281,
+      "net_promotion_effect": 0.0,
+      "lagged_promotion": 0.0,
+      "order_cost": 0.0384155735373497
     },
     "CCP": {
-      "holding_cost": 0.0006035089417501169,
-      "stockout_penalty": 0.06859494873668809,
-      "net_promotion_effect": 0.0018284499609981357
+      "holding_cost": 0.0002524515730328858,
+      "stockout_penalty": 0.0005796639015898108,
+      "net_promotion_effect": 0.0003976520383730531,
+      "lagged_promotion": 4.17124065279495e-05,
+      "order_cost": 0.0007793419645167887
     },
     "MCE-IRL": {
-      "holding_cost": 0.0922869526437086,
-      "stockout_penalty": 0.1468831494209791,
-      "net_promotion_effect": 0.05721695831758241
+      "holding_cost": 0.1575964093208313,
+      "stockout_penalty": 0.14082680642604828,
+      "net_promotion_effect": 0.03626391664147377,
+      "lagged_promotion": 0.03446131572127342,
+      "order_cost": 0.10929297655820847
     }
   },
   "log_likelihoods": {
-    "NFXP": -14032.90669575153,
-    "CCP": -14032.935546875,
-    "MCE-IRL": -14032.906681975863
+    "NFXP": -13218.2880859375,
+    "CCP": -13218.3515625,
+    "MCE-IRL": -13218.2919921875
+  },
+  "neural": {
+    "projected_params": {
+      "holding_cost": 0.5476865768432617,
+      "stockout_penalty": -1.5335512161254883,
+      "net_promotion_effect": 0.6886781454086304,
+      "lagged_promotion": -1.7759243249893188,
+      "order_cost": 0.1450837105512619
+    },
+    "projected_se": {
+      "holding_cost": 0.30796578526496887,
+      "stockout_penalty": 0.4445103108882904,
+      "net_promotion_effect": 0.2461586445569992,
+      "lagged_promotion": 0.2461586445569992,
+      "order_cost": 0.24074791371822357
+    },
+    "projection_r2": 0.6577473878860474,
+    "converged": true,
+    "epochs": 200
   },
   "counterfactual": {
-    "welfare_change": 0.40719760013248385
+    "welfare_change": 0.34774285554885864
   },
   "elasticity": {
     "pct_changes": [
@@ -50,18 +81,18 @@
       1.0
     ],
     "welfare_changes": [
-      0.40719760013248385,
-      0.16340256657353047,
-      -0.11080138585059807,
-      -0.18654282628921415,
-      -0.274536159659327
+      0.34774285554885864,
+      0.14335861802101135,
+      -0.10146713256835938,
+      -0.1737060546875,
+      -0.26250648498535156
     ],
     "policy_changes": [
-      0.01240424587191868,
-      0.005122644187667204,
-      0.0035914025557974567,
-      0.00610361929428976,
-      0.009082600480898383
+      0.01073394250124693,
+      0.0045372191816568375,
+      0.0033108105417340994,
+      0.005721564870327711,
+      0.008746313862502575
     ]
   }
 }

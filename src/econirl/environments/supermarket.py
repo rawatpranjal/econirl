@@ -41,7 +41,7 @@ N_INVENTORY_BINS = 5
 N_PROMO_STATUS = 2
 N_STATES = N_INVENTORY_BINS * N_PROMO_STATUS
 N_ACTIONS = 4
-N_FEATURES = 3
+N_FEATURES = 5
 
 INVENTORY_LABELS = ["very_low", "low", "medium", "high", "very_high"]
 PROMO_LABELS = ["regular", "promoted"]
@@ -97,6 +97,8 @@ class SupermarketEnvironment(DDCEnvironment):
         holding_cost: float = -0.3,
         stockout_penalty: float = -1.0,
         net_promotion_effect: float = -1.3,
+        lagged_promotion: float = 0.2,
+        order_cost: float = -0.4,
         discount_factor: float = 0.95,
         scale_parameter: float = 1.0,
         data_path: str | Path | None = None,
@@ -111,6 +113,8 @@ class SupermarketEnvironment(DDCEnvironment):
         self._holding_cost = holding_cost
         self._stockout_penalty = stockout_penalty
         self._net_promotion_effect = net_promotion_effect
+        self._lagged_promotion = lagged_promotion
+        self._order_cost = order_cost
 
         self.observation_space = spaces.Discrete(N_STATES)
         self.action_space = spaces.Discrete(N_ACTIONS)
@@ -146,27 +150,31 @@ class SupermarketEnvironment(DDCEnvironment):
             "holding_cost": self._holding_cost,
             "stockout_penalty": self._stockout_penalty,
             "net_promotion_effect": self._net_promotion_effect,
+            "lagged_promotion": self._lagged_promotion,
+            "order_cost": self._order_cost,
         }
 
     @property
     def parameter_names(self) -> list[str]:
-        return ["holding_cost", "stockout_penalty", "net_promotion_effect"]
+        return [
+            "holding_cost", "stockout_penalty", "net_promotion_effect",
+            "lagged_promotion", "order_cost",
+        ]
 
     def _build_feature_matrix(self) -> jnp.ndarray:
         """Build feature matrix for linear utility.
 
-        Three features:
+        Five features:
         - holding_cost_level: normalized inventory level (higher = more cost)
         - stockout_indicator: 1 if inventory is very low and no order placed
-        - net_promotion_effect: 1 if running a promotion (captures net
-          benefit of promotion minus foregone markup; markup and promotion
-          cost are not separately identified from data, only their
-          difference is).
+        - net_promotion_effect: 1 if running a promotion
+        - lagged_promotion: 1 if product was promoted last period
+        - order_cost: 1 if the action includes placing an order
         """
         features = np.zeros((N_STATES, N_ACTIONS, N_FEATURES), dtype=np.float32)
 
         for s in range(N_STATES):
-            inv_bin, _lagged_promo = state_to_components(s)
+            inv_bin, lagged_promo = state_to_components(s)
             inv_level = inv_bin / (N_INVENTORY_BINS - 1)
 
             for a in range(N_ACTIONS):
@@ -179,8 +187,14 @@ class SupermarketEnvironment(DDCEnvironment):
                 if inv_bin == 0 and ordered == 0:
                     features[s, a, 1] = 1.0
 
-                # Net promotion effect (promotion benefit minus markup sacrifice)
+                # Net promotion effect
                 features[s, a, 2] = float(promo)
+
+                # Lagged promotion status (state-dependent, action-independent)
+                features[s, a, 3] = float(lagged_promo)
+
+                # Order cost (action-dependent)
+                features[s, a, 4] = float(ordered)
 
         return jnp.array(features)
 
@@ -194,7 +208,7 @@ class SupermarketEnvironment(DDCEnvironment):
         return dist
 
     def _compute_flow_utility(self, state: int, action: int) -> float:
-        inv_bin, _lagged_promo = state_to_components(state)
+        inv_bin, lagged_promo = state_to_components(state)
         promo, ordered = action_to_components(action)
         inv_level = inv_bin / (N_INVENTORY_BINS - 1)
 
@@ -202,6 +216,8 @@ class SupermarketEnvironment(DDCEnvironment):
         if inv_bin == 0 and ordered == 0:
             u += self._stockout_penalty
         u += self._net_promotion_effect * promo
+        u += self._lagged_promotion * lagged_promo
+        u += self._order_cost * ordered
         return u
 
     def _sample_next_state(self, state: int, action: int) -> int:
@@ -238,7 +254,7 @@ class SupermarketEnvironment(DDCEnvironment):
             "action_description": "No promo+no order / No promo+order / Promo+no order / Promo+order",
             "ground_truth": False,
             "use_case": "Retail IO, pricing dynamics, inventory management",
-            "note": "3-feature spec (holding_cost, stockout_penalty, net_promotion_effect); markup and promotion_cost not separately identified from data.",
+            "note": "5-feature spec: holding_cost, stockout_penalty, net_promotion_effect, lagged_promotion, order_cost.",
         }
 
     def describe(self) -> str:
@@ -251,6 +267,8 @@ True Parameters:
   Holding cost:          {self._holding_cost}
   Stockout penalty:      {self._stockout_penalty}
   Net promotion effect:  {self._net_promotion_effect}
+  Lagged promotion:      {self._lagged_promotion}
+  Order cost:            {self._order_cost}
 
 Structural Parameters:
   Discount factor (beta): {self._discount_factor}

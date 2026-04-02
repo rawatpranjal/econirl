@@ -1,50 +1,92 @@
 {
   "parameters": {
     "NNES": {
-      "distance_weight": -4.054976463317871,
-      "popularity_weight": -0.019921831786632538,
-      "peak_weight": 0.009999999776482582
+      "distance_weight": 0.5304314494132996,
+      "popularity_weight": 0.2786804735660553,
+      "peak_weight": 0.34179216623306274,
+      "evening_weight": 0.2220476269721985,
+      "distance_sq_weight": 1.3039801120758057,
+      "same_cluster_weight": 4.542295932769775
     },
     "CCP": {
-      "distance_weight": -4.04056453704834,
-      "popularity_weight": 0.7110479474067688,
-      "peak_weight": -0.8636280298233032
+      "distance_weight": 0.13078947365283966,
+      "popularity_weight": 0.34156620502471924,
+      "peak_weight": -0.22260458767414093,
+      "evening_weight": 0.2187429815530777,
+      "distance_sq_weight": 1.0921423435211182,
+      "same_cluster_weight": 3.7801787853240967
     },
     "MCE-IRL": {
-      "distance_weight": -4.033852577209473,
-      "popularity_weight": 4.744743264950557e-08,
-      "peak_weight": 1.4729810573044233e-05
+      "distance_weight": -0.4433833956718445,
+      "popularity_weight": 3.6535882827593014e-05,
+      "peak_weight": -0.00014847546117380261,
+      "evening_weight": 3.748925155377947e-05,
+      "distance_sq_weight": 1.5838751792907715,
+      "same_cluster_weight": 3.6513290405273438
     }
   },
   "standard_errors": {
     "NNES": {
       "distance_weight": NaN,
       "popularity_weight": NaN,
-      "peak_weight": NaN
+      "peak_weight": NaN,
+      "evening_weight": NaN,
+      "distance_sq_weight": NaN,
+      "same_cluster_weight": NaN
     },
     "CCP": {
-      "distance_weight": 4.543113618638017e-07,
-      "popularity_weight": 1.0681911817300715e-06,
-      "peak_weight": 2.147357236026437e-06
+      "distance_weight": 4.86072281091765e-07,
+      "popularity_weight": 4.29370572874177e-07,
+      "peak_weight": 7.071112122503109e-07,
+      "evening_weight": 5.733779744332423e-07,
+      "distance_sq_weight": 3.091539610977634e-07,
+      "same_cluster_weight": 4.286460750790866e-07
     },
     "MCE-IRL": {
-      "distance_weight": 0.0428992323577404,
-      "popularity_weight": 4.1360406612511724e-05,
-      "peak_weight": 0.0003434173413552344
+      "distance_weight": 0.10634081065654755,
+      "popularity_weight": 8.295386942336336e-05,
+      "peak_weight": 0.002208530204370618,
+      "evening_weight": 0.0005954911466687918,
+      "distance_sq_weight": 0.08897563815116882,
+      "same_cluster_weight": 0.029157768934965134
     }
   },
   "log_likelihoods": {
-    "NNES": -105024.375,
-    "CCP": -104324.8203125,
-    "MCE-IRL": -104324.890625
+    "NNES": -80778.2578125,
+    "CCP": -72655.125,
+    "MCE-IRL": -72645.375
   },
   "true_parameters": {
     "distance_weight": -1.0,
     "popularity_weight": 0.5,
-    "peak_weight": 0.3
+    "peak_weight": 0.3,
+    "evening_weight": 0.2,
+    "distance_sq_weight": -0.5,
+    "same_cluster_weight": 1.0
+  },
+  "neural": {
+    "projected_params": {
+      "distance_weight": -2.552889108657837,
+      "popularity_weight": -15.989327430725098,
+      "peak_weight": 1.062771201133728,
+      "evening_weight": 2.2005069255828857,
+      "distance_sq_weight": 2.8001463413238525,
+      "same_cluster_weight": -0.383512943983078
+    },
+    "projected_se": {
+      "distance_weight": 0.5543056130409241,
+      "popularity_weight": 2.749479293823242,
+      "peak_weight": 0.07411538809537888,
+      "evening_weight": 0.08558110147714615,
+      "distance_sq_weight": 0.5233107805252075,
+      "same_cluster_weight": 0.18564163148403168
+    },
+    "projection_r2": 0.3041713833808899,
+    "converged": true,
+    "epochs": 173
   },
   "counterfactual": {
-    "welfare_change": 10.96591854095459
+    "welfare_change": 1.0705374479293823
   },
   "elasticity": {
     "pct_changes": [
@@ -55,18 +97,18 @@
       1.0
     ],
     "welfare_changes": [
-      10.96591854095459,
-      5.0371785163879395,
-      -4.267734050750732,
-      -7.861659526824951,
-      -13.357012748718262
+      1.0705374479293823,
+      0.5203134417533875,
+      -0.49185848236083984,
+      -0.9566304087638855,
+      -1.810502290725708
     ],
     "policy_changes": [
-      0.016474390402436256,
-      0.007986490614712238,
-      0.0073825703002512455,
-      0.014037670567631721,
-      0.025026239454746246
+      0.0032939265947788954,
+      0.0016190705355256796,
+      0.0015626936219632626,
+      0.003068666672334075,
+      0.005909398663789034
     ]
   }
 }

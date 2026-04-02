@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 import torch
@@ -451,13 +452,13 @@ class MCEIRLNeural(NeuralEstimatorMixin):
             panel = TrajectoryPanel.from_dataframe(
                 data, state=state, action=action, id=id
             )
-            all_states = panel.all_states
-            all_actions = panel.all_actions
-            all_next = panel.all_next_states
+            all_states = torch.tensor(np.asarray(panel.all_states), dtype=torch.long)
+            all_actions = torch.tensor(np.asarray(panel.all_actions), dtype=torch.long)
+            all_next = torch.tensor(np.asarray(panel.all_next_states), dtype=torch.long)
         elif isinstance(data, (Panel, TrajectoryPanel)):
-            all_states = data.get_all_states()
-            all_actions = data.get_all_actions()
-            all_next = data.get_all_next_states()
+            all_states = torch.tensor(np.asarray(data.get_all_states()), dtype=torch.long)
+            all_actions = torch.tensor(np.asarray(data.get_all_actions()), dtype=torch.long)
+            all_next = torch.tensor(np.asarray(data.get_all_next_states()), dtype=torch.long)
         else:
             raise TypeError(
                 f"data must be a DataFrame, Panel, or TrajectoryPanel, "
@@ -549,7 +550,12 @@ class MCEIRLNeural(NeuralEstimatorMixin):
             discount_factor=self.discount,
             scale_parameter=1.0,
         )
-        bellman = SoftBellmanOperator(problem=problem, transitions=transitions)
+        # SoftBellmanOperator uses JAX, so convert transitions from torch
+        if isinstance(transitions, torch.Tensor):
+            transitions_jax = jnp.array(transitions.numpy())
+        else:
+            transitions_jax = jnp.array(np.asarray(transitions))
+        bellman = SoftBellmanOperator(problem=problem, transitions=transitions_jax)
 
         best_loss = float("inf")
         best_state_dict = None
@@ -573,22 +579,27 @@ class MCEIRLNeural(NeuralEstimatorMixin):
                 )  # (S, A)
 
             # 2. Solve soft Bellman (detach -- no grad through VI)
+            # Convert reward from PyTorch to JAX for the solver
             with torch.no_grad():
+                reward_jax = jnp.array(reward_matrix.detach().numpy())
                 if self.inner_solver == "hybrid":
                     result = hybrid_iteration(
                         bellman,
-                        reward_matrix.detach(),
+                        reward_jax,
                         tol=self.inner_tol,
                         max_iter=self.inner_max_iter,
                     )
                 else:
                     result = value_iteration(
                         bellman,
-                        reward_matrix.detach(),
+                        reward_jax,
                         tol=self.inner_tol,
                         max_iter=self.inner_max_iter,
                     )
-                policy = result.policy  # (S, A)
+                # Convert policy from JAX back to PyTorch
+                policy = torch.tensor(
+                    np.asarray(result.policy), dtype=torch.float32
+                )
 
             # 3. Compute state visitation frequencies via forward pass
             with torch.no_grad():
@@ -729,27 +740,33 @@ class MCEIRLNeural(NeuralEstimatorMixin):
                 discount_factor=self.discount,
                 scale_parameter=1.0,
             )
+            # Convert to JAX for the solver
+            if isinstance(transitions, torch.Tensor):
+                trans_jax = jnp.array(transitions.numpy())
+            else:
+                trans_jax = jnp.array(np.asarray(transitions))
             bellman = SoftBellmanOperator(
-                problem=problem, transitions=transitions
+                problem=problem, transitions=trans_jax
             )
+            reward_jax = jnp.array(reward_matrix.numpy())
 
             if self.inner_solver == "hybrid":
                 result = hybrid_iteration(
                     bellman,
-                    reward_matrix,
+                    reward_jax,
                     tol=self.inner_tol,
                     max_iter=self.inner_max_iter,
                 )
             else:
                 result = value_iteration(
                     bellman,
-                    reward_matrix,
+                    reward_jax,
                     tol=self.inner_tol,
                     max_iter=self.inner_max_iter,
                 )
 
-            self.policy_ = result.policy.numpy()
-            self.value_ = result.V.numpy()
+            self.policy_ = np.asarray(result.policy)
+            self.value_ = np.asarray(result.V)
             if self.reward_type == "state_action":
                 self.reward_ = reward_matrix.numpy()  # (S, A)
             else:

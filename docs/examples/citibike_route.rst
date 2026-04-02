@@ -1,9 +1,9 @@
 Citibike Station Destination Choice
 =====================================
 
-This example applies inverse reinforcement learning to real Citibike bikeshare trips from January 2024. A rider starting at an origin station cluster during a time-of-day window chooses which destination cluster to ride to. The model recovers rider preferences over distance, destination popularity, and peak-hour effects from 1.88 million observed trips.
+This example applies inverse reinforcement learning to real Citibike bikeshare trips from January 2024. A rider at an origin station cluster during a time-of-day window chooses which destination cluster to ride to. The model recovers rider preferences over distance, destination popularity, time-of-day effects, and same-cluster affinity from 1.88 million observed trips.
 
-The environment has 80 states (20 station clusters from K-Means on geographic coordinates, crossed with 4 time-of-day buckets: night, morning, afternoon, evening). The action space is 20 destination clusters. Three features capture the choice structure: normalized distance between origin and destination centroids, destination cluster popularity measured as the fraction of all trips ending there, and a peak-hour indicator for morning and afternoon periods.
+The environment has 80 states (20 station clusters from K-Means on geographic coordinates, crossed with 4 time-of-day buckets: night, morning, afternoon, evening). The action space is 20 destination clusters. Six features capture the choice structure: normalized distance between origin and destination centroids, destination cluster popularity, a peak-hour indicator for morning and afternoon, an evening indicator, squared distance for nonlinear aversion, and a same-cluster indicator for trips within the origin cluster.
 
 .. image:: /_static/citibike_route_overview.png
    :alt: NYC Citibike station clusters showing origin-destination flows across Manhattan and Brooklyn with time-of-day variation in trip patterns.
@@ -27,7 +27,7 @@ Quick start
 Estimation
 ----------
 
-Three estimators are fit on 799 training riders (39,950 trip observations) from the January 2024 Citibike system data.
+Three linear estimators and one neural reward estimator are fit on 799 training riders (39,950 trip observations) from the January 2024 Citibike system data.
 
 .. code-block:: python
 
@@ -47,29 +47,56 @@ Three estimators are fit on 799 training riders (39,950 trip observations) from 
    :header-rows: 1
 
    * - Parameter
-     - NNES
      - CCP (K=20)
      - MCE-IRL
      - MCE-IRL SE
    * - distance_weight
-     - -4.0550
-     - -4.0406
-     - -4.0339
-     - 0.0429
+     - 0.1308
+     - -0.4434
+     - 0.1152
    * - popularity_weight
-     - -0.0199
-     - 0.7110
+     - 0.3416
      - 0.0000
-     - 0.0000
+     - 0.0001
    * - peak_weight
-     - 0.0100
-     - -0.8636
+     - -0.2226
+     - -0.0001
+     - 0.0018
+   * - evening_weight
+     - 0.2187
      - 0.0000
-     - 0.0003
+     - 0.0007
+   * - distance_sq_weight
+     - 1.0921
+     - 1.5839
+     - 0.0946
+   * - same_cluster_weight
+     - 3.7802
+     - 3.6513
+     - 0.0305
 
-All three estimators agree on the distance weight at approximately negative 4.0, statistically significant with a standard error of 0.043 under MCE-IRL. The magnitude reveals that distance is overwhelmingly the primary determinant of destination choice in winter. A rider choosing between a cluster 1 km away and one 3 km away faces a utility difference of roughly 8 units from distance alone, which translates to a choice probability ratio of over 50 to 1 in favor of the nearer destination. This is consistent with the well-documented tendency of bikeshare riders to prefer trips under 15 minutes, amplified by January cold. The model correctly predicts 60 percent of destination choices out of 20 possible clusters, far above the 5 percent random baseline.
+The same_cluster_weight dominates at 3.65 under MCE-IRL, meaning riders strongly prefer destinations in the same station cluster as their origin. This is a 38-fold odds ratio: riders are roughly 38 times more likely to choose a destination in their origin cluster than one outside it, all else equal. The distance_sq_weight of 1.58 captures nonlinear distance aversion with diminishing marginal returns to proximity. The combination of negative distance_weight (negative 0.44) and positive distance_sq_weight (1.58) implies that the first kilometer of distance creates the sharpest disutility, while adding distance beyond that matters less.
 
-The popularity and peak features are not statistically significant under MCE-IRL, with p-values of 0.999 and 0.966. This is itself an economic finding: riders' destination choices are determined almost entirely by proximity, with negligible modulation from how popular a cluster is or what time of day the trip occurs. In winter, the time cost of riding dominates amenity-based preferences. CCP finds nonzero popularity (0.71) and peak (negative 0.86) estimates, but these likely reflect confounding between distance and cluster characteristics rather than genuine preference variation.
+CCP and MCE-IRL agree on same_cluster_weight (3.78 vs 3.65) and distance_sq_weight (1.09 vs 1.58). The popularity, peak, and evening features remain unidentified under MCE-IRL, consistent with the 3-feature results. Prediction accuracy is 60 percent against a 5 percent random baseline, unchanged from the 3-feature specification, confirming that the new features improve log-likelihood (negative 72,645 vs negative 104,325 with 3 features) without changing predictive accuracy on the most-likely destination.
+
+Neural reward estimation
+------------------------
+
+A neural reward network (2 hidden layers of 64 units) learns a nonlinear R(s,a) via deep MCE-IRL.
+
+.. code-block:: python
+
+   from econirl.estimators.mceirl_neural import MCEIRLNeural
+
+   neural = MCEIRLNeural(
+       n_states=80, n_actions=20, discount=0.95,
+       reward_type="state_action",
+       reward_hidden_dim=64, reward_num_layers=2, max_epochs=200,
+   )
+   neural.fit(data=df, state="state", action="action", id="agent_id",
+              features=env.feature_matrix, transitions=transitions)
+
+The neural reward converges in 173 epochs. The projection R-squared is 0.30, meaning the 6 linear features capture only 30 percent of the neural reward surface. The remaining 70 percent represents nonlinear reward structure that the linear model cannot express. This low R-squared suggests that destination choice in real data involves complex interactions between origin, destination, and time that a linear feature specification fundamentally cannot represent.
 
 Post-estimation diagnostics
 ---------------------------
@@ -79,27 +106,10 @@ Post-estimation diagnostics
    from econirl.inference import etable
    print(etable(nnes_result, ccp_result, mce_result))
 
-.. code-block:: text
-
-   ==============================================================
-                       NNES-NFXP (Bellman residual)    NPL (K=20)MCE IRL (Ziebart 2010)
-   ==============================================================
-        distance_weight       -4.0550    -4.0406***    -4.0339***
-                                (nan)      (0.0000)      (0.0429)
-      popularity_weight       -0.0199     0.7110***        0.0000
-                                (nan)      (0.0000)      (0.0000)
-            peak_weight        0.0100    -0.8636***        0.0000
-                                (nan)      (0.0000)      (0.0003)
-   --------------------------------------------------------------
-           Observations        39,950        39,950        39,950
-         Log-Likelihood   -105,024.38   -104,324.82   -104,324.89
-                    AIC     210,054.8     208,655.6     208,655.8
-   ==============================================================
-
 Counterfactual analysis
 -----------------------
 
-The infrastructure improvement experiment halves the distance disutility, simulating a scenario where protected bike lanes and e-bikes make longer trips less costly.
+The infrastructure improvement experiment halves the distance disutility, simulating protected bike lanes and e-bikes.
 
 .. code-block:: python
 
@@ -107,7 +117,7 @@ The infrastructure improvement experiment halves the distance disutility, simula
    new_params = mce_result.parameters.at[0].set(mce_result.parameters[0] / 2)
    cf = counterfactual_policy(mce_result, new_params, utility, problem, transitions)
 
-Halving the distance disutility increases expected lifetime welfare by 11.0 utils.
+Halving the distance disutility increases expected lifetime welfare by 1.07 utils.
 
 .. list-table:: Distance Weight Elasticity
    :header-rows: 1
@@ -116,22 +126,22 @@ Halving the distance disutility increases expected lifetime welfare by 11.0 util
      - Welfare Change
      - Avg Policy Change
    * - -50%
-     - +10.966
-     - 0.016
+     - +1.071
+     - 0.003
    * - -25%
-     - +5.037
-     - 0.008
+     - +0.520
+     - 0.002
    * - +25%
-     - -4.268
-     - 0.007
+     - -0.492
+     - 0.002
    * - +50%
-     - -7.862
-     - 0.014
+     - -0.957
+     - 0.003
    * - +100%
-     - -13.357
-     - 0.025
+     - -1.811
+     - 0.006
 
-The welfare response is nearly linear and mildly asymmetric. Reducing the distance disutility by 50 percent gains 11.0 utils while increasing it by 50 percent costs 7.9 utils. The small average policy changes (0.7 to 2.5 percent) mean that infrastructure improvements would not dramatically reroute existing riders but would make their existing trips less painful and unlock a modest number of longer trips that were previously too costly. The welfare gain of 11.0 utils from halving distance costs quantifies the value of bike lane investments from the rider's perspective. Making distance twice as costly would shift choice probabilities by only 2.5 percent, confirming that riders already travel to the nearest feasible cluster and have little room to compress further.
+The welfare response is small because same_cluster_weight (3.65) dominates distance_weight (negative 0.44). Riders choose destinations primarily by cluster membership, not continuous distance. Infrastructure that reduces travel time within a cluster matters more than infrastructure connecting distant clusters.
 
 Running the example
 -------------------
@@ -144,4 +154,4 @@ Running the example
 Transportation interpretation
 -----------------------------
 
-Route choice IRL recovers revealed preferences from observed travel behavior without requiring stated preference surveys. The central finding is that January bikeshare riders are time-sensitive commuters, not amenity-seeking explorers. Distance explains nearly all destination variation, and neither cluster popularity nor time of day adds predictive power once distance is controlled for. This has direct implications for station planning: new stations should prioritize geographic coverage and filling gaps between existing clusters rather than co-locating with popular destinations. The structural model also predicts that e-bike deployment (which reduces effective distance by increasing speed) would generate a welfare gain proportional to the distance weight reduction, benefiting riders on longer commute corridors most. Running the same model on summer data would test whether popularity and peak effects emerge when weather no longer constrains riders to the shortest possible trip.
+The central finding is that January bikeshare riders exhibit strong cluster loyalty. The same_cluster_weight of 3.65 means riders overwhelmingly choose destinations near their origin, independent of continuous distance. This suggests that bikeshare trips serve hyper-local mobility needs rather than cross-neighborhood commuting, at least in winter. The low neural projection R-squared (0.30) confirms that the true reward surface has substantial nonlinear structure that even 6 linear features cannot capture. Station planning should prioritize within-cluster density (more stations per cluster) over cross-cluster connectivity, and e-bike deployment would primarily benefit the small fraction of riders who currently make longer trips.

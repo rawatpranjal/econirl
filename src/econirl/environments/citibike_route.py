@@ -40,7 +40,7 @@ N_CLUSTERS = 20
 N_TIME_BUCKETS = 4
 N_STATES = N_CLUSTERS * N_TIME_BUCKETS
 N_ACTIONS = N_CLUSTERS
-N_FEATURES = 3
+N_FEATURES = 6
 
 TIME_LABELS = ["night (0-6)", "morning (6-12)", "afternoon (12-18)", "evening (18-24)"]
 
@@ -83,6 +83,9 @@ class CitibikeRouteEnvironment(DDCEnvironment):
         distance_weight: float = -1.0,
         popularity_weight: float = 0.5,
         peak_weight: float = 0.3,
+        evening_weight: float = 0.2,
+        distance_sq_weight: float = -0.5,
+        same_cluster_weight: float = 1.0,
         centroids: np.ndarray | None = None,
         dest_popularity: np.ndarray | None = None,
         data_path: str | Path | None = None,
@@ -99,6 +102,9 @@ class CitibikeRouteEnvironment(DDCEnvironment):
         self._distance_weight = distance_weight
         self._popularity_weight = popularity_weight
         self._peak_weight = peak_weight
+        self._evening_weight = evening_weight
+        self._distance_sq_weight = distance_sq_weight
+        self._same_cluster_weight = same_cluster_weight
 
         # Load or generate centroids
         if centroids is not None:
@@ -172,11 +178,17 @@ class CitibikeRouteEnvironment(DDCEnvironment):
             "distance_weight": self._distance_weight,
             "popularity_weight": self._popularity_weight,
             "peak_weight": self._peak_weight,
+            "evening_weight": self._evening_weight,
+            "distance_sq_weight": self._distance_sq_weight,
+            "same_cluster_weight": self._same_cluster_weight,
         }
 
     @property
     def parameter_names(self) -> list[str]:
-        return ["distance_weight", "popularity_weight", "peak_weight"]
+        return [
+            "distance_weight", "popularity_weight", "peak_weight",
+            "evening_weight", "distance_sq_weight", "same_cluster_weight",
+        ]
 
     def _build_transition_matrices(self) -> jnp.ndarray:
         """Build transition matrices.
@@ -206,10 +218,13 @@ class CitibikeRouteEnvironment(DDCEnvironment):
     def _build_feature_matrix(self) -> jnp.ndarray:
         """Build feature matrix for linear utility.
 
-        Three features:
+        Six features:
         - distance: normalized distance from origin to destination cluster
         - popularity: destination cluster popularity (fraction of trips)
         - peak_indicator: 1 during morning (6-12) and afternoon (12-18)
+        - evening_indicator: 1 during evening (18-24)
+        - distance_squared: squared normalized distance (nonlinear aversion)
+        - same_cluster: 1 if origin == destination cluster (self-loop)
         """
         features = np.zeros((N_STATES, N_ACTIONS, N_FEATURES), dtype=np.float32)
 
@@ -217,9 +232,13 @@ class CitibikeRouteEnvironment(DDCEnvironment):
             oc, tb = state_to_components(s)
             for a in range(N_ACTIONS):
                 dest = a
-                features[s, a, 0] = self._distance_matrix[oc, dest]
+                d = self._distance_matrix[oc, dest]
+                features[s, a, 0] = d
                 features[s, a, 1] = self._dest_popularity[dest]
                 features[s, a, 2] = 1.0 if tb in [1, 2] else 0.0
+                features[s, a, 3] = 1.0 if tb == 3 else 0.0
+                features[s, a, 4] = d ** 2
+                features[s, a, 5] = 1.0 if oc == dest else 0.0
 
         return jnp.array(features)
 
@@ -236,9 +255,13 @@ class CitibikeRouteEnvironment(DDCEnvironment):
     def _compute_flow_utility(self, state: int, action: int) -> float:
         oc, tb = state_to_components(state)
         dest = action
-        u = self._distance_weight * self._distance_matrix[oc, dest]
+        d = self._distance_matrix[oc, dest]
+        u = self._distance_weight * d
         u += self._popularity_weight * self._dest_popularity[dest]
         u += self._peak_weight * (1.0 if tb in [1, 2] else 0.0)
+        u += self._evening_weight * (1.0 if tb == 3 else 0.0)
+        u += self._distance_sq_weight * (d ** 2)
+        u += self._same_cluster_weight * (1.0 if oc == dest else 0.0)
         return u
 
     def _sample_next_state(self, state: int, action: int) -> int:
@@ -284,9 +307,12 @@ States: {N_STATES} ({N_CLUSTERS} station clusters x {N_TIME_BUCKETS} time bucket
 Actions: {N_ACTIONS} destination clusters
 
 True Parameters:
-  Distance weight:    {self._distance_weight}
-  Popularity weight:  {self._popularity_weight}
-  Peak weight:        {self._peak_weight}
+  Distance weight:      {self._distance_weight}
+  Popularity weight:    {self._popularity_weight}
+  Peak weight:          {self._peak_weight}
+  Evening weight:       {self._evening_weight}
+  Distance sq weight:   {self._distance_sq_weight}
+  Same cluster weight:  {self._same_cluster_weight}
 
 Structural Parameters:
   Discount factor (beta): {self._discount_factor}

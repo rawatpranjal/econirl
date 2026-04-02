@@ -1,8 +1,8 @@
 """Citibike Route Choice: IRL estimation of destination preferences.
 
-Demonstrates NNES, MCE-IRL, and CCP on Citibike station-to-station
-destination choice. Falls back to synthetic data if the real
-Citibike data has not been downloaded.
+Demonstrates NNES, MCE-IRL, CCP, and MCEIRLNeural on Citibike
+station-to-station destination choice. Falls back to synthetic
+data if the real Citibike data has not been downloaded.
 
 Usage:
     python examples/citibike-route/run_estimation.py
@@ -14,13 +14,20 @@ from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
+import torch
 
 from econirl.core.types import DDCProblem, Panel
 from econirl.datasets.citibike_route import load_citibike_route
-from econirl.environments.citibike_route import CitibikeRouteEnvironment
+from econirl.environments.citibike_route import (
+    CitibikeRouteEnvironment,
+    N_CLUSTERS,
+    N_TIME_BUCKETS,
+    state_to_components,
+)
 from econirl.estimation.ccp import CCPEstimator
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
 from econirl.estimation.nnes import NNESEstimator
+from econirl.estimators.mceirl_neural import MCEIRLNeural
 from econirl.inference import etable
 from econirl.inference.fit_metrics import brier_score, kl_divergence
 from econirl.preferences.linear import LinearUtility
@@ -130,6 +137,64 @@ def main():
         pc = ea["policy_changes"][i]
         print(f"{pct:>+10.0%} {float(wc):>+12.3f} {float(pc):>12.3f}")
 
+    # Neural reward estimation (Deep MCE-IRL)
+    print("\n" + "=" * 65)
+    print("Neural Reward Estimation (MCEIRLNeural)")
+    print("=" * 65)
+
+    def state_encoder(s: torch.Tensor) -> torch.Tensor:
+        """Map state indices to (origin_normalized, time_normalized)."""
+        s_np = s.long()
+        origin = s_np // N_TIME_BUCKETS
+        time_bucket = s_np % N_TIME_BUCKETS
+        origin_norm = origin.float() / (N_CLUSTERS - 1)
+        time_norm = time_bucket.float() / (N_TIME_BUCKETS - 1)
+        return torch.stack([origin_norm, time_norm], dim=-1)
+
+    # Convert panel to DataFrame for neural estimator
+    states_list = []
+    actions_list = []
+    ids_list = []
+    for traj in train.trajectories:
+        n = len(traj.states)
+        states_list.extend(int(traj.states[t]) for t in range(n))
+        actions_list.extend(int(traj.actions[t]) for t in range(n))
+        ids_list.extend([traj.individual_id] * n)
+    import pandas as pd
+    df = pd.DataFrame({"agent_id": ids_list, "state": states_list, "action": actions_list})
+
+    t0 = time.time()
+    neural = MCEIRLNeural(
+        n_states=env.num_states,
+        n_actions=env.num_actions,
+        discount=0.95,
+        reward_type="state_action",
+        reward_hidden_dim=64,
+        reward_num_layers=2,
+        max_epochs=200,
+        lr=1e-3,
+        state_encoder=state_encoder,
+        state_dim=2,
+        feature_names=env.parameter_names,
+        verbose=False,
+    )
+    neural.fit(
+        data=df,
+        state="state",
+        action="action",
+        id="agent_id",
+        features=torch.tensor(np.array(env.feature_matrix), dtype=torch.float32),
+        transitions=np.array(transitions),
+    )
+    print(f"MCEIRLNeural: {time.time() - t0:.1f}s")
+    print(f"  Converged: {neural.converged_}")
+    print(f"  Epochs: {neural.n_epochs_}")
+    print(f"  Projection R²: {neural.projection_r2_:.4f}")
+    print(f"  Projected parameters:")
+    for name, val in neural.params_.items():
+        se = neural.se_.get(name, float("nan"))
+        print(f"    {name}: {val:.4f} (SE={se:.4f})")
+
     # Save results to JSON
     out = {
         "parameters": {},
@@ -147,6 +212,13 @@ def main():
         }
         out["log_likelihoods"][name] = float(r.log_likelihood)
     out["true_parameters"] = {k: float(v) for k, v in env.true_parameters.items()}
+    out["neural"] = {
+        "projected_params": {k: float(v) for k, v in neural.params_.items()},
+        "projected_se": {k: float(v) for k, v in neural.se_.items()},
+        "projection_r2": float(neural.projection_r2_),
+        "converged": bool(neural.converged_),
+        "epochs": int(neural.n_epochs_),
+    }
     out["counterfactual"] = {"welfare_change": float(cf.welfare_change)}
     out["elasticity"] = {
         "pct_changes": [float(p) for p in ea["pct_changes"]],
