@@ -24,7 +24,9 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-import torch
+import jax
+import jax.numpy as jnp
+import jax.random as jr
 from tqdm import tqdm
 
 from econirl.core.bellman import SoftBellmanOperator
@@ -60,6 +62,7 @@ class GAILConfig:
         n_bootstrap: Number of bootstrap samples
         convergence_tol: Tolerance for policy convergence
         verbose: Whether to print progress
+        seed: Random seed for JAX PRNG
     """
 
     discriminator_type: Literal["tabular", "linear"] = "tabular"
@@ -77,6 +80,7 @@ class GAILConfig:
     se_method: Literal["bootstrap", "asymptotic"] = "bootstrap"
     n_bootstrap: int = 100
     verbose: bool = False
+    seed: int = 42
 
 
 class GAILEstimator(BaseEstimator):
@@ -133,8 +137,8 @@ class GAILEstimator(BaseEstimator):
         panel: Panel,
         utility: BaseUtilityFunction,
         problem: DDCProblem,
-        transitions: torch.Tensor,
-        initial_params: torch.Tensor | None = None,
+        transitions: jnp.ndarray,
+        initial_params: jnp.ndarray | None = None,
         **kwargs,
     ) -> EstimationSummary:
         """Estimate reward function using GAIL.
@@ -180,7 +184,7 @@ class GAILEstimator(BaseEstimator):
             ]
 
         # Create standard errors (NaN for adversarial methods)
-        standard_errors = torch.full_like(result.parameters, float("nan"))
+        standard_errors = jnp.full_like(result.parameters, float("nan"))
 
         # Goodness of fit
         n_obs = panel.num_observations
@@ -192,7 +196,7 @@ class GAILEstimator(BaseEstimator):
             num_parameters=n_params,
             num_observations=n_obs,
             aic=-2 * ll + 2 * n_params,
-            bic=-2 * ll + n_params * torch.log(torch.tensor(n_obs)).item(),
+            bic=-2 * ll + n_params * float(jnp.log(jnp.array(n_obs))),
             prediction_accuracy=self._compute_prediction_accuracy(
                 panel, result.policy
             ),
@@ -228,32 +232,35 @@ class GAILEstimator(BaseEstimator):
         self,
         panel: Panel,
         batch_size: int | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        key: jax.Array | None = None,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample state-action pairs from expert demonstrations.
 
         Args:
             panel: Panel data with expert trajectories
             batch_size: Number of samples (None = all)
+            key: JAX PRNG key (required when batch_size is used)
 
         Returns:
-            Tuple of (states, actions) tensors
+            Tuple of (states, actions) arrays
         """
         states = panel.get_all_states()
         actions = panel.get_all_actions()
 
         if batch_size is not None and batch_size > 0 and batch_size < len(states):
-            indices = torch.randperm(len(states))[:batch_size]
+            indices = jr.choice(key, len(states), shape=(batch_size,), replace=False)
             return states[indices], actions[indices]
 
         return states, actions
 
     def _sample_from_policy(
         self,
-        policy: torch.Tensor,
-        transitions: torch.Tensor,
+        policy: jnp.ndarray,
+        transitions: jnp.ndarray,
         n_samples: int,
-        initial_dist: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        initial_dist: jnp.ndarray,
+        key: jax.Array,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample state-action pairs from current policy.
 
         Simulates trajectories under the policy and collects (s, a) pairs.
@@ -263,36 +270,40 @@ class GAILEstimator(BaseEstimator):
             transitions: Transition matrices P(s'|s,a)
             n_samples: Number of samples to collect
             initial_dist: Initial state distribution
+            key: JAX PRNG key
 
         Returns:
-            Tuple of (states, actions) tensors
+            Tuple of (states, actions) arrays
         """
         n_states, n_actions = policy.shape
         states = []
         actions = []
 
         # Start from initial distribution
-        state = torch.multinomial(initial_dist, 1).item()
+        key, subkey = jr.split(key)
+        state = int(jr.categorical(subkey, jnp.log(initial_dist)))
 
         for _ in range(n_samples):
             # Sample action from policy
-            action = torch.multinomial(policy[state], 1).item()
+            key, subkey = jr.split(key)
+            action = int(jr.categorical(subkey, jnp.log(policy[state])))
             states.append(state)
             actions.append(action)
 
             # Sample next state from transition
+            key, subkey = jr.split(key)
             next_state_dist = transitions[action, state, :]
-            state = torch.multinomial(next_state_dist, 1).item()
+            state = int(jr.categorical(subkey, jnp.log(next_state_dist)))
 
-        return torch.tensor(states, dtype=torch.long), torch.tensor(
-            actions, dtype=torch.long
+        return jnp.array(states, dtype=jnp.int32), jnp.array(
+            actions, dtype=jnp.int32
         )
 
     def _compute_policy(
         self,
-        reward_matrix: torch.Tensor,
+        reward_matrix: jnp.ndarray,
         operator: SoftBellmanOperator,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Compute optimal policy given reward matrix.
 
         Args:
@@ -322,26 +333,28 @@ class GAILEstimator(BaseEstimator):
         self,
         panel: Panel,
         n_states: int,
-    ) -> torch.Tensor:
+    ) -> jnp.ndarray:
         """Compute initial state distribution from data."""
-        counts = torch.zeros(n_states, dtype=torch.float32)
-        init_states = torch.tensor(
-            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
-            dtype=torch.long,
+        init_states = jnp.array(
+            [int(traj.states[0]) for traj in panel.trajectories if len(traj) > 0],
+            dtype=jnp.int32,
         )
-        counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
+        counts = jnp.zeros(n_states, dtype=jnp.float32).at[init_states].add(
+            jnp.ones_like(init_states, dtype=jnp.float32)
+        )
 
-        if counts.sum() > 0:
-            return counts / counts.sum()
-        return torch.ones(n_states) / n_states
+        total = counts.sum()
+        if total > 0:
+            return counts / total
+        return jnp.ones(n_states) / n_states
 
     def _optimize(
         self,
         panel: Panel,
         utility: BaseUtilityFunction,
         problem: DDCProblem,
-        transitions: torch.Tensor,
-        initial_params: torch.Tensor | None = None,
+        transitions: jnp.ndarray,
+        initial_params: jnp.ndarray | None = None,
         **kwargs,
     ) -> EstimationResult:
         """Run GAIL optimization.
@@ -362,6 +375,9 @@ class GAILEstimator(BaseEstimator):
         n_actions = problem.num_actions
         operator = SoftBellmanOperator(problem, transitions)
 
+        # Initialize JAX PRNG key
+        key = jr.PRNGKey(self.config.seed)
+
         # Initialize discriminator
         if self.config.discriminator_type == "linear":
             if isinstance(utility, ActionDependentReward):
@@ -369,7 +385,9 @@ class GAILEstimator(BaseEstimator):
             elif isinstance(utility, LinearReward):
                 # Broadcast state features to action-dependent
                 sf = utility.state_features  # (n_states, n_features)
-                feature_matrix = sf.unsqueeze(1).expand(-1, n_actions, -1).clone()
+                feature_matrix = jnp.broadcast_to(
+                    sf[:, None, :], (sf.shape[0], n_actions, sf.shape[-1])
+                )
             else:
                 raise TypeError(f"Unsupported utility type: {type(utility)}")
             discriminator = LinearDiscriminator(feature_matrix)
@@ -384,13 +402,13 @@ class GAILEstimator(BaseEstimator):
         n_expert = len(expert_states)
 
         # Initialize policy (uniform)
-        policy = torch.ones(n_states, n_actions) / n_actions
-        V = torch.zeros(n_states)
+        policy = jnp.ones((n_states, n_actions)) / n_actions
+        V = jnp.zeros(n_states)
 
         # Track best policy by log-likelihood (adversarial training oscillates)
         best_ll = float('-inf')
-        best_policy = policy.clone()
-        best_V = V.clone()
+        best_policy = jnp.array(policy)
+        best_V = jnp.array(V)
         best_reward = None
 
         # Training metrics
@@ -406,11 +424,12 @@ class GAILEstimator(BaseEstimator):
         )
 
         for round_idx in pbar:
-            old_policy = policy.clone()
+            old_policy = jnp.array(policy)
 
             # Sample from current policy
+            key, subkey = jr.split(key)
             policy_states, policy_actions = self._sample_from_policy(
-                policy, transitions, n_expert, initial_dist
+                policy, transitions, n_expert, initial_dist, subkey
             )
 
             # Update discriminator
@@ -422,8 +441,13 @@ class GAILEstimator(BaseEstimator):
             for _ in range(self.config.discriminator_steps):
                 # Sample batches
                 if batch_size < n_expert:
-                    expert_idx = torch.randperm(n_expert)[:batch_size]
-                    policy_idx = torch.randperm(n_expert)[:batch_size]
+                    key, subkey1, subkey2 = jr.split(key, 3)
+                    expert_idx = jr.choice(
+                        subkey1, n_expert, shape=(batch_size,), replace=False
+                    )
+                    policy_idx = jr.choice(
+                        subkey2, n_expert, shape=(batch_size,), replace=False
+                    )
                     e_states, e_actions = (
                         expert_states[expert_idx],
                         expert_actions[expert_idx],
@@ -454,7 +478,7 @@ class GAILEstimator(BaseEstimator):
             # Add entropy bonus if specified
             if self.config.entropy_coef > 0:
                 # Entropy bonus: encourage exploration
-                reward_matrix = reward_matrix + self.config.entropy_coef * torch.log(
+                reward_matrix = reward_matrix + self.config.entropy_coef * jnp.log(
                     policy + 1e-10
                 )
 
@@ -463,15 +487,15 @@ class GAILEstimator(BaseEstimator):
 
             # Track best policy by log-likelihood on expert data
             log_probs_iter = operator.compute_log_choice_probabilities(reward_matrix, V)
-            ll_iter = log_probs_iter[panel.get_all_states(), panel.get_all_actions()].sum().item()
+            ll_iter = float(log_probs_iter[panel.get_all_states(), panel.get_all_actions()].sum())
             if ll_iter > best_ll:
                 best_ll = ll_iter
-                best_policy = policy.clone()
-                best_V = V.clone()
-                best_reward = reward_matrix.clone()
+                best_policy = jnp.array(policy)
+                best_V = jnp.array(V)
+                best_reward = jnp.array(reward_matrix)
 
             # Check convergence
-            policy_change = torch.abs(policy - old_policy).max().item()
+            policy_change = float(jnp.abs(policy - old_policy).max())
             policy_changes.append(policy_change)
 
             pbar.set_postfix(
@@ -496,11 +520,11 @@ class GAILEstimator(BaseEstimator):
 
         # Compute pseudo log-likelihood
         log_probs = operator.compute_log_choice_probabilities(final_reward, V)
-        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
+        ll = float(log_probs[panel.get_all_states(), panel.get_all_actions()].sum())
 
         # Extract "parameters" (discriminator weights or reward values)
         if isinstance(discriminator, LinearDiscriminator):
-            parameters = discriminator.weights.clone()
+            parameters = jnp.array(discriminator.weights)
         else:
             # For tabular discriminator, flatten the logits as pseudo-parameters
             parameters = discriminator.logits.flatten()
