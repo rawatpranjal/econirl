@@ -23,8 +23,11 @@ from dataclasses import dataclass, field
 from typing import List
 
 import numpy as np
-import torch
-import torch.nn.functional as F
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+import equinox as eqx
+import optax
 from tqdm import tqdm
 
 from econirl.core.bellman import SoftBellmanOperator
@@ -112,6 +115,8 @@ class GCLEstimator(BaseEstimator):
     ----------
     config : GCLConfig, optional
         Configuration object with algorithm parameters.
+    seed : int
+        Random seed for JAX PRNG key generation. Default is 42.
     **kwargs
         Override individual config parameters.
 
@@ -124,7 +129,7 @@ class GCLEstimator(BaseEstimator):
 
     Examples
     --------
-    >>> from econirl.estimation.gcl import GCLEstimator, GCLConfig
+    >>> from econirl.contrib.gcl import GCLEstimator, GCLConfig
     >>>
     >>> config = GCLConfig(verbose=True, max_iterations=100)
     >>> estimator = GCLEstimator(config=config)
@@ -140,6 +145,7 @@ class GCLEstimator(BaseEstimator):
     def __init__(
         self,
         config: GCLConfig | None = None,
+        seed: int = 42,
         **kwargs,
     ):
         if config is None:
@@ -157,18 +163,24 @@ class GCLEstimator(BaseEstimator):
         )
         self.config = config
         self.cost_function_: NeuralCostFunction | None = None
+        self._key = jr.key(seed)
 
     @property
     def name(self) -> str:
         return "GCL (Finn et al. 2016)"
+
+    def _next_key(self) -> jax.Array:
+        """Split and advance the internal PRNG key, returning a subkey."""
+        self._key, subkey = jr.split(self._key)
+        return subkey
 
     def estimate(
         self,
         panel: Panel,
         utility: UtilityFunction,
         problem: DDCProblem,
-        transitions: torch.Tensor,
-        initial_params: torch.Tensor | None = None,
+        transitions: jnp.ndarray,
+        initial_params: jnp.ndarray | None = None,
         **kwargs,
     ) -> EstimationSummary:
         """Estimate cost function parameters from panel data.
@@ -184,9 +196,9 @@ class GCLEstimator(BaseEstimator):
             Utility function specification (used for interface compatibility).
         problem : DDCProblem
             Problem specification.
-        transitions : torch.Tensor
+        transitions : jnp.ndarray
             Transition matrices P(s'|s,a).
-        initial_params : torch.Tensor, optional
+        initial_params : jnp.ndarray, optional
             Not used (neural network has its own initialization).
 
         Returns
@@ -214,7 +226,7 @@ class GCLEstimator(BaseEstimator):
         param_names = [f"c({s},{a})" for s in range(n_states) for a in range(n_actions)]
 
         # Standard errors not available for neural network parameters
-        standard_errors = torch.full_like(result.parameters, float("nan"))
+        standard_errors = jnp.full_like(result.parameters, float("nan"))
 
         # Goodness of fit
         n_obs = panel.num_observations
@@ -267,13 +279,14 @@ class GCLEstimator(BaseEstimator):
             n_actions=n_actions,
             embed_dim=self.config.embed_dim,
             hidden_dims=self.config.hidden_dims,
+            key=self._next_key(),
         )
 
     def _sample_trajectories(
         self,
-        policy: torch.Tensor,
-        transitions: torch.Tensor,
-        initial_dist: torch.Tensor,
+        policy: jnp.ndarray,
+        transitions: jnp.ndarray,
+        initial_dist: jnp.ndarray,
         n_trajectories: int,
         trajectory_length: int,
     ) -> List[Trajectory]:
@@ -281,11 +294,11 @@ class GCLEstimator(BaseEstimator):
 
         Parameters
         ----------
-        policy : torch.Tensor
-            Policy probabilities π(a|s), shape (n_states, n_actions).
-        transitions : torch.Tensor
+        policy : jnp.ndarray
+            Policy probabilities pi(a|s), shape (n_states, n_actions).
+        transitions : jnp.ndarray
             Transition probabilities P(s'|s,a), shape (n_actions, n_states, n_states).
-        initial_dist : torch.Tensor
+        initial_dist : jnp.ndarray
             Initial state distribution, shape (n_states,).
         n_trajectories : int
             Number of trajectories to sample.
@@ -298,12 +311,11 @@ class GCLEstimator(BaseEstimator):
             Sampled trajectories.
         """
         trajectories = []
-        n_states = policy.shape[0]
-        n_actions = policy.shape[1]
 
         for _ in range(n_trajectories):
             # Sample initial state
-            state = torch.multinomial(initial_dist, 1).item()
+            key = self._next_key()
+            state = int(jr.categorical(key, jnp.log(initial_dist + 1e-10)))
 
             states = []
             actions = []
@@ -311,12 +323,14 @@ class GCLEstimator(BaseEstimator):
 
             for _ in range(trajectory_length):
                 # Sample action from policy
+                key = self._next_key()
                 action_probs = policy[state]
-                action = torch.multinomial(action_probs, 1).item()
+                action = int(jr.categorical(key, jnp.log(action_probs + 1e-10)))
 
                 # Sample next state from transitions
+                key = self._next_key()
                 trans_probs = transitions[action, state]
-                next_state = torch.multinomial(trans_probs, 1).item()
+                next_state = int(jr.categorical(key, jnp.log(trans_probs + 1e-10)))
 
                 states.append(state)
                 actions.append(action)
@@ -325,9 +339,9 @@ class GCLEstimator(BaseEstimator):
                 state = next_state
 
             traj = Trajectory(
-                states=torch.tensor(states, dtype=torch.long),
-                actions=torch.tensor(actions, dtype=torch.long),
-                next_states=torch.tensor(next_states, dtype=torch.long),
+                states=jnp.array(states, dtype=jnp.int32),
+                actions=jnp.array(actions, dtype=jnp.int32),
+                next_states=jnp.array(next_states, dtype=jnp.int32),
             )
             trajectories.append(traj)
 
@@ -337,7 +351,7 @@ class GCLEstimator(BaseEstimator):
         self,
         cost_fn: NeuralCostFunction,
         trajectory: Trajectory,
-    ) -> torch.Tensor:
+    ) -> jnp.ndarray:
         """Compute the total cost of a trajectory.
 
         Parameters
@@ -349,31 +363,31 @@ class GCLEstimator(BaseEstimator):
 
         Returns
         -------
-        total_cost : torch.Tensor
+        total_cost : jnp.ndarray
             Sum of costs along the trajectory (scalar).
         """
         states = trajectory.states
         actions = trajectory.actions
-        costs = cost_fn(states, actions)
+        costs = cost_fn.forward(states, actions)
         return costs.sum()
 
     def _compute_trajectory_log_prob(
         self,
-        policy: torch.Tensor,
+        policy: jnp.ndarray,
         trajectory: Trajectory,
-    ) -> torch.Tensor:
+    ) -> jnp.ndarray:
         """Compute the log probability of a trajectory under the policy.
 
         Parameters
         ----------
-        policy : torch.Tensor
-            Policy probabilities π(a|s), shape (n_states, n_actions).
+        policy : jnp.ndarray
+            Policy probabilities pi(a|s), shape (n_states, n_actions).
         trajectory : Trajectory
             Trajectory to evaluate.
 
         Returns
         -------
-        log_prob : torch.Tensor
+        log_prob : jnp.ndarray
             Log probability of the trajectory (scalar).
         """
         states = trajectory.states
@@ -383,55 +397,60 @@ class GCLEstimator(BaseEstimator):
         probs = policy[states, actions]
 
         # Compute log probability
-        log_prob = torch.log(probs + 1e-10).sum()
+        log_prob = jnp.log(probs + 1e-10).sum()
 
         return log_prob
 
     def _compute_importance_weights(
         self,
         cost_fn: NeuralCostFunction,
-        policy: torch.Tensor,
+        policy: jnp.ndarray,
         trajectories: List[Trajectory],
-    ) -> torch.Tensor:
+    ) -> jnp.ndarray:
         """Compute normalized importance weights for sampled trajectories.
 
-        The importance weight for trajectory τ is:
-            w(τ) ∝ exp(-c(τ)) / q(τ)
+        The importance weight for trajectory tau is:
+            w(tau) proportional to exp(-c(tau)) / q(tau)
 
-        where q(τ) is the probability under the current policy.
+        where q(tau) is the probability under the current policy.
+
+        Uses stop_gradient on cost values since we do not want to
+        differentiate through the weight computation.
 
         Parameters
         ----------
         cost_fn : NeuralCostFunction
             Cost function network.
-        policy : torch.Tensor
-            Policy probabilities π(a|s), shape (n_states, n_actions).
+        policy : jnp.ndarray
+            Policy probabilities pi(a|s), shape (n_states, n_actions).
         trajectories : list[Trajectory]
             Sampled trajectories.
 
         Returns
         -------
-        weights : torch.Tensor
+        weights : jnp.ndarray
             Normalized importance weights, shape (n_trajectories,).
         """
         log_weights = []
 
         for traj in trajectories:
-            cost = self._compute_trajectory_cost(cost_fn, traj)
+            cost = jax.lax.stop_gradient(
+                self._compute_trajectory_cost(cost_fn, traj)
+            )
             log_prob = self._compute_trajectory_log_prob(policy, traj)
 
-            # log w = -c(τ) - log q(τ)
+            # log w = -c(tau) - log q(tau)
             log_w = -cost - log_prob
             log_weights.append(log_w)
 
-        log_weights = torch.stack(log_weights)
+        log_weights = jnp.stack(log_weights)
 
         # Normalize via softmax for stability
-        weights = F.softmax(log_weights, dim=0)
+        weights = jax.nn.softmax(log_weights, axis=0)
 
         # Clip maximum weight for stability
         max_weight = self.config.importance_clipping / len(trajectories)
-        weights = torch.clamp(weights, max=max_weight)
+        weights = jnp.clip(weights, max=max_weight)
 
         # Re-normalize after clipping
         weights = weights / weights.sum()
@@ -442,24 +461,25 @@ class GCLEstimator(BaseEstimator):
         self,
         panel: Panel,
         n_states: int,
-    ) -> torch.Tensor:
+    ) -> jnp.ndarray:
         """Compute initial state distribution from demonstration data."""
-        counts = torch.zeros(n_states, dtype=torch.float32)
-        init_states = torch.tensor(
-            [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
-            dtype=torch.long,
+        init_states = jnp.array(
+            [int(traj.states[0]) for traj in panel.trajectories if len(traj) > 0],
+            dtype=jnp.int32,
         )
-        counts.scatter_add_(0, init_states, torch.ones_like(init_states, dtype=torch.float32))
+        counts = jnp.zeros(n_states, dtype=jnp.float32)
+        counts = counts.at[init_states].add(jnp.ones_like(init_states, dtype=jnp.float32))
 
-        if counts.sum() > 0:
-            return counts / counts.sum()
-        return torch.ones(n_states) / n_states
+        total = counts.sum()
+        if total > 0:
+            return counts / total
+        return jnp.ones(n_states) / n_states
 
     def _update_policy(
         self,
         cost_fn: NeuralCostFunction,
         operator: SoftBellmanOperator,
-    ) -> tuple[torch.Tensor, torch.Tensor, bool]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray, bool]:
         """Update the policy via soft value iteration on the reward.
 
         Parameters
@@ -471,9 +491,9 @@ class GCLEstimator(BaseEstimator):
 
         Returns
         -------
-        V : torch.Tensor
+        V : jnp.ndarray
             Value function, shape (n_states,).
-        policy : torch.Tensor
+        policy : jnp.ndarray
             Updated policy, shape (n_states, n_actions).
         converged : bool
             Whether soft VI converged.
@@ -504,8 +524,8 @@ class GCLEstimator(BaseEstimator):
         panel: Panel,
         utility: BaseUtilityFunction,
         problem: DDCProblem,
-        transitions: torch.Tensor,
-        initial_params: torch.Tensor | None = None,
+        transitions: jnp.ndarray,
+        initial_params: jnp.ndarray | None = None,
         **kwargs,
     ) -> EstimationResult:
         """Run GCL optimization.
@@ -518,9 +538,9 @@ class GCLEstimator(BaseEstimator):
             Utility function (used for initialization, actual cost is learned).
         problem : DDCProblem
             Problem specification.
-        transitions : torch.Tensor
+        transitions : jnp.ndarray
             Transition probabilities.
-        initial_params : torch.Tensor, optional
+        initial_params : jnp.ndarray, optional
             Not used for GCL (neural network has its own initialization).
 
         Returns
@@ -537,14 +557,15 @@ class GCLEstimator(BaseEstimator):
         cost_fn = self._create_cost_function(n_states, n_actions)
         operator = SoftBellmanOperator(problem, transitions)
 
-        # Create optimizer for cost function
-        optimizer = torch.optim.Adam(cost_fn.parameters(), lr=self.config.cost_lr)
+        # Create optax optimizer for cost function
+        optimizer = optax.adam(self.config.cost_lr)
+        opt_state = optimizer.init(eqx.filter(cost_fn, eqx.is_array))
 
         # Initial state distribution from demonstrations
         initial_dist = self._compute_initial_distribution(panel, n_states)
 
         # Initialize policy (uniform)
-        policy = torch.ones((n_states, n_actions)) / n_actions
+        policy = jnp.ones((n_states, n_actions)) / n_actions
 
         # Extract demonstration trajectories for gradient computation
         demo_trajectories = list(panel.trajectories)
@@ -552,6 +573,8 @@ class GCLEstimator(BaseEstimator):
         # Tracking
         converged = False
         prev_cost = float('inf')
+        current_cost = 0.0
+        iteration = 0
 
         self._log(f"Starting GCL with {len(demo_trajectories)} demonstration trajectories")
         self._log(f"Sampling {self.config.n_sample_trajectories} trajectories per iteration")
@@ -564,6 +587,31 @@ class GCLEstimator(BaseEstimator):
             leave=True,
         )
 
+        # Define loss function that takes the model as first argument
+        # so eqx.filter_value_and_grad can differentiate through it
+        def loss_fn(
+            cost_fn: NeuralCostFunction,
+            demo_trajectories: list[Trajectory],
+            sampled_trajectories: list[Trajectory],
+            weights: jnp.ndarray,
+        ) -> jnp.ndarray:
+            # Compute cost for demonstrations
+            demo_cost = jnp.float32(0.0)
+            for traj in demo_trajectories:
+                costs = cost_fn.forward(traj.states, traj.actions)
+                demo_cost = demo_cost + costs.sum()
+            demo_cost = demo_cost / len(demo_trajectories)
+
+            # Compute weighted cost for samples (importance sampling)
+            sample_cost = jnp.float32(0.0)
+            for j, traj in enumerate(sampled_trajectories):
+                costs = cost_fn.forward(traj.states, traj.actions)
+                sample_cost = sample_cost + weights[j] * costs.sum()
+
+            # Loss = E_demo[c] - E_weighted_sample[c]
+            # Makes demos lower cost than samples
+            return demo_cost - sample_cost
+
         for iteration in pbar:
             # Step 1: Sample trajectories from current policy
             sampled_trajectories = self._sample_trajectories(
@@ -574,48 +622,29 @@ class GCLEstimator(BaseEstimator):
                 trajectory_length=self.config.trajectory_length,
             )
 
-            # Step 2: Compute importance weights
-            with torch.no_grad():
-                weights = self._compute_importance_weights(
-                    cost_fn, policy, sampled_trajectories
-                )
+            # Step 2: Compute importance weights (no gradient through weights)
+            weights = self._compute_importance_weights(
+                cost_fn, policy, sampled_trajectories
+            )
 
             # Step 3: Compute gradient and update cost function
-            optimizer.zero_grad()
-
-            # Gradient = E_demo[∇c] - E_weighted[∇c]
-            # = (1/N) Σ_demo ∇c(τ) - Σ_j w_j ∇c(τ_j)
-
-            # Compute cost for demonstrations
-            demo_cost = torch.tensor(0.0)
-            for traj in demo_trajectories:
-                demo_cost = demo_cost + self._compute_trajectory_cost(cost_fn, traj)
-            demo_cost = demo_cost / len(demo_trajectories)
-
-            # Compute weighted cost for samples (importance sampling)
-            sample_cost = torch.tensor(0.0)
-            for j, traj in enumerate(sampled_trajectories):
-                sample_cost = sample_cost + weights[j] * self._compute_trajectory_cost(cost_fn, traj)
-
-            # Loss = E_demo[c] - log Z ≈ E_demo[c] - log(E_q[exp(-c)/q])
-            # For gradient ascent on likelihood, we minimize negative log-likelihood
-            # But simpler: we want demos to have low cost, samples to have high cost
-            # Loss = demo_cost - sample_cost (to make demos lower cost than samples)
-            loss = demo_cost - sample_cost
-
-            loss.backward()
-            optimizer.step()
+            loss, grads = eqx.filter_value_and_grad(loss_fn)(
+                cost_fn, demo_trajectories, sampled_trajectories, weights,
+            )
+            updates, opt_state = optimizer.update(
+                grads, opt_state, eqx.filter(cost_fn, eqx.is_array),
+            )
+            cost_fn = eqx.apply_updates(cost_fn, updates)
 
             # Step 4: Update policy via soft value iteration
             V, policy, inner_converged = self._update_policy(cost_fn, operator)
 
             # Check convergence
-            current_cost = demo_cost.item()
+            current_cost = float(loss)
             cost_change = abs(current_cost - prev_cost)
 
             pbar.set_postfix({
-                "demo_cost": f"{current_cost:.4f}",
-                "sample_cost": f"{sample_cost.item():.4f}",
+                "loss": f"{current_cost:.4f}",
                 "cost_change": f"{cost_change:.6f}",
             })
 
@@ -631,15 +660,14 @@ class GCLEstimator(BaseEstimator):
         self.cost_function_ = cost_fn
 
         # Get final cost and reward matrices
-        with torch.no_grad():
-            cost_matrix = cost_fn.compute()
-            reward_matrix = -cost_matrix
+        cost_matrix = cost_fn.compute()
+        reward_matrix = -cost_matrix
 
         # Compute log-likelihood of demonstrations
         V, policy, _ = self._update_policy(cost_fn, operator)
         log_probs = operator.compute_log_choice_probabilities(reward_matrix, V)
 
-        ll = log_probs[panel.get_all_states(), panel.get_all_actions()].sum().item()
+        ll = float(log_probs[panel.get_all_states(), panel.get_all_actions()].sum())
 
         optimization_time = time.time() - start_time
 
@@ -660,8 +688,8 @@ class GCLEstimator(BaseEstimator):
             message="",
             optimization_time=optimization_time,
             metadata={
-                "cost_matrix": cost_matrix.detach().numpy().tolist(),
-                "reward_matrix": reward_matrix.detach().numpy().tolist(),
-                "final_demo_cost": current_cost,
+                "cost_matrix": np.asarray(cost_matrix).tolist(),
+                "reward_matrix": np.asarray(reward_matrix).tolist(),
+                "final_loss": current_cost,
             },
         )
