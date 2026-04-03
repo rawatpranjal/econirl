@@ -1,0 +1,93 @@
+[
+  {
+    "inner_tol": 1e-12,
+    "theta_c": 0.0012274103937670588,
+    "RC": 3.029182195663452,
+    "SE_theta_c": 0.00019219308160245419,
+    "SE_RC": 0.03284258767962456,
+    "log_likelihood": -10556.064453125,
+    "outer_iterations": 0,
+    "time_seconds": 26.78,
+    "converged": true,
+    "bias_theta_c": 0.00022741039376705883,
+    "bias_RC": 0.02918219566345215
+  },
+  {
+    "inner_tol": 1e-10,
+    "theta_c": 0.0012274103937670588,
+    "RC": 3.029182195663452,
+    "SE_theta_c": 0.00019219308160245419,
+    "SE_RC": 0.03284258767962456,
+    "log_likelihood": -10556.064453125,
+    "outer_iterations": 0,
+    "time_seconds": 23.43,
+    "converged": true,
+    "bias_theta_c": 0.00022741039376705883,
+    "bias_RC": 0.02918219566345215
+  },
+  {
+    "inner_tol": 1e-08,
+    "theta_c": 0.0012274103937670588,
+    "RC": 3.029182195663452,
+    "SE_theta_c": 0.00019219308160245419,
+    "SE_RC": 0.03284258767962456,
+    "log_likelihood": -10556.064453125,
+    "outer_iterations": 0,
+    "time_seconds": 23.39,
+    "converged": true,
+    "bias_theta_c": 0.00022741039376705883,
+    "bias_RC": 0.02918219566345215
+  },
+  {
+    "inner_tol": 1e-06,
+    "theta_c": 0.0012274103937670588,
+    "RC": 3.029182195663452,
+    "SE_theta_c": 0.00019219308160245419,
+    "SE_RC": 0.03284258767962456,
+    "log_likelihood": -10556.064453125,
+    "outer_iterations": 0,
+    "time_seconds": 27.06,
+    "converged": true,
+    "bias_theta_c": 0.00022741039376705883,
+    "bias_RC": 0.02918219566345215
+  },
+  {
+    "inner_tol": 0.0001,
+    "theta_c": 0.0012314360355958343,
+    "RC": 3.029543399810791,
+    "SE_theta_c": 0.0001923782838275656,
+    "SE_RC": 0.032847560942173004,
+    "log_likelihood": -10556.0625,
+    "outer_iterations": 0,
+    "time_seconds": 21.4,
+    "converged": true,
+    "bias_theta_c": 0.00023143603559583423,
+    "bias_RC": 0.029543399810791016
+  },
+  {
+    "inner_tol": 0.01,
+    "theta_c": 0.00123360485304147,
+    "RC": 3.029581308364868,
+    "SE_theta_c": 0.00019250578770879656,
+    "SE_RC": 0.03285307437181473,
+    "log_likelihood": -10556.0615234375,
+    "outer_iterations": 0,
+    "time_seconds": 7.41,
+    "converged": true,
+    "bias_theta_c": 0.00023360485304147003,
+    "bias_RC": 0.029581308364868164
+  },
+  {
+    "inner_tol": 0.1,
+    "theta_c": 0.002842298010364175,
+    "RC": 3.0156431198120117,
+    "SE_theta_c": 0.00019250763580203056,
+    "SE_RC": 0.03287774696946144,
+    "log_likelihood": -10556.318359375,
+    "outer_iterations": 0,
+    "time_seconds": 7.88,
+    "converged": true,
+    "bias_theta_c": 0.0018422980103641748,
+    "bias_RC": 0.01564311981201172
+  }
+]

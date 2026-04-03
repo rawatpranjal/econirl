@@ -134,7 +134,7 @@ def build_estimators():
     ))
 
     # ── 7. IQ-Learn ──
-    from econirl.contrib.iq_learn import IQLearnEstimator, IQLearnConfig
+    from econirl.estimation.iq_learn import IQLearnEstimator, IQLearnConfig
     estimators["IQ-Learn"] = IQLearnEstimator(config=IQLearnConfig(
         q_type="linear", divergence="chi2",
         optimizer="L-BFGS-B", max_iter=500, verbose=True,

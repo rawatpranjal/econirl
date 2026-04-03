@@ -16,13 +16,32 @@ import numpy as np
 RESULTS_DIR = Path(__file__).parent / "results"
 
 
-def plot_shaping_sweep():
-    """Plot Type II error vs shaping magnitude alpha."""
-    with open(RESULTS_DIR / "shaping_sweep.json") as f:
-        data = json.load(f)
+def _load_full_simulation():
+    path = RESULTS_DIR / "full_simulation.json"
+    if path.exists():
+        with open(path) as f:
+            return json.load(f)
+    return None
 
-    alphas = [d["alpha"] for d in data]
-    errors = [d["type_ii_error"] for d in data]
+
+def plot_shaping_sweep():
+    """Plot Type II error vs shaping magnitude alpha.
+
+    Preference order:
+    1) Use population-level results from full_simulation.json (section "C").
+    2) Fallback to legacy shaping_sweep.json.
+    """
+    data_full = _load_full_simulation()
+    if data_full and "C" in data_full:
+        # Keys are strings of alphas; sort numerically
+        items = sorted(((float(k), v["error"]) for k, v in data_full["C"].items()), key=lambda x: x[0])
+        alphas = [a for a, _ in items]
+        errors = [e for _, e in items]
+    else:
+        with open(RESULTS_DIR / "shaping_sweep.json") as f:
+            data = json.load(f)
+        alphas = [d["alpha"] for d in data]
+        errors = [d["type_ii_error"] for d in data]
 
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.plot(alphas, errors, "o-", color="C0", linewidth=2, markersize=6)
@@ -39,12 +58,22 @@ def plot_shaping_sweep():
 
 
 def plot_anchor_misspec():
-    """Plot Type II error vs anchor misspecification epsilon."""
-    with open(RESULTS_DIR / "anchor_misspec.json") as f:
-        data = json.load(f)
+    """Plot Type II error vs anchor misspecification epsilon.
 
-    epsilons = [d["epsilon"] for d in data]
-    errors = [d["type_ii_error"] for d in data]
+    Preference order:
+    1) Use population-level results from full_simulation.json (section "E").
+    2) Fallback to legacy anchor_misspec.json.
+    """
+    data_full = _load_full_simulation()
+    if data_full and "E" in data_full:
+        items = sorted(((float(k), v["type2_err"]) for k, v in data_full["E"].items()), key=lambda x: x[0])
+        epsilons = [e for e, _ in items]
+        errors = [err for _, err in items]
+    else:
+        with open(RESULTS_DIR / "anchor_misspec.json") as f:
+            data = json.load(f)
+        epsilons = [d["epsilon"] for d in data]
+        errors = [d["type_ii_error"] for d in data]
 
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.plot(epsilons, errors, "s-", color="C1", linewidth=2, markersize=6)
@@ -60,22 +89,38 @@ def plot_anchor_misspec():
 
 
 def plot_type_ii_by_k():
-    """Plot Type II error vs skip magnitude k for all methods."""
-    with open(RESULTS_DIR / "main_results.json") as f:
-        data = json.load(f)
+    """Plot Type II error vs skip magnitude k for all methods.
 
-    type_ii = data.get("type_ii", [])
-    if not type_ii:
-        print("No Type II results found in main_results.json")
-        return
-
-    ks = [r["skip_k"] for r in type_ii]
-    methods = [k for k in type_ii[0].keys() if k != "skip_k"]
+    Preference order:
+    1) Use population-level results from full_simulation.json (section "B").
+    2) Fallback to finite-sample main_results.json (field "type_ii").
+    """
+    data_full = _load_full_simulation()
+    if data_full and "B" in data_full:
+        # Convert dict of ks -> {method: err}
+        ks = sorted(map(int, data_full["B"].keys()))
+        # Methods: take keys from first k
+        first = data_full["B"][str(ks[0])]
+        methods = list(first.keys())
+        series = {
+            m: [data_full["B"][str(k)][m] for k in ks]
+            for m in methods
+        }
+    else:
+        with open(RESULTS_DIR / "main_results.json") as f:
+            data = json.load(f)
+        type_ii = data.get("type_ii", [])
+        if not type_ii:
+            print("No Type II results found in main_results.json")
+            return
+        ks = [r["skip_k"] for r in type_ii]
+        methods = [k for k in type_ii[0].keys() if k != "skip_k"]
+        series = {m: [r[m] for r in type_ii] for m in methods}
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
     markers = ["o", "s", "^", "D", "v"]
     for i, method in enumerate(methods):
-        errors = [r[method] for r in type_ii]
+        errors = series[method]
         marker = markers[i % len(markers)]
         ax.plot(ks, errors, f"{marker}-", label=method, linewidth=2, markersize=6)
 

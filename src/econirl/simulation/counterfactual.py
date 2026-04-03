@@ -804,6 +804,96 @@ def elasticity_analysis(
     return results
 
 
+def demand_function(
+    result: EstimationSummary,
+    utility: UtilityFunction,
+    problem: DDCProblem,
+    transitions: jnp.ndarray,
+    parameter_name: str,
+    grid: jnp.ndarray,
+    replacement_action: int = 1,
+    num_buses: int = 1,
+    num_periods: int = 1,
+) -> dict[str, Any]:
+    """Compute implied demand as a function of a parameter.
+
+    For each value in the grid, solves for the optimal policy and
+    computes the stationary-distribution-weighted probability of the
+    replacement action. This traces out how aggregate demand for
+    replacement responds to parameter changes.
+
+    This is a Type 3 (reward change) counterfactual exercise, inspired
+    by Rust's (1987) demand analysis and the ruspy library.
+
+    Args:
+        result: Estimation result with baseline parameters
+        utility: Utility specification
+        problem: Problem specification
+        transitions: Transition matrices
+        parameter_name: Name of parameter to sweep (e.g. "replacement_cost")
+        grid: Array of parameter values to evaluate
+        replacement_action: Action index for "demand" (default 1 for replace)
+        num_buses: Number of buses for scaling demand (default 1)
+        num_periods: Number of periods for scaling demand (default 1)
+
+    Returns:
+        Dictionary with keys:
+            parameter_values: the grid array
+            demand: replacement rate at each grid point
+            stationary_distributions: (len(grid), num_states) array
+            policies: (len(grid), num_states, num_actions) array
+            value_functions: (len(grid), num_states) array
+            baseline_demand: demand at baseline parameters
+            parameter_name: name of swept parameter
+    """
+    grid = jnp.asarray(grid)
+    param_idx = utility.parameter_names.index(parameter_name)
+
+    n_grid = len(grid)
+    n_states = problem.num_states
+    n_actions = problem.num_actions
+
+    all_demands = np.zeros(n_grid)
+    all_stationary = np.zeros((n_grid, n_states))
+    all_policies = np.zeros((n_grid, n_states, n_actions))
+    all_values = np.zeros((n_grid, n_states))
+
+    for i, val in enumerate(grid):
+        new_params = result.parameters.at[param_idx].set(float(val))
+
+        cf = counterfactual_policy(
+            result=result,
+            new_parameters=new_params,
+            utility=utility,
+            problem=problem,
+            transitions=transitions,
+        )
+
+        mu = compute_stationary_distribution(cf.counterfactual_policy, transitions)
+        replace_prob = float(jnp.sum(mu * cf.counterfactual_policy[:, replacement_action]))
+        demand = num_buses * num_periods * replace_prob
+
+        all_demands[i] = demand
+        all_stationary[i] = np.asarray(mu)
+        all_policies[i] = np.asarray(cf.counterfactual_policy)
+        all_values[i] = np.asarray(cf.counterfactual_value)
+
+    # Compute baseline demand
+    baseline_mu = compute_stationary_distribution(result.policy, transitions)
+    baseline_replace = float(jnp.sum(baseline_mu * result.policy[:, replacement_action]))
+    baseline_demand = num_buses * num_periods * baseline_replace
+
+    return {
+        "parameter_values": np.asarray(grid),
+        "demand": all_demands,
+        "stationary_distributions": all_stationary,
+        "policies": all_policies,
+        "value_functions": all_values,
+        "baseline_demand": baseline_demand,
+        "parameter_name": parameter_name,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Neural reward counterfactuals
 #

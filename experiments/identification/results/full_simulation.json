@@ -103,27 +103,42 @@
     "200": {
       "rf": 0.2646,
       "iq_learn": 0.2369,
-      "gladius": 0.132
+      "airl": 0.1063,
+      "lsw": 0.1047,
+      "gladius": 0.132,
+      "nfxp": 0.0305
     },
     "500": {
       "rf": 0.2641,
       "iq_learn": 0.287,
-      "gladius": 0.1354
+      "airl": 0.1064,
+      "lsw": 0.1047,
+      "gladius": 0.1354,
+      "nfxp": 0.0312
     },
     "2000": {
       "rf": 0.2626,
       "iq_learn": 0.2852,
-      "gladius": 0.1394
+      "airl": 0.1064,
+      "lsw": 0.1047,
+      "gladius": 0.1394,
+      "nfxp": 0.0313
     },
     "5000": {
       "rf": 0.2623,
       "iq_learn": 0.3345,
-      "gladius": 0.1354
+      "airl": 0.1064,
+      "lsw": 0.1047,
+      "gladius": 0.1354,
+      "nfxp": 0.0311
     },
     "10000": {
       "rf": 0.2623,
       "iq_learn": 0.3326,
-      "gladius": 0.1304
+      "airl": 0.1064,
+      "lsw": 0.1047,
+      "gladius": 0.1304,
+      "nfxp": 0.0309
     }
   },
   "E": {
@@ -164,5 +179,41 @@
     "IQ / GLADIUS": 0.0,
     "AIRL-no-anchors": 0.009,
     "Reduced-form": 0.185
+  },
+  "G": {
+    "reward": {
+      "Oracle": {
+        "mse": 0.0,
+        "corr": 1.0
+      },
+      "AIRL+anchors": {
+        "mse": 0.0,
+        "corr": 1.0
+      },
+      "AIRL-state-only": {
+        "mse": 2.778,
+        "corr": 1.0
+      },
+      "AIRL-shaped": {
+        "mse": 13.689,
+        "corr": 0.53
+      },
+      "IQ-Learn": {
+        "mse": 0.0,
+        "corr": 1.0
+      },
+      "Reduced-form": {
+        "mse": 54.755,
+        "corr": 0.0
+      }
+    },
+    "type2": {
+      "Oracle": 0.0,
+      "AIRL+anchors": 0.0,
+      "AIRL-state-only": 0.0,
+      "AIRL-shaped": 0.026419,
+      "IQ-Learn": 0.0,
+      "Reduced-form": 0.181744
+    }
   }
 }

@@ -104,6 +104,7 @@ See :doc:`references` for the full list of papers.
    quickstart
    estimators
    examples/index
+   tutorials/index
    api/index
    references
    loading_data

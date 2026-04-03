@@ -69,12 +69,17 @@ except (ImportError, SyntaxError):
     pass
 
 try:
-    from econirl.estimators import NeuralGLADIUS
+    from econirl.estimators import GLADIUS, NeuralGLADIUS
 except (ImportError, SyntaxError):
     pass
 
 try:
-    from econirl.estimators import NeuralAIRL
+    from econirl.estimators import AIRL, NeuralAIRL
+except (ImportError, SyntaxError):
+    pass
+
+try:
+    from econirl.estimation import IQLearnEstimator as IQLearn
 except (ImportError, SyntaxError):
     pass
 
@@ -128,6 +133,9 @@ __all__ = [
     "NNES",
     "SEES",
     "TDCCP",
+    "GLADIUS",
+    "AIRL",
+    "IQLearn",
     "NeuralGLADIUS",
     "NeuralAIRL",
     "MCEIRLNeural",

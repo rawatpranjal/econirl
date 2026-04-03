@@ -676,7 +676,7 @@ def main():
         'AIRL-state-only': r_airl_stateonly_g,
         'AIRL-shaped': r_noanch_g,
         'IQ-Learn': r_iq_g,
-        'Reduced-form': sol_g['A'],
+        'Reduced-form': sol_g['Q'] - sol_g['V'][:, None],
     }
 
     # Reward recovery

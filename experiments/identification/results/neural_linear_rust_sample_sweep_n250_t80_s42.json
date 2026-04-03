@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "sample_sizes": [
+      250
+    ],
+    "n_periods": 80,
+    "num_states": 90,
+    "discount": 0.9999,
+    "operating_cost": 0.001,
+    "replacement_cost": 3.0,
+    "seed": 42
+  },
+  "results": [
+    {
+      "sample_size": 250,
+      "estimator": "NFXP",
+      "status": "ok",
+      "policy_mae": 0.0053478280142514305,
+      "policy_corr": 0.9999962353185488,
+      "param_mae": 0.0022882682213618225,
+      "runtime_seconds": 18.3349928855896,
+      "params": {
+        "theta_c": 0.0011579812651794533,
+        "RC": 3.004418555177544
+      }
+    },
+    {
+      "sample_size": 250,
+      "estimator": "NNES",
+      "status": "ok",
+      "policy_mae": 0.08438922149537838,
+      "policy_corr": -0.18165038672564837,
+      "param_mae": 0.20489714565873146,
+      "runtime_seconds": 62.04069495201111,
+      "params": {
+        "operating_cost": -0.05327928811311722,
+        "replacement_cost": 3.3555150032043457
+      }
+    },
+    {
+      "sample_size": 250,
+      "estimator": "NeuralGLADIUS",
+      "status": "ok",
+      "policy_mae": 0.4693577800286156,
+      "policy_corr": 0.999709290264166,
+      "param_mae": 1.5173376977564768,
+      "runtime_seconds": 15.221306085586548,
+      "params": {
+        "operating_cost": 0.00223883637227118,
+        "replacement_cost": -0.03343655914068222
+      }
+    },
+    {
+      "sample_size": 250,
+      "estimator": "TD-CCP",
+      "status": "ok",
+      "policy_mae": 0.013500869549668096,
+      "policy_corr": 0.9999843425099161,
+      "param_mae": 0.0017670666221529245,
+      "runtime_seconds": 189.94057273864746,
+      "params": {
+        "operating_cost": 0.0013915379531681538,
+        "replacement_cost": 3.0031425952911377
+      }
+    }
+  ]
+}

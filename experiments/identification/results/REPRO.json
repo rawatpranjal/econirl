@@ -1,0 +1,14 @@
+{
+  "python": "3.11.14 (main, Oct  9 2025, 16:16:55) [Clang 16.0.0 (clang-1600.0.26.6)]",
+  "jax_version": "0.9.2",
+  "numpy_version": "2.4.1",
+  "git_commit": "31c8c8ab210844067481b22ed3e50d46d98af77b",
+  "config": {
+    "beta": 0.95,
+    "episodes": 15,
+    "content_levels": 3,
+    "wait_levels": 4,
+    "price_cost": 2.0,
+    "wait_cost_per_hour": 0.08
+  }
+}

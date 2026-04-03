@@ -586,40 +586,42 @@ def generate_ngsim_lane_change():
     lane_ys = [0.0, 1.2, 2.4]
     lane_labels = ["Lane 1", "Lane 2", "Lane 3"]
 
-    # Draw lane backgrounds
+    # Lane rects start at x=1.5 so lane labels at x=0.6 are clearly outside
+    lane_cx = 5.0   # centre of lane rect
+    lane_w  = 6.5   # width — left edge at 5.0 - 3.25 = 1.75
     for ly, ll in zip(lane_ys, lane_labels):
-        _rect(ax, 4.0, ly, 7.5, 0.9, color=GRID_F, lw=0.8)
-        _note(ax, 0.4, ly, ll, fs=7, color="#888")
+        _rect(ax, lane_cx, ly, lane_w, 0.9, color=GRID_F, lw=0.8)
+        _note(ax, 0.6, ly, ll, fs=7, color="#888")
 
-    # Ego vehicle
-    ego_x, ego_y = 3.0, lane_ys[1]
+    # Ego vehicle — shifted right relative to lane centre
+    ego_x, ego_y = 3.8, lane_ys[1]
     _rect(ax, ego_x, ego_y, 0.9, 0.5, color=HILITE, lw=2.0, label="Ego")
 
     # Other vehicles
-    for ox, oy in [(5.5, lane_ys[0]), (5.0, lane_ys[2]), (1.5, lane_ys[0])]:
+    for ox, oy in [(6.5, lane_ys[0]), (6.2, lane_ys[2]), (2.5, lane_ys[0])]:
         _rect(ax, ox, oy, 0.7, 0.4, color="#D5DBDB", lw=0.8)
 
-    # Stay
-    _arrow(ax, ego_x + 0.5, ego_y, ego_x + 1.8, ego_y,
-           "Stay", C1, lx=ego_x + 1.15, ly=ego_y + 0.35)
+    # Stay — label clearly above arrow
+    _arrow(ax, ego_x + 0.5, ego_y, ego_x + 2.0, ego_y,
+           "Stay", C1, lx=ego_x + 1.25, ly=ego_y + 0.42)
 
-    # Left lane change
-    _arrow(ax, ego_x, ego_y - 0.3, ego_x + 0.8, lane_ys[0] + 0.3,
-           "Left", C3, lx=ego_x + 0.9, ly=ego_y - 0.75)
+    # Left lane change — label well below
+    _arrow(ax, ego_x, ego_y - 0.3, ego_x + 1.0, lane_ys[0] + 0.3,
+           "Left", C3, lx=ego_x + 1.1, ly=ego_y - 0.88)
 
-    # Right lane change
-    _arrow(ax, ego_x, ego_y + 0.3, ego_x + 0.8, lane_ys[2] - 0.3,
-           "Right", C2, lx=ego_x + 0.9, ly=ego_y + 0.85)
+    # Right lane change — label well above
+    _arrow(ax, ego_x, ego_y + 0.3, ego_x + 1.0, lane_ys[2] - 0.3,
+           "Right", C2, lx=ego_x + 1.1, ly=ego_y + 1.0)
 
-    # Traffic flow annotation
-    _arrow(ax, 7.0, -0.55, 7.8, -0.55, "", "#888", sA=3, sB=3, lw=1.0)
-    _note(ax, 7.4, -0.3, "traffic flow", fs=6.5, color="#888")
+    # Traffic flow annotation — far right, out of the way
+    _arrow(ax, 7.8, -0.55, 8.5, -0.55, "", "#888", sA=3, sB=3, lw=1.0)
+    _note(ax, 8.15, -0.28, "flow", fs=6.5, color="#888")
 
-    _note(ax, 4.0, -0.9,
+    _note(ax, 4.5, -1.0,
           "Lanes \u00d7 speed bins  \u00b7  3 actions: Left, Stay, Right")
 
-    ax.set_xlim(-0.5, 8.5)
-    ax.set_ylim(-1.3, 3.2)
+    ax.set_xlim(-0.5, 8.8)
+    ax.set_ylim(-1.4, 3.2)
     _save(fig, "ngsim_lane_change")
 
 
@@ -778,9 +780,9 @@ def generate_trivago_search():
     sx, sy = 3.5, 1.0
     _node(ax, sx, sy, "Session\nState", color=HILITE, w=1.4, h=0.7)
 
-    # Self-loops
-    _selfloop(ax, sx, sy, "Browse", C1, above=True, dx=-0.5, fs=8)
-    _selfloop(ax, sx, sy, "Refine", C3, above=True, dx=0.5, fs=8)
+    # Self-loops — spread widely to avoid label crowding
+    _selfloop(ax, sx, sy, "Browse", C1, above=True, dx=-0.85, fs=8)
+    _selfloop(ax, sx, sy, "Refine", C3, above=True, dx=0.85, fs=8)
 
     # Terminal: Booking (left)
     _node(ax, 1.5, -0.6, "Booking", color=START, w=1.2, h=0.5)

@@ -1,5 +1,12 @@
 # CLAUDE.md - Project Context for Claude Code
 
+
+# How to report and validate own work: 
+
+When a check did pass or a task is complete, state it plainly — do not hedge confirmed results with unnecessary disclaimers, downgrade finished work to 'partial,' or re-verify things you already checked.
+
+Never claim 'all tests pass' when output shows failures. Never suppress or simplify failing checks to manufacture a green result. Never characterize incomplete or broken work as done.
+
 ## Writing Rules
 
 Write in complete sentences. Do not use em dashes, colons, semicolons, plus signs, equals signs, or brackets in prose. Do not write lists or bullet points in documentation prose. Every paragraph should read as flowing English. Do not overload sentences with multiple ideas. Say one thing per sentence.

@@ -384,12 +384,18 @@ class NFXPEstimator(BaseEstimator):
         if n_replace > 0 and total_obs > 0:
             replace_rate = n_replace / total_obs
             avg_mileage = mileage_at_replace / n_replace
+            n_states = problem.num_states
+            op_cost_init = 1.0 / n_states
+            rc_init = max(0.5, op_cost_init * avg_mileage / max(replace_rate, 0.01))
 
-            if n_params == 2:
-                n_states = problem.num_states
-                op_cost_init = 1.0 / n_states
-                rc_init = max(0.5, op_cost_init * avg_mileage / max(replace_rate, 0.01))
-                return jnp.array([op_cost_init, rc_init], dtype=jnp.float32)
+            # Last parameter is always replacement cost. Fill operating cost
+            # coefficients with decreasing magnitudes for higher-order terms.
+            init = np.full(n_params, 0.01, dtype=np.float32)
+            init[0] = op_cost_init
+            for i in range(1, n_params - 1):
+                init[i] = op_cost_init * 0.1 ** i
+            init[-1] = rc_init
+            return jnp.array(init, dtype=jnp.float32)
 
         return jnp.full((n_params,), 0.01, dtype=jnp.float32)
 
@@ -480,21 +486,36 @@ class NFXPEstimator(BaseEstimator):
             final_params = params
 
         else:
-            # Scipy optimizer with jax.grad for automatic gradient
+            # Scipy optimizer with jax.grad for automatic gradient.
+            # EV cache: scipy calls objective() and gradient() separately
+            # at the same params. Cache the Bellman solution to avoid
+            # solving twice per outer iteration.
             total_inner = 0
             n_evals = 0
+            ev_cache = {}  # mutable dict used as cache between closures
 
             features = jnp.array(utility.feature_matrix, dtype=jnp.float64)
             obs_states = panel.get_all_states()
             obs_actions = panel.get_all_actions()
+
+            def _solve_cached(params):
+                """Solve Bellman with caching on parameter vector."""
+                params_key = tuple(np.asarray(params).ravel().tolist())
+                if ev_cache.get("key") == params_key:
+                    return ev_cache["V"]
+                u = jnp.einsum("sak,k->sa", features, params)
+                V = optimistix_solve(problem, transitions_f64, u,
+                                     tol=self._inner_tol, max_steps=self._inner_max_iter)
+                ev_cache["key"] = params_key
+                ev_cache["V"] = V
+                return V
 
             def objective(params_np):
                 nonlocal n_evals
                 n_evals += 1
                 params = jnp.array(params_np, dtype=jnp.float64)
                 u = jnp.einsum("sak,k->sa", features, params)
-                V = optimistix_solve(problem, transitions_f64, u,
-                                     tol=self._inner_tol, max_steps=self._inner_max_iter)
+                V = _solve_cached(params)
                 log_probs = _compute_log_probs(u, V, transitions_f64, beta, problem.scale_parameter)
                 ll = float(log_probs[obs_states, obs_actions].sum())
                 if self._verbose and n_evals % 10 == 0:

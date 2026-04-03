@@ -36,6 +36,7 @@ from econirl.estimation.sees import SEESEstimator
 # Q-learning IRL
 from econirl.estimation.gladius import GLADIUSEstimator, GLADIUSConfig
 from econirl.estimation.iq_learn import IQLearnEstimator, IQLearnConfig
+IQLearn = IQLearnEstimator
 
 # Adversarial IRL
 from econirl.estimation.adversarial import (
@@ -80,6 +81,7 @@ __all__ = [
     # Q-learning IRL
     "GLADIUSEstimator",
     "GLADIUSConfig",
+    "IQLearn",
     "IQLearnEstimator",
     "IQLearnConfig",
     # Adversarial IRL

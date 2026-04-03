@@ -37,6 +37,12 @@ The limitation is training instability. The adversarial training loop can be dee
 
 AIRL is the right choice when the learned reward needs to work in a different environment than the one it was trained in.
 
+## In econirl
+
+The package implementation is `NeuralAIRL`. It accepts either a pandas DataFrame or a `TrajectoryPanel`. `TrajectoryPanel` stores panel arrays in JAX, while `NeuralAIRL` trains its networks in Torch. The estimator bridges that boundary during minibatching, so user code can stay on the panel side.
+
+See {doc}`../tutorials/neural_airl_trajectory_panel` for an end to end example.
+
 ## References
 
 - Fu, J., Luo, K., & Levine, S. (2018). Learning Robust Rewards with Adversarial Inverse Reinforcement Learning. *ICLR 2018*.

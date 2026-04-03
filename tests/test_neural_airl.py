@@ -19,6 +19,7 @@ import pytest
 import torch
 
 from econirl.core.reward_spec import RewardSpec
+from econirl.core.types import TrajectoryPanel
 from econirl.estimators.neural_airl import NeuralAIRL
 from econirl.estimators.protocol import EstimatorProtocol
 
@@ -126,6 +127,31 @@ def fitted_model_with_features(small_data, small_features):
 
 class TestFitBasic:
     """Test basic fit without features."""
+
+    def test_fit_accepts_trajectory_panel(self, small_data):
+        """fit() should work when input data is a TrajectoryPanel."""
+        panel = TrajectoryPanel.from_dataframe(
+            small_data, state="state", action="action", id="id"
+        )
+        model = NeuralAIRL(
+            n_actions=3,
+            discount=0.95,
+            max_epochs=15,
+            patience=5,
+            reward_hidden_dim=16,
+            reward_num_layers=1,
+            shaping_hidden_dim=16,
+            shaping_num_layers=1,
+            policy_hidden_dim=16,
+            policy_num_layers=1,
+            batch_size=256,
+            disc_steps=1,
+        )
+        returned = model.fit(
+            data=panel,
+        )
+        assert returned is model
+        assert model.policy_ is not None
 
     def test_fit_runs_without_error(self, fitted_model):
         """Fit should complete without raising."""

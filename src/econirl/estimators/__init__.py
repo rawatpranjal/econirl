@@ -62,10 +62,14 @@ try:
 except ImportError:
     NeuralGLADIUS = None
 
+GLADIUS = NeuralGLADIUS
+
 try:
     from econirl.estimators.neural_airl import NeuralAIRL
 except ImportError:
     NeuralAIRL = None
+
+AIRL = NeuralAIRL
 
 try:
     from econirl.estimators.mceirl_neural import MCEIRLNeural
@@ -81,6 +85,8 @@ __all__ = [
     "MaxEntIRL",
     "MaxMarginIRL",
     "MCEIRL",
+    "GLADIUS",
+    "AIRL",
     "NeuralGLADIUS",
     "NeuralAIRL",
     "MCEIRLNeural",

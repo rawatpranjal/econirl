@@ -4,20 +4,8 @@ Learns a disentangled reward r(s,a,ctx) and shaping potential h(s,ctx) via
 adversarial training against a learned policy network, then extracts
 structural parameters by projecting implied rewards onto features.
 
-No transition matrix needed. Supports context conditioning (destination,
-time-of-day, user segment, etc.) through pluggable encoders.
-
-Algorithm:
-    1. Parameterize reward g(s,a,ctx), shaping h(s,ctx), policy pi(a|s,ctx)
-       with MLPs.
-    2. Construct discriminator:
-       D(s,a,s',ctx) = sigmoid(f(s,a,s',ctx) - log pi(a|s,ctx))
-       where f(s,a,s',ctx) = g(s,a,ctx) + gamma*h(s',ctx) - h(s,ctx).
-    3. Train discriminator to classify expert vs policy-generated transitions
-       using binary cross-entropy.
-    4. Train policy to fool the discriminator (maximize log D under policy).
-    5. After training, implied rewards r(s,a,ctx) = g(s,a,ctx) are projected
-       onto features via least-squares to recover theta.
+No transition matrix is needed. Supports context conditioning through
+pluggable state and context encoders.
 
 Reference:
     Fu, J., Luo, K., & Levine, S. (2018). Learning robust rewards with
@@ -28,29 +16,109 @@ from __future__ import annotations
 
 from typing import Callable
 
+import equinox as eqx
+import jax
+import jax.nn as jnn
+import jax.numpy as jnp
+import jax.random as jr
 import numpy as np
+import optax
 import pandas as pd
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from scipy.stats import norm as scipy_norm
 
 from econirl.core.reward_spec import RewardSpec
 from econirl.core.types import Panel, TrajectoryPanel
 from econirl.estimators.neural_base import NeuralEstimatorMixin
 
+try:
+    import torch
+except ImportError:  # pragma: no cover
+    torch = None
 
-# ---------------------------------------------------------------------------
-# Internal network modules
-# ---------------------------------------------------------------------------
+
+def _is_torch_tensor(values: object) -> bool:
+    return torch is not None and isinstance(values, torch.Tensor)
 
 
-class _RewardNetwork(nn.Module):
-    """g(s, a, ctx) reward network.
+def _to_numpy(values: object) -> np.ndarray:
+    if _is_torch_tensor(values):
+        return values.detach().cpu().numpy()
+    return np.asarray(values)
 
-    Input: concatenation of [state_features, context_features, action_onehot].
-    Output: scalar reward value.
-    """
+
+def _to_jax_float(values: object) -> jax.Array:
+    if _is_torch_tensor(values):
+        return jnp.asarray(values.detach().cpu().numpy(), dtype=jnp.float32)
+    return jnp.asarray(values, dtype=jnp.float32)
+
+
+def _to_jax_int(values: object) -> jax.Array:
+    if _is_torch_tensor(values):
+        return jnp.asarray(values.detach().cpu().numpy(), dtype=jnp.int32)
+    return jnp.asarray(values, dtype=jnp.int32)
+
+
+def _return_like(values: jax.Array, *templates: object) -> object:
+    if any(_is_torch_tensor(template) for template in templates):
+        if torch is None:  # pragma: no cover
+            raise RuntimeError("Torch is required for torch tensor outputs.")
+        return torch.tensor(np.asarray(values).copy())
+    return values
+
+
+def _bce_with_logits(logits: jax.Array, targets: jax.Array) -> jax.Array:
+    return jnp.maximum(logits, 0.0) - logits * targets + jax.nn.softplus(-jnp.abs(logits))
+
+
+def _sample_actions(policy_probs: jax.Array, key: jax.Array) -> jax.Array:
+    probs = jnp.clip(policy_probs, 1e-8, 1.0)
+    probs = probs / probs.sum(axis=-1, keepdims=True)
+    keys = jr.split(key, probs.shape[0])
+    return jax.vmap(lambda k, p: jr.categorical(k, jnp.log(p)))(keys, probs).astype(jnp.int32)
+
+
+class _MLP(eqx.Module):
+    layers: tuple[eqx.nn.Linear, ...]
+    output_layer: eqx.nn.Linear
+
+    def __init__(
+        self,
+        in_dim: int,
+        out_dim: int,
+        hidden_dim: int,
+        num_layers: int,
+        *,
+        key: jax.Array,
+    ):
+        n_hidden = max(num_layers, 0)
+        keys = jr.split(key, n_hidden + 1)
+        layers: list[eqx.nn.Linear] = []
+        current_dim = in_dim
+        for idx in range(n_hidden):
+            layers.append(eqx.nn.Linear(current_dim, hidden_dim, key=keys[idx]))
+            current_dim = hidden_dim
+        self.layers = tuple(layers)
+        self.output_layer = eqx.nn.Linear(current_dim, out_dim, key=keys[-1])
+
+    def _forward_single(self, x: jax.Array) -> jax.Array:
+        h = x
+        for layer in self.layers:
+            h = jax.nn.relu(layer(h))
+        return self.output_layer(h)
+
+    def __call__(self, x: jax.Array) -> jax.Array:
+        x = jnp.asarray(x, dtype=jnp.float32)
+        if x.ndim == 1:
+            return self._forward_single(x)
+        return jax.vmap(self._forward_single)(x)
+
+    def eval(self) -> _MLP:
+        return self
+
+
+class _RewardNetwork(eqx.Module):
+    n_actions: int = eqx.field(static=True)
+    net: _MLP
 
     def __init__(
         self,
@@ -59,81 +127,53 @@ class _RewardNetwork(nn.Module):
         n_actions: int,
         hidden_dim: int,
         num_layers: int,
+        *,
+        key: jax.Array,
     ):
-        super().__init__()
         self.n_actions = n_actions
-        input_dim = state_dim + context_dim + n_actions
-        layers: list[nn.Module] = []
-        in_dim = input_dim
-        for _ in range(num_layers):
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.ReLU())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, 1))
-        self.net = nn.Sequential(*layers)
+        self.net = _MLP(
+            state_dim + context_dim + n_actions,
+            1,
+            hidden_dim,
+            num_layers,
+            key=key,
+        )
 
-    def forward(
+    def __call__(
         self,
-        state_feat: torch.Tensor,
-        ctx_feat: torch.Tensor,
-        action_onehot: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute g(s, a, ctx).
-
-        Parameters
-        ----------
-        state_feat : torch.Tensor
-            State features of shape (B, state_dim).
-        ctx_feat : torch.Tensor
-            Context features of shape (B, context_dim).
-        action_onehot : torch.Tensor
-            One-hot action of shape (B, n_actions).
-
-        Returns
-        -------
-        torch.Tensor
-            Reward values of shape (B,).
-        """
-        x = torch.cat([state_feat, ctx_feat, action_onehot], dim=-1)
-        return self.net(x).squeeze(-1)
+        state_feat: object,
+        ctx_feat: object,
+        action_onehot: object,
+    ) -> object:
+        sf = _to_jax_float(state_feat)
+        cf = _to_jax_float(ctx_feat)
+        ao = _to_jax_float(action_onehot)
+        x = jnp.concatenate([sf, cf, ao], axis=-1)
+        out = jnp.squeeze(self.net(x), axis=-1)
+        return _return_like(out, state_feat, ctx_feat, action_onehot)
 
     def all_actions(
         self,
-        state_feat: torch.Tensor,
-        ctx_feat: torch.Tensor,
+        state_feat: object,
+        ctx_feat: object,
         n_actions: int,
-    ) -> torch.Tensor:
-        """Compute g for all actions at once.
+    ) -> object:
+        sf = _to_jax_float(state_feat)
+        cf = _to_jax_float(ctx_feat)
+        actions = jnp.eye(n_actions, dtype=jnp.float32)
+        sf_exp = jnp.repeat(sf[:, None, :], n_actions, axis=1)
+        cf_exp = jnp.repeat(cf[:, None, :], n_actions, axis=1)
+        a_exp = jnp.repeat(actions[None, :, :], sf.shape[0], axis=0)
+        x = jnp.concatenate([sf_exp, cf_exp, a_exp], axis=-1)
+        out = jnp.squeeze(jax.vmap(self.net)(x), axis=-1)
+        return _return_like(out, state_feat, ctx_feat)
 
-        Parameters
-        ----------
-        state_feat : torch.Tensor
-            State features of shape (B, state_dim).
-        ctx_feat : torch.Tensor
-            Context features of shape (B, context_dim).
-        n_actions : int
-            Number of actions.
-
-        Returns
-        -------
-        torch.Tensor
-            Reward values of shape (B, n_actions).
-        """
-        B = state_feat.shape[0]
-        actions = torch.eye(n_actions, device=state_feat.device)  # (A, A)
-        actions = actions.unsqueeze(0).expand(B, -1, -1)  # (B, A, A)
-        sf = state_feat.unsqueeze(1).expand(-1, n_actions, -1)  # (B, A, d_s)
-        cf = ctx_feat.unsqueeze(1).expand(-1, n_actions, -1)  # (B, A, d_c)
-        x = torch.cat([sf, cf, actions], dim=-1)  # (B, A, input_dim)
-        return self.net(x.reshape(B * n_actions, -1)).reshape(B, n_actions)
+    def eval(self) -> _RewardNetwork:
+        return self
 
 
-class _ShapingNetwork(nn.Module):
-    """h(s, ctx) potential-based shaping network.
-
-    Input: concatenation of [state_features, context_features].
-    Output: scalar shaping potential.
-    """
+class _ShapingNetwork(eqx.Module):
+    net: _MLP
 
     def __init__(
         self,
@@ -141,47 +181,31 @@ class _ShapingNetwork(nn.Module):
         context_dim: int,
         hidden_dim: int,
         num_layers: int,
+        *,
+        key: jax.Array,
     ):
-        super().__init__()
-        input_dim = state_dim + context_dim
-        layers: list[nn.Module] = []
-        in_dim = input_dim
-        for _ in range(num_layers):
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.ReLU())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, 1))
-        self.net = nn.Sequential(*layers)
+        self.net = _MLP(
+            state_dim + context_dim,
+            1,
+            hidden_dim,
+            num_layers,
+            key=key,
+        )
 
-    def forward(
-        self,
-        state_feat: torch.Tensor,
-        ctx_feat: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute h(s, ctx).
+    def __call__(self, state_feat: object, ctx_feat: object) -> object:
+        sf = _to_jax_float(state_feat)
+        cf = _to_jax_float(ctx_feat)
+        x = jnp.concatenate([sf, cf], axis=-1)
+        out = jnp.squeeze(self.net(x), axis=-1)
+        return _return_like(out, state_feat, ctx_feat)
 
-        Parameters
-        ----------
-        state_feat : torch.Tensor
-            State features of shape (B, state_dim).
-        ctx_feat : torch.Tensor
-            Context features of shape (B, context_dim).
-
-        Returns
-        -------
-        torch.Tensor
-            Shaping values of shape (B,).
-        """
-        x = torch.cat([state_feat, ctx_feat], dim=-1)
-        return self.net(x).squeeze(-1)
+    def eval(self) -> _ShapingNetwork:
+        return self
 
 
-class _PolicyNetwork(nn.Module):
-    """pi(a|s, ctx) policy network.
-
-    Input: concatenation of [state_features, context_features].
-    Output: softmax probability over n_actions.
-    """
+class _PolicyNetwork(eqx.Module):
+    n_actions: int = eqx.field(static=True)
+    net: _MLP
 
     def __init__(
         self,
@@ -190,175 +214,52 @@ class _PolicyNetwork(nn.Module):
         n_actions: int,
         hidden_dim: int,
         num_layers: int,
+        *,
+        key: jax.Array,
     ):
-        super().__init__()
         self.n_actions = n_actions
-        input_dim = state_dim + context_dim
-        layers: list[nn.Module] = []
-        in_dim = input_dim
-        for _ in range(num_layers):
-            layers.append(nn.Linear(in_dim, hidden_dim))
-            layers.append(nn.ReLU())
-            in_dim = hidden_dim
-        layers.append(nn.Linear(in_dim, n_actions))
-        self.net = nn.Sequential(*layers)
+        self.net = _MLP(
+            state_dim + context_dim,
+            n_actions,
+            hidden_dim,
+            num_layers,
+            key=key,
+        )
 
-    def forward(
-        self,
-        state_feat: torch.Tensor,
-        ctx_feat: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute pi(a|s, ctx) as softmax probabilities.
+    def logits(self, state_feat: object, ctx_feat: object) -> jax.Array:
+        sf = _to_jax_float(state_feat)
+        cf = _to_jax_float(ctx_feat)
+        x = jnp.concatenate([sf, cf], axis=-1)
+        return jnp.asarray(self.net(x), dtype=jnp.float32)
 
-        Parameters
-        ----------
-        state_feat : torch.Tensor
-            State features of shape (B, state_dim).
-        ctx_feat : torch.Tensor
-            Context features of shape (B, context_dim).
-
-        Returns
-        -------
-        torch.Tensor
-            Action probabilities of shape (B, n_actions).
-        """
-        x = torch.cat([state_feat, ctx_feat], dim=-1)
-        logits = self.net(x)
-        return torch.softmax(logits, dim=-1)
+    def __call__(self, state_feat: object, ctx_feat: object) -> object:
+        logits = self.logits(state_feat, ctx_feat)
+        probs = jax.nn.softmax(logits, axis=-1)
+        return _return_like(probs, state_feat, ctx_feat)
 
     def log_prob(
         self,
-        state_feat: torch.Tensor,
-        ctx_feat: torch.Tensor,
-        actions: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute log pi(a|s, ctx) for given actions.
+        state_feat: object,
+        ctx_feat: object,
+        actions: object,
+    ) -> object:
+        logits = self.logits(state_feat, ctx_feat)
+        actions_j = _to_jax_int(actions)
+        log_probs = jax.nn.log_softmax(logits, axis=-1)
+        out = log_probs[jnp.arange(actions_j.shape[0]), actions_j]
+        return _return_like(out, state_feat, ctx_feat, actions)
 
-        Parameters
-        ----------
-        state_feat : torch.Tensor
-            State features of shape (B, state_dim).
-        ctx_feat : torch.Tensor
-            Context features of shape (B, context_dim).
-        actions : torch.Tensor
-            Action indices of shape (B,).
-
-        Returns
-        -------
-        torch.Tensor
-            Log probabilities of shape (B,).
-        """
-        x = torch.cat([state_feat, ctx_feat], dim=-1)
-        logits = self.net(x)
-        log_probs = torch.log_softmax(logits, dim=-1)
-        return log_probs[torch.arange(len(actions)), actions.long()]
+    def eval(self) -> _PolicyNetwork:
+        return self
 
 
-# ---------------------------------------------------------------------------
-# NeuralAIRL estimator
-# ---------------------------------------------------------------------------
+class _DiscriminatorBundle(eqx.Module):
+    reward_net: _RewardNetwork
+    shaping_net: _ShapingNetwork
 
 
 class NeuralAIRL(NeuralEstimatorMixin):
-    """Context-aware AIRL estimator with sklearn-style API.
-
-    Trains a reward network g(s,a,ctx), shaping network h(s,ctx), and
-    policy network pi(a|s,ctx) via adversarial training. The discriminator
-    classifies expert vs policy-generated transitions. After training,
-    implied rewards g(s,a,ctx) are projected onto features via least-squares
-    to get interpretable theta.
-
-    No transition matrix required. Supports context conditioning through
-    pluggable state/context encoders.
-
-    Parameters
-    ----------
-    n_actions : int, default=8
-        Number of discrete actions.
-    discount : float, default=0.95
-        Time discount factor gamma.
-    reward_hidden_dim : int, default=128
-        Hidden dimension for the reward network MLP.
-    reward_num_layers : int, default=3
-        Number of hidden layers in the reward network.
-    shaping_hidden_dim : int, default=128
-        Hidden dimension for the shaping network MLP.
-    shaping_num_layers : int, default=3
-        Number of hidden layers in the shaping network.
-    policy_hidden_dim : int, default=128
-        Hidden dimension for the policy network MLP.
-    policy_num_layers : int, default=3
-        Number of hidden layers in the policy network.
-    batch_size : int, default=512
-        Mini-batch size for SGD.
-    max_epochs : int, default=500
-        Maximum number of training epochs.
-    disc_lr : float, default=1e-3
-        Learning rate for discriminator (reward + shaping) optimizer.
-    policy_lr : float, default=1e-3
-        Learning rate for policy optimizer.
-    disc_steps : int, default=5
-        Discriminator updates per policy update.
-    gradient_clip : float, default=1.0
-        Maximum gradient norm for clipping. 0 disables clipping.
-    patience : int, default=50
-        Early stopping patience (epochs without improvement).
-    label_smoothing : float, default=0.0
-        Label smoothing for discriminator BCE loss. 0 means no smoothing.
-    state_encoder : callable, optional
-        Function mapping state indices (long tensor) to feature vectors.
-        Receives shape (B,) and should return shape (B, state_dim).
-        If None, a default normalizing encoder is created.
-    context_encoder : callable, optional
-        Function mapping context indices (long tensor) to feature vectors.
-        Receives shape (B,) and should return shape (B, context_dim).
-        If None, a default normalizing encoder is created.
-    state_dim : int, optional
-        Dimension of state features. Required if state_encoder is provided.
-    context_dim : int, default=0
-        Dimension of context features. Required if context_encoder is provided.
-    feature_names : list of str, optional
-        Names for features when using raw tensor features for projection.
-    verbose : bool, default=False
-        Whether to print progress during training.
-
-    Attributes
-    ----------
-    params_ : dict or None
-        Projected structural parameters after fitting. None if no features
-        were provided.
-    se_ : dict or None
-        Pseudo standard errors from the projection regression.
-    pvalues_ : dict or None
-        P-values from Wald t-test on pseudo SEs.
-    coef_ : numpy.ndarray or None
-        Coefficient array (same values as params_ in array form).
-    policy_ : numpy.ndarray or None
-        Estimated choice probabilities P(a|s) of shape (n_states, n_actions).
-    value_ : numpy.ndarray or None
-        Estimated value function V(s) of shape (n_states,).
-    projection_r2_ : float or None
-        R-squared of the feature projection.
-    converged_ : bool or None
-        Whether training converged (early stopping or max epochs).
-    n_epochs_ : int or None
-        Number of training epochs completed.
-
-    Examples
-    --------
-    >>> from econirl.estimators import NeuralAIRL
-    >>> import pandas as pd
-    >>>
-    >>> model = NeuralAIRL(n_actions=3, discount=0.95, max_epochs=200)
-    >>> model.fit(data=df, state="state", action="action", id="agent_id")
-    >>> print(model.policy_.shape)  # (n_states, n_actions)
-    >>>
-    >>> # With context and feature projection
-    >>> model.fit(data=df, state="state", action="action", id="agent_id",
-    ...           context="destination", features=reward_spec)
-    >>> print(model.params_)
-    >>> print(model.projection_r2_)
-    """
+    """Context-aware AIRL estimator with sklearn-style API."""
 
     def __init__(
         self,
@@ -378,8 +279,8 @@ class NeuralAIRL(NeuralEstimatorMixin):
         gradient_clip: float = 1.0,
         patience: int = 50,
         label_smoothing: float = 0.0,
-        state_encoder: Callable[[torch.Tensor], torch.Tensor] | None = None,
-        context_encoder: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        state_encoder: Callable[[object], object] | None = None,
+        context_encoder: Callable[[object], object] | None = None,
         state_dim: int | None = None,
         context_dim: int = 0,
         feature_names: list[str] | None = None,
@@ -408,7 +309,6 @@ class NeuralAIRL(NeuralEstimatorMixin):
         self.feature_names = feature_names
         self.verbose = verbose
 
-        # Fitted attributes (set after fit())
         self.params_: dict[str, float] | None = None
         self.se_: dict[str, float] | None = None
         self.pvalues_: dict[str, float] | None = None
@@ -419,12 +319,11 @@ class NeuralAIRL(NeuralEstimatorMixin):
         self.converged_: bool | None = None
         self.n_epochs_: int | None = None
 
-        # Internal state
         self._reward_net: _RewardNetwork | None = None
         self._shaping_net: _ShapingNetwork | None = None
         self._policy_net: _PolicyNetwork | None = None
-        self._state_encoder: Callable | None = None
-        self._context_encoder: Callable | None = None
+        self._state_encoder: Callable[[object], jax.Array] | None = None
+        self._context_encoder: Callable[[object], jax.Array] | None = None
         self._state_dim: int | None = None
         self._context_dim: int | None = None
         self._n_states: int | None = None
@@ -435,74 +334,48 @@ class NeuralAIRL(NeuralEstimatorMixin):
         state: str | None = None,
         action: str | None = None,
         id: str | None = None,
-        context: str | torch.Tensor | None = None,
-        features: RewardSpec | torch.Tensor | None = None,
+        context: str | object | None = None,
+        features: RewardSpec | object | None = None,
         transitions: object = None,
-    ) -> "NeuralAIRL":
-        """Fit the NeuralAIRL estimator to data.
-
-        Parameters
-        ----------
-        data : pandas.DataFrame or Panel or TrajectoryPanel
-            Panel data with observations. When a DataFrame is passed,
-            ``state``, ``action``, and ``id`` column names are required.
-        state : str, optional
-            Column name for the state variable (required for DataFrame input).
-        action : str, optional
-            Column name for the action variable (required for DataFrame input).
-        id : str, optional
-            Column name for the individual identifier (required for DataFrame
-            input).
-        context : str or torch.Tensor, optional
-            Context information. If a string, it is treated as a column name
-            in the DataFrame. If a Tensor, it should have shape (N,) with
-            context indices aligned with the panel observations. If None,
-            no context conditioning is used.
-        features : RewardSpec or torch.Tensor, optional
-            Feature specification for parameter projection. If a RewardSpec,
-            uses its feature_matrix (S, A, K) and parameter_names. If a
-            Tensor, should have shape (S, A, K). If None, no projection is
-            done and params_ will be None.
-        transitions : ignored
-            Accepted for API compatibility but not used. NeuralAIRL does
-            not require a transition matrix.
-
-        Returns
-        -------
-        self : NeuralAIRL
-            Returns self for method chaining.
-        """
-        # --- Step 1: Extract tensors from data ---
+    ) -> NeuralAIRL:
         all_states, all_actions, all_next, all_contexts = self._extract_data(
             data, state, action, id, context
         )
 
-        n_states = int(all_states.max().item()) + 1
+        n_states = int(np.asarray(all_states).max()) + 1
         self._n_states = n_states
 
-        # --- Step 2: Build encoders if not provided ---
         self._build_encoders(all_states, all_contexts, n_states)
 
-        # --- Step 3: Build networks ---
-        sd = self._state_dim
-        cd = self._context_dim
+        key = jr.PRNGKey(np.random.randint(0, 2**31 - 1))
+        reward_key, shaping_key, policy_key = jr.split(key, 3)
         self._reward_net = _RewardNetwork(
-            sd, cd, self.n_actions, self.reward_hidden_dim, self.reward_num_layers
+            self._state_dim,
+            self._context_dim,
+            self.n_actions,
+            self.reward_hidden_dim,
+            self.reward_num_layers,
+            key=reward_key,
         )
         self._shaping_net = _ShapingNetwork(
-            sd, cd, self.shaping_hidden_dim, self.shaping_num_layers
+            self._state_dim,
+            self._context_dim,
+            self.shaping_hidden_dim,
+            self.shaping_num_layers,
+            key=shaping_key,
         )
         self._policy_net = _PolicyNetwork(
-            sd, cd, self.n_actions, self.policy_hidden_dim, self.policy_num_layers
+            self._state_dim,
+            self._context_dim,
+            self.n_actions,
+            self.policy_hidden_dim,
+            self.policy_num_layers,
+            key=policy_key,
         )
 
-        # --- Step 4: Training loop ---
         self._train(all_states, all_actions, all_next, all_contexts)
-
-        # --- Step 5: Extract policy and value ---
         self._extract_policy_and_value(all_states, all_contexts, n_states)
 
-        # --- Step 6: Feature projection ---
         if features is not None:
             self._project_onto_features(
                 features, all_states, all_actions, all_contexts
@@ -516,19 +389,14 @@ class NeuralAIRL(NeuralEstimatorMixin):
 
         return self
 
-    # ------------------------------------------------------------------
-    # Data extraction (same as NeuralGLADIUS)
-    # ------------------------------------------------------------------
-
     def _extract_data(
         self,
         data: pd.DataFrame | Panel | TrajectoryPanel,
         state: str | None,
         action: str | None,
         id: str | None,
-        context: str | torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Extract state/action/next_state/context tensors from input data."""
+        context: str | object | None,
+    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
         if isinstance(data, pd.DataFrame):
             if state is None or action is None or id is None:
                 raise ValueError(
@@ -538,36 +406,27 @@ class NeuralAIRL(NeuralEstimatorMixin):
             panel = TrajectoryPanel.from_dataframe(
                 data, state=state, action=action, id=id
             )
-            all_states = panel.all_states
-            all_actions = panel.all_actions
-            all_next = panel.all_next_states
+            all_states = jnp.asarray(panel.all_states, dtype=jnp.int32)
+            all_actions = jnp.asarray(panel.all_actions, dtype=jnp.int32)
+            all_next = jnp.asarray(panel.all_next_states, dtype=jnp.int32)
 
             if isinstance(context, str):
-                all_contexts = self._extract_context_from_df(
-                    data, id, context, panel
-                )
+                all_contexts = self._extract_context_from_df(data, id, context, panel)
             elif context is not None:
-                all_contexts = (
-                    context
-                    if isinstance(context, torch.Tensor)
-                    else torch.tensor(context, dtype=torch.long)
-                )
+                all_contexts = _to_jax_int(context)
             else:
-                all_contexts = torch.zeros(len(all_states), dtype=torch.long)
-
+                all_contexts = jnp.zeros(len(all_states), dtype=jnp.int32)
         elif isinstance(data, (Panel, TrajectoryPanel)):
-            all_states = data.get_all_states()
-            all_actions = data.get_all_actions()
-            all_next = data.get_all_next_states()
-
-            if context is not None and isinstance(context, torch.Tensor):
-                all_contexts = context
+            all_states = jnp.asarray(data.get_all_states(), dtype=jnp.int32)
+            all_actions = jnp.asarray(data.get_all_actions(), dtype=jnp.int32)
+            all_next = jnp.asarray(data.get_all_next_states(), dtype=jnp.int32)
+            if context is not None:
+                all_contexts = _to_jax_int(context)
             else:
-                all_contexts = torch.zeros(len(all_states), dtype=torch.long)
+                all_contexts = jnp.zeros(len(all_states), dtype=jnp.int32)
         else:
             raise TypeError(
-                f"data must be a DataFrame, Panel, or TrajectoryPanel, "
-                f"got {type(data)}"
+                f"data must be a DataFrame, Panel, or TrajectoryPanel, got {type(data)}"
             )
 
         return all_states, all_actions, all_next, all_contexts
@@ -578,197 +437,210 @@ class NeuralAIRL(NeuralEstimatorMixin):
         id_col: str,
         context_col: str,
         panel: TrajectoryPanel,
-    ) -> torch.Tensor:
-        """Extract context values from DataFrame aligned with panel observations."""
+    ) -> jax.Array:
         contexts: list[int] = []
         for _, group in df.groupby(id_col, sort=True):
             group = group.sort_index()
             contexts.extend(group[context_col].values.tolist())
-        return torch.tensor(contexts, dtype=torch.long)
+        return jnp.asarray(contexts, dtype=jnp.int32)
 
-    # ------------------------------------------------------------------
-    # Encoder setup
-    # ------------------------------------------------------------------
+    def _call_encoder(self, encoder: Callable[[object], object], values: object) -> jax.Array:
+        try:
+            encoded = encoder(values)
+        except Exception as err:
+            if torch is None:
+                raise err
+            torch_values = torch.tensor(_to_numpy(values).copy(), dtype=torch.long)
+            encoded = encoder(torch_values)
+        return _to_jax_float(encoded)
 
     def _build_encoders(
         self,
-        all_states: torch.Tensor,
-        all_contexts: torch.Tensor,
+        all_states: jax.Array,
+        all_contexts: jax.Array,
         n_states: int,
     ) -> None:
-        """Build default encoders if not provided by the user."""
         if self.state_encoder is not None:
-            self._state_encoder = self.state_encoder
+            self._state_encoder = lambda s: self._call_encoder(self.state_encoder, s)
             self._state_dim = self.state_dim or 1
         else:
             max_s = max(n_states - 1, 1)
             self._state_encoder = lambda s, _ms=max_s: (
-                s.float() / _ms
-            ).unsqueeze(-1)
+                _to_jax_float(s) / float(_ms)
+            ).reshape(-1, 1)
             self._state_dim = 1
 
         if self.context_encoder is not None:
-            self._context_encoder = self.context_encoder
+            self._context_encoder = lambda c: self._call_encoder(self.context_encoder, c)
             self._context_dim = self.context_dim or 1
         else:
-            n_ctx = max(int(all_contexts.max().item()), 1)
+            n_ctx = max(int(np.asarray(all_contexts).max()), 1) if len(all_contexts) else 1
             self._context_encoder = lambda c, _mc=n_ctx: (
-                c.float() / _mc
-            ).unsqueeze(-1)
+                _to_jax_float(c) / float(_mc)
+            ).reshape(-1, 1)
             self._context_dim = 1
-
-    # ------------------------------------------------------------------
-    # Training
-    # ------------------------------------------------------------------
 
     def _train(
         self,
-        states: torch.Tensor,
-        actions: torch.Tensor,
-        next_states: torch.Tensor,
-        contexts: torch.Tensor,
+        states: jax.Array,
+        actions: jax.Array,
+        next_states: jax.Array,
+        contexts: jax.Array,
     ) -> None:
-        """Run the adversarial training loop.
+        disc_model = _DiscriminatorBundle(self._reward_net, self._shaping_net)
+        policy_net = self._policy_net
 
-        Alternates between:
-        1. Discriminator update: classify expert vs policy transitions
-        2. Policy update: fool the discriminator
+        disc_transforms = []
+        policy_transforms = []
+        if self.gradient_clip > 0:
+            disc_transforms.append(optax.clip_by_global_norm(self.gradient_clip))
+            policy_transforms.append(optax.clip_by_global_norm(self.gradient_clip))
+        disc_transforms.append(optax.adam(self.disc_lr))
+        policy_transforms.append(optax.adam(self.policy_lr))
 
-        Uses early stopping on discriminator loss.
-        """
-        disc_optimizer = torch.optim.Adam(
-            list(self._reward_net.parameters())
-            + list(self._shaping_net.parameters()),
-            lr=self.disc_lr,
-            weight_decay=1e-4,
-        )
-        policy_optimizer = torch.optim.Adam(
-            self._policy_net.parameters(),
-            lr=self.policy_lr,
-            weight_decay=1e-4,
-        )
+        disc_optimizer = optax.chain(*disc_transforms)
+        policy_optimizer = optax.chain(*policy_transforms)
+
+        disc_opt_state = disc_optimizer.init(eqx.filter(disc_model, eqx.is_inexact_array))
+        policy_opt_state = policy_optimizer.init(eqx.filter(policy_net, eqx.is_inexact_array))
 
         N = len(states)
         best_loss = float("inf")
         patience_counter = 0
-
-        # Labels with optional smoothing
         expert_label = 1.0 - self.label_smoothing
         policy_label = 0.0 + self.label_smoothing
 
+        def compute_disc_logits(
+            disc: _DiscriminatorBundle,
+            policy: _PolicyNetwork,
+            s_feat: jax.Array,
+            ctx_feat: jax.Array,
+            action_idx: jax.Array,
+            ns_feat: jax.Array,
+        ) -> jax.Array:
+            action_oh = jax.nn.one_hot(action_idx, self.n_actions, dtype=jnp.float32)
+            g = disc.reward_net(s_feat, ctx_feat, action_oh)
+            h_s = disc.shaping_net(s_feat, ctx_feat)
+            h_ns = disc.shaping_net(ns_feat, ctx_feat)
+            log_pi = policy.log_prob(s_feat, ctx_feat, action_idx)
+            return g + self.discount * h_ns - h_s - log_pi
+
+        @eqx.filter_value_and_grad
+        def disc_loss_fn(
+            disc: _DiscriminatorBundle,
+            policy: _PolicyNetwork,
+            s_feat: jax.Array,
+            ctx_feat: jax.Array,
+            action_idx: jax.Array,
+            ns_feat: jax.Array,
+            key: jax.Array,
+        ) -> jax.Array:
+            expert_logits = compute_disc_logits(disc, policy, s_feat, ctx_feat, action_idx, ns_feat)
+            policy_probs = policy(s_feat, ctx_feat)
+            policy_actions = _sample_actions(policy_probs, key)
+            policy_logits = compute_disc_logits(disc, policy, s_feat, ctx_feat, policy_actions, ns_feat)
+            expert_targets = jnp.full_like(expert_logits, expert_label)
+            policy_targets = jnp.full_like(policy_logits, policy_label)
+            loss = _bce_with_logits(expert_logits, expert_targets).mean()
+            loss = loss + _bce_with_logits(policy_logits, policy_targets).mean()
+            return loss
+
+        @eqx.filter_value_and_grad
+        def policy_loss_fn(
+            policy: _PolicyNetwork,
+            disc: _DiscriminatorBundle,
+            s_feat: jax.Array,
+            ctx_feat: jax.Array,
+            ns_feat: jax.Array,
+            key: jax.Array,
+        ) -> jax.Array:
+            policy_probs = policy(s_feat, ctx_feat)
+            policy_actions = _sample_actions(policy_probs, key)
+            log_pi = policy.log_prob(s_feat, ctx_feat, policy_actions)
+            disc_logits = compute_disc_logits(disc, policy, s_feat, ctx_feat, policy_actions, ns_feat)
+            disc_reward = -jax.nn.softplus(-disc_logits)
+            entropy = -(policy_probs * jnp.log(policy_probs + 1e-10)).sum(axis=-1)
+            return -(log_pi * jax.lax.stop_gradient(disc_reward)).mean() - 0.01 * entropy.mean()
+
+        @eqx.filter_jit
+        def disc_step(
+            disc: _DiscriminatorBundle,
+            disc_state: optax.OptState,
+            policy: _PolicyNetwork,
+            s_feat: jax.Array,
+            ctx_feat: jax.Array,
+            action_idx: jax.Array,
+            ns_feat: jax.Array,
+            key: jax.Array,
+        ) -> tuple[_DiscriminatorBundle, optax.OptState, jax.Array]:
+            loss, grads = disc_loss_fn(disc, policy, s_feat, ctx_feat, action_idx, ns_feat, key)
+            updates, disc_state = disc_optimizer.update(grads, disc_state, disc)
+            disc = eqx.apply_updates(disc, updates)
+            return disc, disc_state, loss
+
+        @eqx.filter_jit
+        def policy_step(
+            policy: _PolicyNetwork,
+            policy_state: optax.OptState,
+            disc: _DiscriminatorBundle,
+            s_feat: jax.Array,
+            ctx_feat: jax.Array,
+            ns_feat: jax.Array,
+            key: jax.Array,
+        ) -> tuple[_PolicyNetwork, optax.OptState, jax.Array]:
+            loss, grads = policy_loss_fn(policy, disc, s_feat, ctx_feat, ns_feat, key)
+            updates, policy_state = policy_optimizer.update(grads, policy_state, policy)
+            policy = eqx.apply_updates(policy, updates)
+            return policy, policy_state, loss
+
+        best_disc_model = disc_model
+        best_policy_net = policy_net
+
         for epoch in range(self.max_epochs):
-            perm = torch.randperm(N)
+            perm = np.random.permutation(N)
             epoch_disc_loss = 0.0
             epoch_policy_loss = 0.0
             n_batches = 0
 
-            for i in range(0, N, self.batch_size):
-                idx = perm[i : i + self.batch_size]
+            for start in range(0, N, self.batch_size):
+                idx = perm[start : start + self.batch_size]
                 s = states[idx]
                 a = actions[idx]
                 ns = next_states[idx]
                 ctx = contexts[idx]
 
-                # Encode
                 s_feat = self._state_encoder(s)
                 ns_feat = self._state_encoder(ns)
                 ctx_feat = self._context_encoder(ctx)
-                a_oh = F.one_hot(a.long(), self.n_actions).float()
 
-                # --- Discriminator update ---
+                last_disc_loss = 0.0
                 for _ in range(self.disc_steps):
-                    disc_optimizer.zero_grad()
-
-                    # Expert transitions: compute discriminator logits
-                    expert_logits = self._compute_disc_logits(
-                        s_feat, ctx_feat, a_oh, a, ns_feat
+                    disc_key = jr.PRNGKey(np.random.randint(0, 2**31 - 1))
+                    disc_model, disc_opt_state, disc_loss = disc_step(
+                        disc_model,
+                        disc_opt_state,
+                        policy_net,
+                        s_feat,
+                        ctx_feat,
+                        a,
+                        ns_feat,
+                        disc_key,
                     )
+                    last_disc_loss = float(disc_loss)
 
-                    # Policy transitions: sample actions from policy,
-                    # use same (s, s') but with policy-sampled actions
-                    with torch.no_grad():
-                        policy_probs = self._policy_net(s_feat, ctx_feat)
-                        policy_actions = torch.multinomial(
-                            policy_probs, 1
-                        ).squeeze(-1)
-                        policy_a_oh = F.one_hot(
-                            policy_actions.long(), self.n_actions
-                        ).float()
-
-                    policy_logits = self._compute_disc_logits(
-                        s_feat, ctx_feat, policy_a_oh, policy_actions, ns_feat
-                    )
-
-                    # BCE loss: expert = 1, policy = 0
-                    expert_targets = torch.full_like(
-                        expert_logits, expert_label
-                    )
-                    policy_targets = torch.full_like(
-                        policy_logits, policy_label
-                    )
-                    disc_loss = (
-                        F.binary_cross_entropy_with_logits(
-                            expert_logits, expert_targets
-                        )
-                        + F.binary_cross_entropy_with_logits(
-                            policy_logits, policy_targets
-                        )
-                    )
-
-                    disc_loss.backward()
-                    if self.gradient_clip > 0:
-                        nn.utils.clip_grad_norm_(
-                            list(self._reward_net.parameters())
-                            + list(self._shaping_net.parameters()),
-                            self.gradient_clip,
-                        )
-                    disc_optimizer.step()
-
-                # --- Policy update ---
-                policy_optimizer.zero_grad()
-
-                # Policy wants to maximize log D(s, a_pi, s')
-                # which means maximizing the discriminator logits for
-                # policy-sampled actions
-                policy_probs = self._policy_net(s_feat, ctx_feat)
-                policy_actions = torch.multinomial(
-                    policy_probs, 1
-                ).squeeze(-1)
-                policy_a_oh = F.one_hot(
-                    policy_actions.long(), self.n_actions
-                ).float()
-
-                # Use log pi for REINFORCE-style gradient
-                log_pi = self._policy_net.log_prob(
-                    s_feat, ctx_feat, policy_actions
+                policy_key = jr.PRNGKey(np.random.randint(0, 2**31 - 1))
+                policy_net, policy_opt_state, policy_loss = policy_step(
+                    policy_net,
+                    policy_opt_state,
+                    disc_model,
+                    s_feat,
+                    ctx_feat,
+                    ns_feat,
+                    policy_key,
                 )
 
-                # Reward signal from discriminator
-                with torch.no_grad():
-                    disc_logits = self._compute_disc_logits(
-                        s_feat, ctx_feat, policy_a_oh, policy_actions, ns_feat
-                    )
-                    # log D(s,a,s') = logits - log(1 + exp(logits))
-                    # = -softplus(-logits)
-                    disc_reward = -F.softplus(-disc_logits)
-
-                # Policy loss: -E[log pi(a|s) * reward]
-                # Also add entropy bonus for exploration
-                entropy = -(policy_probs * (policy_probs + 1e-10).log()).sum(
-                    dim=-1
-                )
-                policy_loss = -(log_pi * disc_reward).mean() - 0.01 * entropy.mean()
-
-                policy_loss.backward()
-                if self.gradient_clip > 0:
-                    nn.utils.clip_grad_norm_(
-                        self._policy_net.parameters(),
-                        self.gradient_clip,
-                    )
-                policy_optimizer.step()
-
-                epoch_disc_loss += disc_loss.item()
-                epoch_policy_loss += policy_loss.item()
+                epoch_disc_loss += last_disc_loss
+                epoch_policy_loss += float(policy_loss)
                 n_batches += 1
 
             avg_disc_loss = epoch_disc_loss / max(n_batches, 1)
@@ -780,10 +652,11 @@ class NeuralAIRL(NeuralEstimatorMixin):
                     f"policy_loss={avg_policy_loss:.4f}"
                 )
 
-            # Early stopping on discriminator loss
             if avg_disc_loss < best_loss - 1e-4:
                 best_loss = avg_disc_loss
                 patience_counter = 0
+                best_disc_model = disc_model
+                best_policy_net = policy_net
             else:
                 patience_counter += 1
                 if patience_counter >= self.patience:
@@ -791,257 +664,137 @@ class NeuralAIRL(NeuralEstimatorMixin):
                         print(f"  Early stopping at epoch {epoch + 1}")
                     break
 
-        self.converged_ = (
-            patience_counter >= self.patience or epoch == self.max_epochs - 1
-        )
+        self._reward_net = best_disc_model.reward_net
+        self._shaping_net = best_disc_model.shaping_net
+        self._policy_net = best_policy_net
+        self.converged_ = patience_counter >= self.patience or epoch == self.max_epochs - 1
         self.n_epochs_ = epoch + 1
-
-    def _compute_disc_logits(
-        self,
-        s_feat: torch.Tensor,
-        ctx_feat: torch.Tensor,
-        a_oh: torch.Tensor,
-        actions: torch.Tensor,
-        ns_feat: torch.Tensor,
-    ) -> torch.Tensor:
-        """Compute AIRL discriminator logits.
-
-        logit = f(s,a,s') - log pi(a|s)
-        where f(s,a,s') = g(s,a) + gamma*h(s') - h(s)
-
-        Parameters
-        ----------
-        s_feat : torch.Tensor
-            State features of shape (B, state_dim).
-        ctx_feat : torch.Tensor
-            Context features of shape (B, context_dim).
-        a_oh : torch.Tensor
-            One-hot actions of shape (B, n_actions).
-        actions : torch.Tensor
-            Action indices of shape (B,).
-        ns_feat : torch.Tensor
-            Next-state features of shape (B, state_dim).
-
-        Returns
-        -------
-        torch.Tensor
-            Discriminator logits of shape (B,).
-        """
-        g = self._reward_net(s_feat, ctx_feat, a_oh)
-        h_s = self._shaping_net(s_feat, ctx_feat)
-        h_ns = self._shaping_net(ns_feat, ctx_feat)
-        f = g + self.discount * h_ns - h_s
-
-        log_pi = self._policy_net.log_prob(s_feat, ctx_feat, actions)
-
-        return f - log_pi
-
-    # ------------------------------------------------------------------
-    # Post-training extraction
-    # ------------------------------------------------------------------
 
     def _extract_policy_and_value(
         self,
-        all_states: torch.Tensor,
-        all_contexts: torch.Tensor,
+        all_states: jax.Array,
+        all_contexts: jax.Array,
         n_states: int,
     ) -> None:
-        """Compute policy and value function for all states.
-
-        Evaluates at context=0 for the policy/value matrices.
-        """
-        self._reward_net.eval()
-        self._shaping_net.eval()
-        self._policy_net.eval()
-
-        with torch.no_grad():
-            unique_states = torch.arange(n_states)
-            ctx_default = torch.zeros(n_states, dtype=torch.long)
-
-            s_feat = self._state_encoder(unique_states)
-            ctx_feat = self._context_encoder(ctx_default)
-
-            # Policy from the policy network
-            policy = self._policy_net(s_feat, ctx_feat)
-
-            # Value from shaping network
-            value = self._shaping_net(s_feat, ctx_feat)
-
-            self.policy_ = policy.numpy()
-            self.value_ = value.numpy()
+        unique_states = jnp.arange(n_states, dtype=jnp.int32)
+        ctx_default = jnp.zeros(n_states, dtype=jnp.int32)
+        s_feat = self._state_encoder(unique_states)
+        ctx_feat = self._context_encoder(ctx_default)
+        policy = self._policy_net(s_feat, ctx_feat)
+        value = self._shaping_net(s_feat, ctx_feat)
+        self.policy_ = np.asarray(policy)
+        self.value_ = np.asarray(value)
 
     def _project_onto_features(
         self,
-        features: RewardSpec | torch.Tensor,
-        states: torch.Tensor,
-        actions: torch.Tensor,
-        contexts: torch.Tensor,
+        features: RewardSpec | object,
+        states: jax.Array,
+        actions: jax.Array,
+        contexts: jax.Array,
     ) -> None:
-        """Project implied rewards onto features for interpretable theta.
-
-        Parameters
-        ----------
-        features : RewardSpec or torch.Tensor
-            Feature specification. RewardSpec provides (S, A, K) matrix and
-            parameter names. Tensor should be (S, A, K).
-        states : torch.Tensor
-            Observed state indices.
-        actions : torch.Tensor
-            Observed action indices.
-        contexts : torch.Tensor
-            Observed context indices.
-        """
         if isinstance(features, RewardSpec):
-            feat_matrix = features.feature_matrix  # (S, A, K)
+            feat_matrix = features.feature_matrix
             names = features.parameter_names
         else:
             feat_matrix = features
-            names = self.feature_names or [
-                f"f{i}" for i in range(features.shape[-1])
-            ]
+            names = self.feature_names or [f"f{i}" for i in range(np.asarray(features).shape[-1])]
 
-        with torch.no_grad():
-            s_feat = self._state_encoder(states)
-            ctx_feat = self._context_encoder(contexts)
-            a_oh = F.one_hot(actions.long(), self.n_actions).float()
+        states_j = _to_jax_int(states)
+        actions_j = _to_jax_int(actions)
+        contexts_j = _to_jax_int(contexts)
+        s_feat = self._state_encoder(states_j)
+        ctx_feat = self._context_encoder(contexts_j)
+        a_oh = jax.nn.one_hot(actions_j, self.n_actions, dtype=jnp.float32)
+        rewards = jnp.asarray(self._reward_net(s_feat, ctx_feat, a_oh), dtype=jnp.float32)
 
-            # Implied rewards are the reward network output g(s,a,ctx)
-            rewards = self._reward_net(s_feat, ctx_feat, a_oh)
-
-        # Get features for observed (s, a) pairs
-        phi = feat_matrix[states.long(), actions.long(), :]  # (N, K)
-
-        # Use float32 for projection
-        phi = phi.float()
-        rewards = rewards.float()
+        feat_np = _to_numpy(feat_matrix)
+        phi = feat_np[np.asarray(states_j), np.asarray(actions_j), :]
 
         theta, se, r2 = self._project_parameters(phi, rewards)
-
         self.params_ = {n: float(v) for n, v in zip(names, theta)}
         self.se_ = {n: float(v) for n, v in zip(names, se)}
         self.pvalues_ = self._compute_pvalues(self.params_, self.se_)
         self.projection_r2_ = r2
-        self.coef_ = theta.numpy()
-
-    # ------------------------------------------------------------------
-    # Prediction methods
-    # ------------------------------------------------------------------
+        self.coef_ = np.asarray(theta)
 
     @property
     def reward_matrix_(self) -> np.ndarray | None:
-        """Structural reward matrix R(s,a) of shape (n_states, n_actions).
-
-        Computes implied rewards g(s,a) from the reward network for all
-        state-action pairs evaluated at context=0. Returns None if the
-        model has not been fitted.
-        """
         if self._reward_net is None or self._n_states is None:
             return None
 
-        n_s = self._n_states
-        self._reward_net.eval()
-
-        with torch.no_grad():
-            unique_states = torch.arange(n_s, dtype=torch.long)
-            ctx_default = torch.zeros(n_s, dtype=torch.long)
-
-            s_feat = self._state_encoder(unique_states)
-            ctx_feat = self._context_encoder(ctx_default)
-
-            r_all = self._reward_net.all_actions(
-                s_feat, ctx_feat, self.n_actions
-            )
-
-        return r_all.numpy()
+        unique_states = jnp.arange(self._n_states, dtype=jnp.int32)
+        ctx_default = jnp.zeros(self._n_states, dtype=jnp.int32)
+        s_feat = self._state_encoder(unique_states)
+        ctx_feat = self._context_encoder(ctx_default)
+        r_all = self._reward_net.all_actions(s_feat, ctx_feat, self.n_actions)
+        return np.asarray(r_all)
 
     def predict_proba(self, states: np.ndarray) -> np.ndarray:
-        """Predict choice probabilities for given states.
-
-        Parameters
-        ----------
-        states : numpy.ndarray
-            Array of state indices.
-
-        Returns
-        -------
-        numpy.ndarray
-            Choice probabilities of shape (len(states), n_actions).
-            Each row sums to 1.
-
-        Raises
-        ------
-        RuntimeError
-            If the model has not been fitted yet.
-        """
         if self.policy_ is None:
             raise RuntimeError("Model not fitted. Call fit() first.")
         states = np.asarray(states, dtype=np.int64)
         return self.policy_[states]
 
+    def predict_proba_from_features(
+        self,
+        state_features: object,
+        contexts: object | None = None,
+    ) -> np.ndarray:
+        if self._policy_net is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        s_feat = _to_jax_float(state_features)
+        if s_feat.ndim == 1:
+            s_feat = s_feat[None, :]
+        if contexts is None:
+            contexts = jnp.zeros(s_feat.shape[0], dtype=jnp.int32)
+        ctx_feat = self._context_encoder(contexts)
+        probs = self._policy_net(s_feat, ctx_feat)
+        return np.asarray(probs)
+
+    def predict_reward_from_features(
+        self,
+        state_features: object,
+        actions: object,
+        contexts: object | None = None,
+    ) -> np.ndarray:
+        if self._reward_net is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        s_feat = _to_jax_float(state_features)
+        if s_feat.ndim == 1:
+            s_feat = s_feat[None, :]
+        actions_j = _to_jax_int(actions)
+        if actions_j.ndim == 0:
+            actions_j = actions_j[None]
+        if contexts is None:
+            contexts = jnp.zeros(s_feat.shape[0], dtype=jnp.int32)
+        ctx_feat = self._context_encoder(contexts)
+        a_oh = jax.nn.one_hot(actions_j, self.n_actions, dtype=jnp.float32)
+        rewards = self._reward_net(s_feat, ctx_feat, a_oh)
+        return np.asarray(rewards)
+
     def predict_reward(
         self,
-        states: torch.Tensor,
-        actions: torch.Tensor,
-        contexts: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Predict implied rewards g(s,a,ctx) from the reward network.
-
-        Parameters
-        ----------
-        states : torch.Tensor
-            State indices of shape (N,).
-        actions : torch.Tensor
-            Action indices of shape (N,).
-        contexts : torch.Tensor, optional
-            Context indices of shape (N,). If None, uses zeros.
-
-        Returns
-        -------
-        torch.Tensor
-            Implied rewards of shape (N,).
-
-        Raises
-        ------
-        RuntimeError
-            If the model has not been fitted yet.
-        """
+        states: object,
+        actions: object,
+        contexts: object | None = None,
+    ) -> object:
         if self._reward_net is None:
             raise RuntimeError("Model not fitted. Call fit() first.")
 
+        states_j = _to_jax_int(states)
+        actions_j = _to_jax_int(actions)
         if contexts is None:
-            contexts = torch.zeros(len(states), dtype=torch.long)
+            contexts_j = jnp.zeros(states_j.shape[0], dtype=jnp.int32)
+        else:
+            contexts_j = _to_jax_int(contexts)
 
-        self._reward_net.eval()
-
-        with torch.no_grad():
-            s_feat = self._state_encoder(states)
-            ctx_feat = self._context_encoder(contexts)
-            a_oh = F.one_hot(actions.long(), self.n_actions).float()
-
-            return self._reward_net(s_feat, ctx_feat, a_oh)
-
-    # ------------------------------------------------------------------
-    # Inference
-    # ------------------------------------------------------------------
+        s_feat = self._state_encoder(states_j)
+        ctx_feat = self._context_encoder(contexts_j)
+        a_oh = jax.nn.one_hot(actions_j, self.n_actions, dtype=jnp.float32)
+        rewards = jnp.asarray(self._reward_net(s_feat, ctx_feat, a_oh), dtype=jnp.float32)
+        return _return_like(rewards, states, actions, contexts)
 
     def conf_int(self, alpha: float = 0.05) -> dict[str, tuple[float, float]]:
-        """Compute confidence intervals for projected parameters.
-
-        Parameters
-        ----------
-        alpha : float, default=0.05
-            Significance level. Returns (1 - alpha) confidence intervals.
-
-        Returns
-        -------
-        dict
-            ``{param_name: (lower, upper)}`` confidence intervals.
-
-        Raises
-        ------
-        RuntimeError
-            If the model has not been fitted or no features were provided.
-        """
         if self.params_ is None or self.se_ is None:
             raise RuntimeError(
                 "No projected parameters available. "
@@ -1058,19 +811,7 @@ class NeuralAIRL(NeuralEstimatorMixin):
                 intervals[name] = (float("nan"), float("nan"))
         return intervals
 
-    # ------------------------------------------------------------------
-    # Summary
-    # ------------------------------------------------------------------
-
     def summary(self) -> str:
-        """Generate a formatted summary of estimation results.
-
-        Returns
-        -------
-        str
-            Human-readable summary including parameter estimates,
-            pseudo standard errors, and projection R-squared.
-        """
         if self.policy_ is None:
             return "NeuralAIRL: Not fitted yet. Call fit() first."
 
@@ -1095,10 +836,6 @@ class NeuralAIRL(NeuralEstimatorMixin):
                 f"Policy network: {self.policy_num_layers} layers x {self.policy_hidden_dim} hidden",
             ],
         )
-
-    # ------------------------------------------------------------------
-    # Repr
-    # ------------------------------------------------------------------
 
     def __repr__(self) -> str:
         fitted = self.policy_ is not None

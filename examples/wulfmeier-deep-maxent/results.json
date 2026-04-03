@@ -1,0 +1,222 @@
+{
+  "config": {
+    "grid_size": 32,
+    "demo_counts": [
+      8,
+      16,
+      32,
+      64,
+      128
+    ],
+    "n_seeds": 5,
+    "max_steps": 50,
+    "noise_fraction": 0.3,
+    "discount": 0.9,
+    "max_epochs": 200,
+    "lr": 0.01
+  },
+  "objectworld": {
+    "8": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "16": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "32": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "64": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "128": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    }
+  },
+  "binaryworld": {
+    "8": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "16": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "32": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "64": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    },
+    "128": {
+      "neural_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "linear_evds": [
+        NaN,
+        NaN,
+        NaN,
+        NaN,
+        NaN
+      ],
+      "neural_mean": NaN,
+      "neural_std": NaN,
+      "linear_mean": NaN,
+      "linear_std": NaN
+    }
+  }
+}

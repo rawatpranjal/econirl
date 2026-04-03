@@ -13,7 +13,6 @@ pseudo standard errors and an R-squared quality metric.
 from __future__ import annotations
 
 import numpy as np
-import torch
 from scipy.stats import norm as scipy_norm
 
 
@@ -26,11 +25,17 @@ class NeuralEstimatorMixin:
     - Formatted summary output with projection R-squared warning
     """
 
+    def _to_numpy(self, values: object) -> np.ndarray:
+        """Convert torch, JAX, or numpy-like values to a NumPy array."""
+        if hasattr(values, "detach") and hasattr(values, "cpu"):
+            return values.detach().cpu().numpy()
+        return np.asarray(values)
+
     def _project_parameters(
         self,
-        features: torch.Tensor,
-        rewards: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor, float]:
+        features: object,
+        rewards: object,
+    ) -> tuple[np.ndarray, np.ndarray, float]:
         """Project neural rewards onto linear features via least-squares.
 
         Solves theta = argmin ||Phi @ theta - r||^2 where Phi is the feature
@@ -53,30 +58,25 @@ class NeuralEstimatorMixin:
             R-squared of the projection, indicating how well the linear
             feature model approximates the neural reward surface.
         """
-        N, K = features.shape
+        features_np = self._to_numpy(features).astype(np.float32, copy=False)
+        rewards_np = self._to_numpy(rewards).astype(np.float32, copy=False).reshape(-1)
 
-        # theta = (Phi'Phi)^{-1} Phi'r
-        if rewards.ndim == 1:
-            rewards_col = rewards.unsqueeze(-1)
-        else:
-            rewards_col = rewards
-        result = torch.linalg.lstsq(features, rewards_col)
-        theta = result.solution.squeeze(-1)
+        N, K = features_np.shape
 
-        # Residuals and R-squared
-        predicted = features @ theta
-        residuals = rewards - predicted
-        ss_res = (residuals**2).sum()
-        ss_tot = ((rewards - rewards.mean()) ** 2).sum()
-        r_squared = float(1.0 - ss_res / ss_tot) if float(ss_tot) > 0 else 0.0
+        theta, _, _, _ = np.linalg.lstsq(features_np, rewards_np, rcond=None)
 
-        # Pseudo-SEs: sigma^2 = RSS / (N - K), Var(theta) = sigma^2 (Phi'Phi)^{-1}
+        predicted = features_np @ theta
+        residuals = rewards_np - predicted
+        ss_res = float((residuals**2).sum())
+        ss_tot = float(((rewards_np - rewards_np.mean()) ** 2).sum())
+        r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
         sigma2 = ss_res / max(N - K, 1)
         try:
-            cov = sigma2 * torch.inverse(features.T @ features)
-            se = torch.sqrt(torch.clamp(torch.diag(cov), min=0))
+            cov = sigma2 * np.linalg.inv(features_np.T @ features_np)
+            se = np.sqrt(np.clip(np.diag(cov), a_min=0.0, a_max=None))
         except Exception:
-            se = torch.full((K,), float("nan"))
+            se = np.full(K, float("nan"), dtype=np.float32)
 
         return theta, se, r_squared
 

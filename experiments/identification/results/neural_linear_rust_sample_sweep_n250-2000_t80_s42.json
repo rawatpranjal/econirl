@@ -1,0 +1,94 @@
+{
+  "metadata": {
+    "sample_sizes": [
+      250,
+      2000
+    ],
+    "n_periods": 80,
+    "num_states": 90,
+    "discount": 0.9999,
+    "operating_cost": 0.001,
+    "replacement_cost": 3.0,
+    "seed": 42
+  },
+  "results": [
+    {
+      "sample_size": 250,
+      "estimator": "NFXP",
+      "status": "ok",
+      "policy_mae": 0.0053478280142514305,
+      "policy_corr": 0.9999962353185488,
+      "param_mae": 0.0022882682213618225,
+      "runtime_seconds": 14.34296989440918,
+      "params": {
+        "theta_c": 0.0011579812651794533,
+        "RC": 3.004418555177544
+      }
+    },
+    {
+      "sample_size": 250,
+      "estimator": "NNES",
+      "status": "ok",
+      "policy_mae": 0.08438922149537838,
+      "policy_corr": -0.18165038672564837,
+      "param_mae": 0.20489714565873146,
+      "runtime_seconds": 45.706650733947754,
+      "params": {
+        "operating_cost": -0.05327928811311722,
+        "replacement_cost": 3.3555150032043457
+      }
+    },
+    {
+      "sample_size": 250,
+      "estimator": "TD-CCP",
+      "status": "ok",
+      "policy_mae": 0.013500869549668096,
+      "policy_corr": 0.9999843425099161,
+      "param_mae": 0.0017670666221529245,
+      "runtime_seconds": 179.39163517951965,
+      "params": {
+        "operating_cost": 0.0013915379531681538,
+        "replacement_cost": 3.0031425952911377
+      }
+    },
+    {
+      "sample_size": 250,
+      "estimator": "NeuralGLADIUS",
+      "status": "ok",
+      "policy_mae": 0.47808597126110014,
+      "policy_corr": 0.9996040444695125,
+      "param_mae": 1.5149138288926334,
+      "runtime_seconds": 21.259175062179565,
+      "params": {
+        "operating_cost": 0.0027667428366839886,
+        "replacement_cost": -0.02806091494858265
+      }
+    },
+    {
+      "sample_size": 2000,
+      "estimator": "NFXP",
+      "status": "ok",
+      "policy_mae": 0.0010629225079743737,
+      "policy_corr": 0.9999997993714144,
+      "param_mae": 0.0010309051442837732,
+      "runtime_seconds": 24.33750891685486,
+      "params": {
+        "theta_c": 0.0010326915919498419,
+        "RC": 3.0020291186966177
+      }
+    },
+    {
+      "sample_size": 2000,
+      "estimator": "NNES",
+      "status": "ok",
+      "policy_mae": 0.8805035571875679,
+      "policy_corr": 0.3909554170872452,
+      "param_mae": 0.29965236139297485,
+      "runtime_seconds": 189.0684061050415,
+      "params": {
+        "operating_cost": 0.5906935930252075,
+        "replacement_cost": 2.990388870239258
+      }
+    }
+  ]
+}

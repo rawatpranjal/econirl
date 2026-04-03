@@ -93,3 +93,13 @@ Cross-cutting tools for post-estimation diagnostics, model comparison, and infer
 
    post_estimation
    neural_counterfactuals
+
+Abstract MDPs
+-------------
+
+Minimal synthetic MDP studies for identification and counterfactual robustness.
+
+.. toctree::
+   :maxdepth: 1
+
+   ../tutorials/identification_study
