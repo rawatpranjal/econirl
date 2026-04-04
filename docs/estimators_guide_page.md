@@ -9,7 +9,7 @@ This page helps you choose the right estimator.
 | NFXP-NK | Forward ($\theta \to \pi$) | Linear | Yes | Analytical (MLE) | No | No |
 | CCP | Forward ($\theta \to \pi$) | Linear | Yes | Hessian | No | No |
 | MCE-IRL | Inverse ($\pi \to \theta$) | Linear / Neural | Yes | Bootstrap | Deep variant only | No |
-| TD-CCP | Forward ($\theta \to \pi$) | Linear | Yes | Hessian | Yes (neural AVI) | No |
+| TD-CCP | Forward ($\theta \to \pi$) | Linear | No (uses data) | Robust sandwich | Yes (semi-gradient or neural) | No |
 | NNES | Forward ($\theta \to \pi$) | Linear | Yes | Valid (orthogonality) | Yes (neural V) | No |
 | SEES | Forward ($\theta \to \pi$) | Linear | Yes | Marginal Hessian | Yes ($O(1)$ in $|\mathcal{S}|$) | No |
 | AIRL | Inverse ($\pi \to R$) | Linear / Tabular | Yes | No | No | Yes |
@@ -27,7 +27,7 @@ Every estimator must resolve the fundamental non-identification of rewards in dy
 | CCP | Linear $r = \theta \cdot \phi(s,a)$ | Parametric form (same as NFXP) | $\theta$ (structural params) | Yes |
 | MCE-IRL | Linear $r = \theta \cdot \phi(s,a)$ | Feature matching and norm constraint | $\theta$ (feature weights) | Yes |
 | NNES | Linear $r = \theta \cdot \phi(s,a)$ | Parametric form and neural $V$ approximation | $\theta$ (structural params) | Yes |
-| TD-CCP | Linear $r = \theta \cdot \phi(s,a)$ | Parametric form and TD approximation | $\theta$ (structural params) | No (uses data transitions) |
+| TD-CCP | Linear $r = \theta \cdot \phi(s,a)$ | Parametric form and TD approximation | $\theta$ (structural params) | No (learns from transitions directly) |
 | SEES | Linear $r = \theta \cdot \phi(s,a)$ | Parametric form and sieve $V$ approximation | $\theta$ (structural params) | Yes |
 | IQ-Learn | Nonparametric $R(s,a)$ | Chi-squared regularizer (min $\ell^2$ norm of implied reward) | $R(s,a)$ matrix | Yes (tabular) |
 | GLADIUS | Neural $Q(s,a)$ projected to linear | Bi-conjugate Bellman error and linear projection | $\theta$ (projected structural params) | Yes |
@@ -50,7 +50,7 @@ Comparing estimators across these two groups requires evaluating on quantities t
 
 **NNES** is for big state spaces when you need standard errors you can trust. It is the only neural method with theoretically valid inference.
 
-**TD-CCP** is for continuous states when you want to see which features are easy or hard to predict. It works without knowing the transition probabilities.
+**TD-CCP** is for continuous states when transition densities are hard to estimate. It learns value function terms directly from observed transitions using temporal-difference methods and provides valid standard errors via a locally robust moment condition with cross-fitting.
 
 **MCE-IRL** is for learning reward weights from demonstrations with standard errors. It is the bridge between IRL and structural econometrics.
 

@@ -58,11 +58,11 @@ All estimators share one interface and return parameters through ``params_``, ``
      - Continuous
      - Neural V, linear R
    * - ``TDCCP``
-     - AE 2022
+     - AE 2025
      - ✓
-     - ✓
+     - ✓ (robust)
      - Continuous
-     - Neural V, linear R
+     - Semi-gradient or neural AVI; no transitions needed
    * - ``SEES``
      - Luo-Sang 2024
      - ✓

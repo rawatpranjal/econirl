@@ -9,7 +9,7 @@ This guide explains why each of econirl's 10 core estimators exists, what theore
 | NFXP-NK | Forward (θ→π) | Linear | Yes | Analytical (MLE) | No | No |
 | CCP | Forward (θ→π) | Linear | Yes | Hessian | No | No |
 | MCE-IRL | Inverse (π→θ) | Linear / Neural | Yes | Bootstrap | Deep variant only | No |
-| TD-CCP | Forward (θ→π) | Linear | Yes | Hessian | Yes (neural AVI) | No |
+| TD-CCP | Forward (θ→π) | Linear | No (uses data) | Robust sandwich | Yes (semi-gradient or neural) | No |
 | NNES | Forward (θ→π) | Linear | Yes | Valid (orthogonality) | Yes (neural V) | No |
 | SEES | Forward (θ→π) | Linear | Yes | Marginal Hessian | Yes (O(1) in \|S\|) | No |
 | AIRL | Inverse (π→R) | Linear / Tabular | Yes | No | No | Yes |
@@ -27,7 +27,7 @@ Every estimator must resolve the fundamental non-identification of rewards in dy
 | CCP | Linear r = theta phi(s,a) | Parametric form (same as NFXP) | theta (structural params) | Yes |
 | MCE-IRL | Linear r = theta phi(s,a) | Feature matching + norm constraint | theta (feature weights) | Yes |
 | NNES | Linear r = theta phi(s,a) | Parametric form + neural V approximation | theta (structural params) | Yes |
-| TD-CCP | Linear r = theta phi(s,a) | Parametric form + TD approximation | theta (structural params) | No (uses data transitions) |
+| TD-CCP | Linear r = theta phi(s,a) | Parametric form + TD approximation | theta (structural params) | No (learns from transitions directly) |
 | SEES | Linear r = theta phi(s,a) | Parametric form + sieve V approximation | theta (structural params) | Yes |
 | IQ-Learn | Nonparametric R(s,a) | chi-squared regularizer (min L2 norm of implied reward) | R(s,a) matrix | Yes (tabular) |
 | GLADIUS | Neural Q(s,a) projected to linear | Bi-conjugate Bellman error + linear projection | θ (projected structural params) | Yes |
@@ -115,17 +115,19 @@ Do you have a parametric utility model u(s,a;θ)?
 
 ---
 
-### 4. TD-CCP — Neural Approximate VI with Feature Decomposition
+### 4. TD-CCP — Temporal-Difference CCP with Valid Inference
 
 **Paper**: Adusumilli & Eckardt (2025)
 
-**Core theorem**: TD learning with averaging converges to the true value function at a rate sufficient for **√n-consistency of θ**. The key innovation is **per-feature EV decomposition**: instead of a monolithic V(s), TD-CCP learns K+1 separate neural networks — one per utility feature `EV_k(s)` plus an entropy network — each satisfying `EV_k(s) = Σ_a P(a|s)·φ_k(s,a) + β·E[EV_k(s')]`.
+**Core theorems**:
+- **Theorem 1 (Semi-gradient convergence)**: The linear semi-gradient fixed point approximates h(a,x) with MSE bounded by (1-beta)^{-1} times the basis truncation error plus sqrt(k/n) statistical error.
+- **Theorem 5 (Locally robust inference)**: With cross-fitting and the debiased moment condition, sqrt(n)(theta_hat - theta_0) converges to N(0, V) at parametric rates despite nonparametric first stages.
 
-**Why it's irreplaceable**: The feature decomposition provides **interpretable per-component diagnostics** no other neural method offers. If EV₃ has high loss but EV₁ converges, you know the third feature's continuation value structure is complex. The CCP structure (frequency-based initial policy, NPL-style iteration) grounds it in econometric tradition while neural AVI enables scaling to continuous states.
+**Why it's irreplaceable**: The only estimator that works without knowing or estimating transition densities AND provides valid standard errors at parametric rates. The linear semi-gradient method gives a closed-form solution via a single matrix inversion, making it as fast as CCP while working on continuous state spaces. The locally robust moment condition (equation 4.6) uses a backward value function to correct for first-stage estimation error, producing standard errors that are valid even when h and g are estimated nonparametrically.
 
-**When to use**: Continuous state variables (experience, health capital, wealth) where discretization introduces massive approximation error and you need to understand which value function components drive decisions.
+**When to use**: Continuous state variables where transition densities are hard to estimate, or any setting where you want transition-free estimation with valid inference. The per-feature h(a,x) decomposition also provides interpretable diagnostics.
 
-**Limitation**: Trains K+1 networks (expensive for large K). Semi-gradient TD lacks global convergence guarantees.
+**Limitation**: Semi-gradient requires choosing basis functions (polynomials of degree 2-4 recommended). Neural AVI is flexible but trains K+1 networks and has no global convergence guarantee.
 
 ---
 
@@ -138,7 +140,7 @@ Do you have a parametric utility model u(s,a;θ)?
 - **Propositions 3-4 (Neyman Orthogonality)**: The likelihood score is orthogonal to V-approximation error. θ is √n-consistent even when V converges at the slower rate o_p(n^{-1/4}).
 - **Theorem 4.3 (Semiparametric Efficiency)**: `√n(θ̂ - θ₀) → N(0, Σ⁻¹)` — achieves the efficiency bound with no bias correction.
 
-**Why it's irreplaceable**: The only neural method where **standard errors are theoretically valid**. NFXP has valid SEs but can't scale. TD-CCP and SEES scale but their SEs are heuristic. NNES proves that the DDC likelihood's orthogonality structure insulates structural parameters from the nuisance V-network error.
+**Why it's irreplaceable**: The neural method with the strongest theoretical SE guarantee via Neyman orthogonality. NFXP has valid SEs but cannot scale. TD-CCP scales and has valid robust SEs via the debiased moment condition, but requires cross-fitting. SEES scales but its SEs may not be valid at the sieve boundary. NNES proves that the DDC likelihood's orthogonality structure insulates structural parameters from the nuisance V-network error without needing cross-fitting.
 
 **When to use**: High-dimensional continuous states where you need both neural scalability AND publication-grade inference (standard errors, hypothesis tests).
 
