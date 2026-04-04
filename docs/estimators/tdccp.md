@@ -41,3 +41,15 @@ TD-CCP is the right choice for continuous states when you want to see which feat
 ## References
 
 - Adusumilli, K. & Eckardt, D. (2025). Temporal Difference CCP Estimation.
+
+## Diagnostics and Guarantees
+
+Identification requires the same linear-in-parameters utility structure as other CCP-based methods, but TD-CCP does not require a known transition matrix. The method learns the expected value components directly from observed transitions using semi-gradient TD, so it works in settings where only trajectory data is available. Each feature component is learned by a separate network, and the entropy component is learned independently. If any component fails to converge, the per-component loss history reveals exactly which part of the value decomposition is unreliable.
+
+The estimator has three levels of convergence. The innermost level trains each EV component network for a fixed number of approximate value iteration rounds (default 20), with 30 SGD epochs per round. The second level maximizes the partial pseudo-likelihood via L-BFGS-B with a gradient tolerance of 1e-6 and a maximum of 200 iterations. The outermost level runs policy iterations (default 3) that update the CCPs from the estimated parameters, with convergence declared when the parameter change falls below 1e-4.
+
+Standard errors are computed from the numerical Hessian of the pseudo-likelihood evaluated at the optimum. The validity of these standard errors depends on the quality of the neural EV approximation. Unlike NNES, TD-CCP does not have a formal Neyman orthogonality guarantee, so large V-approximation errors can bias the Hessian. In practice, monitoring the per-component training losses helps assess whether the standard errors are trustworthy.
+
+The main limitation is resource cost. The method trains K plus 1 separate neural networks, where K is the number of features and the additional network handles the entropy component. TD learning also carries no strict global convergence guarantee, so results should be cross-checked against other estimators when possible. The semi-gradient TD update uses stop-gradient on the bootstrap target, which can lead to slow convergence in environments with long time horizons.
+
+The default configuration uses component networks with 2 hidden layers of 64 units each, a learning rate of 1e-3, mini-batch size of 8192, CCP smoothing of 0.01, 20 AVI rounds with 30 epochs per round, and 3 policy iterations. The L-BFGS-B optimizer for the structural MLE step uses a gradient tolerance of 1e-6 with a maximum of 200 iterations.

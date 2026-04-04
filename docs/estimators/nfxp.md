@@ -49,3 +49,15 @@ NFXP is the right choice when you need publication-grade structural estimates wi
 
 - Rust, J. (1987). Optimal Replacement of GMC Bus Engines: An Empirical Model of Harold Zurcher. *Econometrica*, 55(5), 999-1033.
 - Iskhakov, F., Lee, J., Rust, J., Schjerning, B., & Seo, K. (2016). Comment on "Constrained Optimization Approaches to Estimation of Structural Models." *Econometrica*, 84(1), 365-370.
+
+## Diagnostics and Guarantees
+
+Parameters are identified under standard regularity conditions for maximum likelihood in discrete choice models. The utility features must vary across actions for the likelihood surface to be well-defined. State-only features that are identical across all choices collapse the choice probabilities to a constant, making the likelihood flat and causing parameter blowup. The transition matrix must have full support on the reachable state space.
+
+The estimator uses dual convergence criteria. The inner loop solves the Bellman equation to a tolerance of 1e-12 by default, using the SA-then-NK polyalgorithm from Iskhakov et al. (2016) that starts with successive approximation and switches to Newton-Kantorovich once the error drops below 1e-3. The outer loop terminates when the maximum absolute gradient falls below 1e-6 or when the log-likelihood change is less than 1e-10 for more than ten iterations. The default outer optimizer is BHHH with a maximum of 1000 iterations.
+
+Standard errors come from the observed information matrix. In BHHH mode, the estimator computes per-observation scores via the implicit function theorem and forms the outer product of gradients. In L-BFGS-B or BFGS mode, the Hessian is computed numerically at the optimum. Both approaches produce valid asymptotic standard errors because NFXP is a full maximum likelihood estimator with an exact inner loop.
+
+The main practical limitation is computational cost. Solving the Bellman equation costs O(S squared) per outer iteration, so state spaces above roughly 10,000 become slow. Discount factors above 0.995 also hurt because the contraction rate approaches one. The inner solver warns when the discount factor exceeds 0.99 and the maximum iteration count is below 50,000. Feature normalization matters for conditioning. The Rust bus parameters of 0.001 and 3.0 span three orders of magnitude, so rescaling features to a common range improves optimizer behavior.
+
+The default configuration uses the hybrid inner solver with a switch tolerance of 1e-3, inner tolerance of 1e-12, and a maximum of 100,000 inner iterations. The outer loop uses BHHH with a gradient tolerance of 1e-6 and a maximum of 1000 iterations. These defaults are designed for problems with moderate discount factors and state spaces up to a few thousand states.

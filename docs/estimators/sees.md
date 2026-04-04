@@ -43,3 +43,15 @@ SEES is the right choice for large state spaces when deep learning is overkill a
 ## References
 
 - Luo, Y. & Sang, Y. (2024). Sieve-Based Estimation of Economic Structural Models.
+
+## Diagnostics and Guarantees
+
+Identification requires the same conditions as NFXP. The utility features must vary across actions, and the transition matrix must be known. The additional requirement is that the sieve basis must be rich enough to approximate the true value function. If the value function has sharp discontinuities or features that the chosen basis cannot capture, the resulting projection bias contaminates the structural parameter estimates. Smooth value functions are well-approximated by both Fourier and polynomial bases at moderate dimensions.
+
+Convergence is determined by a single L-BFGS-B optimization call over the joint parameter vector of structural parameters theta and basis coefficients alpha. The optimizer terminates when the gradient norm falls below 1e-6 or after 500 iterations. Because there is no inner loop, there is no distinction between inner and outer convergence. The L2 penalty on the basis coefficients (default lambda of 0.01) regularizes the optimization and prevents the sieve from overfitting.
+
+Standard errors are computed via the Schur complement of the numerical Hessian. The full Hessian is computed over the joint parameter space of theta and alpha, then the alpha block is marginalized out to yield the correct marginal Hessian for theta. This approach gives valid standard errors for the structural parameters when the sieve dimension is fixed. At the sieve boundary, where the approximation error is comparable to the statistical error, the standard errors may understate the true uncertainty because they do not account for the projection bias.
+
+The main limitation is manual basis selection. The user must choose the basis type (Fourier or polynomial) and the number of terms. Too few terms produce projection bias, while too many can overfit. In practice, 8 to 16 Fourier terms work well for smooth value functions on problems with up to a few hundred states. The L2 penalty helps control overfitting but cannot eliminate basis misspecification.
+
+The default configuration uses a Fourier basis with 8 terms, an L2 penalty of 0.01, L-BFGS-B with a gradient tolerance of 1e-6, and a maximum of 500 iterations. The basis is constructed over normalized state values in the range of 0 to 1. These defaults are designed for problems where the value function is reasonably smooth.

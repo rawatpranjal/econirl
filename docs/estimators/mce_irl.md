@@ -51,3 +51,15 @@ MCE-IRL is the right choice for learning reward weights from demonstrations when
 ## References
 
 - Ziebart, B. D. (2010). Modeling Purposeful Adaptive Behavior with the Principle of Maximum Causal Entropy. *PhD Thesis, Carnegie Mellon University*.
+
+## Diagnostics and Guarantees
+
+Reward parameters are identified only up to an additive constant and an overall scale factor, following Kim et al. (2021) and Cao and Cohen (2021). This means absolute parameter values are not meaningful on their own. Evaluate recovered parameters using cosine similarity or policy quality rather than raw RMSE. Features should be normalized to the range of negative one to one for well-conditioned optimization.
+
+The estimator uses dual stopping criteria following the imitation library (Gleave and Toyer 2022). The gradient path checks both the gradient norm and the occupancy distance. Convergence is declared when either the maximum absolute gradient falls below outer_tol (default 1e-6) or when the L-infinity distance between the demonstration and policy state visitation frequencies drops below occupancy_tol (default 1e-3). The inner soft value iteration uses the hybrid SA-then-NK solver with a tolerance of 1e-8 and a maximum of 10,000 iterations. The inner solver switches from successive approximation to Newton-Kantorovich when the error drops below 1e-3.
+
+Standard errors are computed via bootstrap by default, resampling trajectories and re-estimating parameters. The default number of bootstrap replications is 100. Hessian-based standard errors are also available by setting se_method to "hessian" in the configuration. Bootstrap standard errors are preferred because the IRL objective is not a standard likelihood, and the Hessian may not capture the full sampling variability from the feature-matching gradient.
+
+The linear variant returns interpretable reward weights with exact feature matching and a worst-case robustness guarantee (Ziebart 2010, Theorem 3). The deep variant replaces the linear reward with a neural network, which handles nonlinear preferences but loses parameter interpretability and invalidates the bootstrap standard errors. Both variants require explicit transition matrices.
+
+The default configuration uses L-BFGS-B as the outer optimizer with a maximum of 200 iterations. The gradient descent path uses Adam with a learning rate of 0.02, beta1 of 0.9, beta2 of 0.999, and a gradient clipping norm of 1.0. The state visitation computation runs for up to 1000 iterations with a tolerance of 1e-8.

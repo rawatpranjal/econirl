@@ -54,3 +54,15 @@ GLADIUS is the right choice when you want model-free estimation with a diagnosti
 ## References
 
 - Kang, H. et al. (2025). GLADIUS: Model-Free Estimation of Dynamic Discrete Choice Models.
+
+## Diagnostics and Guarantees
+
+Q-values are identified only up to a state-dependent constant c(s) when rewards are not observed. NLL-only training pins the Q-value differences across actions at each state, but the absolute level floats freely. This constant leaks into the implied rewards r(s,a) through the transition structure asymmetrically, because different actions lead to different successor states. On the Rust bus problem with beta of 0.95, this structural bias causes GLADIUS to overestimate the operating cost parameter by roughly 40 percent while recovering the replacement cost within 8 percent. This bias persists regardless of network size, training duration, or data volume. When rewards are observed in the data, the bi-conjugate Bellman error anchors the Q-value scale and eliminates this bias.
+
+The estimator uses early stopping as its convergence criterion. Training runs for up to 500 epochs by default, with convergence declared when the average loss does not improve by more than 1e-6 for 50 consecutive epochs (the patience parameter). If the maximum number of epochs is reached without early stopping, the estimator still reports convergence. The alternating update scheme from Algorithm 1 of Kang et al. (2025) updates the zeta-network on even batches and the Q-network on odd batches, with each network frozen while the other trains.
+
+GLADIUS does not produce analytical standard errors on the structural parameters. The post-hoc least-squares projection from neural reward onto linear features is not a formal estimator with known asymptotic properties. The R-squared from this projection serves as a diagnostic, telling the user how much of the learned neural reward is captured by the linear feature specification. Bootstrap standard errors can be requested (default 100 replications), but their validity depends on the stability of the neural training across bootstrap samples.
+
+The main practical limitations are the structural identification bias in the IRL setting (described above) and the sensitivity to hyperparameter tuning. The Bellman penalty weight lambda, the learning rates for both networks, and the network architectures all affect the quality of the recovered reward. The Q-network should not receive Bellman gradients through V_Q in the IRL setting, because this causes Q-value explosion without observed rewards to anchor the scale.
+
+The default configuration uses Q and EV networks with 3 hidden layers of 128 units each, learning rates of 1e-3 for both networks, a batch size of 512, Bellman penalty weight of 1.0, weight decay of 1e-4, gradient clipping at 1.0, and a learning rate decay rate of 0.001. Early stopping uses a patience of 50 epochs out of a maximum of 500.

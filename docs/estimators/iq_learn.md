@@ -52,3 +52,15 @@ IQ-Learn is the right choice when you have the transition matrix available and w
 ## References
 
 - Garg, D., Chakraborty, S., Cundy, C., Song, J., and Ermon, S. (2021). IQ-Learn: Inverse soft-Q Learning for Imitation. NeurIPS.
+
+## Diagnostics and Guarantees
+
+At the population level, IQ-Learn recovers the true soft Q-function exactly under the chi-squared divergence when the expert policy is the unique optimizer of the true reward. The reward is then recovered from Q via the inverse Bellman operator, r(s,a) = Q(s,a) minus beta times the expected next-period soft value. This identification requires the transition kernel P(s' given s,a) to be known. Unlike MCE-IRL, IQ-Learn identifies Q directly rather than reward parameters, so the reward is a derived quantity.
+
+Convergence depends on the chosen optimizer. With L-BFGS-B (the default), the estimator terminates when the gradient norm falls below 1e-6 or after 500 iterations. With Adam, it runs for a fixed number of iterations (default 500) and checks whether the gradient norm has dropped below the convergence tolerance of 1e-6. The chi-squared objective includes a regularization term controlled by the alpha parameter (default 1.0) that ensures the objective is strictly concave in Q.
+
+IQ-Learn does not produce standard errors on the recovered parameters. The Q-function is estimated via a non-standard objective (not a likelihood), so there is no natural Hessian to invert for variance estimation. The standard errors are reported as NaN. If inference is needed, the user should consider NFXP or CCP, which provide valid standard errors through maximum likelihood.
+
+In finite samples with tabular Q parameterization, the chi-squared objective can have multiple local optima when the state space is large. The global finite-sample optimum may differ from the population optimum because the empirical occupancy measure may not have full support. The simple (total variation) divergence avoids this issue but provides weaker finite-sample guarantees. When using linear Q parameterization (q_type set to "linear"), the recovered parameters are in the structural parameter space, but the Bellman consistency is only approximate.
+
+The default configuration uses tabular Q parameterization, chi-squared divergence with alpha of 1.0, L-BFGS-B as the optimizer with a maximum of 500 iterations, and a convergence tolerance of 1e-6. The learning rate of 0.01 applies only when Adam is selected as the optimizer.

@@ -48,3 +48,15 @@ See {doc}`../tutorials/neural_airl_trajectory_panel` for an end to end example.
 - Fu, J., Luo, K., & Levine, S. (2018). Learning Robust Rewards with Adversarial Inverse Reinforcement Learning. *ICLR 2018*.
 - Ho, J. & Ermon, S. (2016). Generative Adversarial Imitation Learning. *NeurIPS 2016*.
 - Ng, A. Y., Harada, D., & Russell, S. (1999). Policy Invariance Under Reward Transformations: Theory and Application to Reward Shaping. *ICML 1999*.
+
+## Diagnostics and Guarantees
+
+Under deterministic transitions and state-only reward, AIRL recovers the true reward up to an additive constant (Fu et al. 2018, Theorem 5.1). With stochastic transitions or action-dependent reward, the disentangling guarantee weakens, and the recovered reward g(s,a) may absorb some environment-dependent structure. The potential-based shaping term h(s) is designed to absorb the dynamics-dependent component, but this separation is exact only under the conditions of the theorem.
+
+Convergence is measured by policy stability. The estimator checks the L-infinity norm of the change in the policy matrix between consecutive rounds. Training terminates when this change falls below the convergence tolerance of 1e-4 or after the maximum number of rounds (default 200). Each round consists of multiple discriminator updates (default 5) followed by a full policy solve via hybrid value iteration with a tolerance of 1e-8 and a maximum of 5000 inner iterations.
+
+AIRL does not produce analytical standard errors. The adversarial training loop does not yield a well-defined likelihood or a Hessian that can be inverted for variance estimation. Bootstrap standard errors are available (default 100 replications) by resampling the expert demonstrations and re-running the full adversarial training, but this is computationally expensive because each bootstrap sample requires a complete training run. The standard errors are reported as NaN when bootstrap is disabled.
+
+The main practical limitation is training instability. The adversarial loop can oscillate, especially with large learning rates or insufficient discriminator updates per round. The reward learning rate (default 0.01) controls how aggressively the reward parameters are updated each round. Too large a learning rate causes oscillation, while too small a learning rate causes slow convergence. The discriminator structure with potential-based shaping (enabled by default) is critical for reward disentangling and should not be disabled unless the user specifically wants the unshaped reward.
+
+The default configuration uses tabular reward parameterization, a reward learning rate of 0.01, 5 discriminator steps per round, a maximum of 200 training rounds, hybrid inner solver with tolerance 1e-8 and a maximum of 5000 iterations, and a convergence tolerance of 1e-4 for policy changes. Bootstrap uses 100 replications when standard errors are requested.
