@@ -103,3 +103,36 @@ Minimal synthetic MDP studies for identification and counterfactual robustness.
    :maxdepth: 1
 
    ../tutorials/identification_study
+
+Theory and Replication
+-----------------------
+
+Theoretical comparisons and paper replications that validate econirl against published results.
+
+.. toctree::
+   :maxdepth: 1
+
+   ddc_irl_equivalence
+   ziebart_mce_irl
+   mce_irl
+
+Gym Environments
+-----------------
+
+Standard reinforcement learning environments for benchmarking neural estimators.
+
+.. toctree::
+   :maxdepth: 1
+
+   gym_irl
+
+Exploratory Data Analysis
+--------------------------
+
+Data exploration and feasibility assessment scripts for real-world datasets.
+
+.. toctree::
+   :maxdepth: 1
+
+   eda
+   ddc_eda
