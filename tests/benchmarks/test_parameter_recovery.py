@@ -32,6 +32,7 @@ from econirl.estimation import (
 from econirl.estimation.mpec import MPECEstimator, MPECConfig
 from econirl.estimation.nnes import NNESEstimator
 from econirl.estimation.sees import SEESEstimator
+from econirl.estimation.iq_learn import IQLearnEstimator, IQLearnConfig
 from econirl.preferences.linear import LinearUtility
 from econirl.preferences.action_reward import ActionDependentReward
 from econirl.simulation.synthetic import simulate_panel
@@ -176,6 +177,52 @@ def test_sees_rust_bus():
     alpha = result.metadata.get("alpha")
     if alpha is not None:
         assert jnp.all(jnp.isfinite(jnp.asarray(alpha))), "SEES sieve coefficients contain NaN/Inf"
+
+
+# ---------------------------------------------------------------------------
+# IQ-Learn on Rust bus
+# ---------------------------------------------------------------------------
+
+@pytest.mark.slow
+def test_iq_learn_rust_bus():
+    """IQ-Learn should recover reward direction (policy increases with mileage).
+
+    IQ-Learn recovers a nonparametric Q-function, not structural theta.
+    We test that the implied policy has the correct economic direction:
+    replacement probability should increase with mileage.
+    Uses lower gamma (0.99) since IQ-Learn with high gamma is slow.
+    Tabular Q with 1000 iterations needed for correct directional recovery.
+    """
+    env = RustBusEnvironment(
+        operating_cost=0.001, replacement_cost=3.0, discount_factor=0.99
+    )
+    panel, _, problem, transitions, _ = _simulate_and_prepare(env)
+
+    reward = ActionDependentReward.from_rust_environment(env)
+
+    config = IQLearnConfig(
+        q_type="tabular",
+        divergence="chi2",
+        max_iter=1000,
+        verbose=False,
+    )
+    estimator = IQLearnEstimator(config=config)
+    result = estimator.estimate(panel, reward, problem, transitions)
+
+    # Policy should be a valid distribution
+    assert result.policy is not None, "IQ-Learn should return a policy"
+    row_sums = result.policy.sum(axis=1)
+    assert jnp.allclose(row_sums, jnp.ones_like(row_sums), atol=1e-4), (
+        "IQ-Learn policy rows do not sum to 1"
+    )
+
+    # Directional check: replacement more likely at high mileage
+    low_mile_replace = float(result.policy[:10, 1].mean())
+    high_mile_replace = float(result.policy[-10:, 1].mean())
+    assert high_mile_replace > low_mile_replace, (
+        f"IQ-Learn: replacement should increase with mileage, "
+        f"but low={low_mile_replace:.4f}, high={high_mile_replace:.4f}"
+    )
 
 
 # ---------------------------------------------------------------------------
