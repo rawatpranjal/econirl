@@ -31,6 +31,7 @@ from econirl.estimation import (
 )
 from econirl.estimation.mpec import MPECEstimator, MPECConfig
 from econirl.estimation.nnes import NNESEstimator
+from econirl.estimation.sees import SEESEstimator
 from econirl.preferences.linear import LinearUtility
 from econirl.preferences.action_reward import ActionDependentReward
 from econirl.simulation.synthetic import simulate_panel
@@ -146,6 +147,35 @@ def test_nnes_rust_bus():
     result = estimator.estimate(panel, utility, problem, transitions)
     rmse = _rmse(result.parameters, true_params)
     assert rmse < 0.3, f"NNES Rust bus RMSE={rmse:.4f} exceeds tolerance 0.3"
+
+
+# ---------------------------------------------------------------------------
+# SEES on Rust bus
+# ---------------------------------------------------------------------------
+
+@pytest.mark.slow
+def test_sees_rust_bus():
+    """SEES should recover Rust bus parameters with RMSE < 0.5."""
+    env = RustBusEnvironment(
+        operating_cost=0.001, replacement_cost=3.0, discount_factor=0.9999
+    )
+    panel, utility, problem, transitions, true_params = _simulate_and_prepare(env)
+
+    estimator = SEESEstimator(
+        basis_type="fourier",
+        basis_dim=8,
+        penalty_lambda=0.01,
+        compute_se=False,
+        verbose=False,
+    )
+    result = estimator.estimate(panel, utility, problem, transitions)
+    rmse = _rmse(result.parameters, true_params)
+    assert rmse < 0.5, f"SEES Rust bus RMSE={rmse:.4f} exceeds tolerance 0.5"
+
+    # Sieve coefficients should be finite
+    alpha = result.metadata.get("alpha")
+    if alpha is not None:
+        assert jnp.all(jnp.isfinite(jnp.asarray(alpha))), "SEES sieve coefficients contain NaN/Inf"
 
 
 # ---------------------------------------------------------------------------
