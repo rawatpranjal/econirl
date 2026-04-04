@@ -162,9 +162,8 @@ class SEESEstimator(BaseEstimator):
             return basis
 
         elif self._basis_type == "polynomial":
-            # Polynomial basis: [1, s, s^2, s^3, ...]
-            # Use Chebyshev-normalized states for numerical stability
-            s_cheb = 2 * s_norm - 1  # Map to [-1, 1]
+            # Monomial basis: [1, s, s^2, s^3, ...] on [-1, 1]
+            s_cheb = 2 * s_norm - 1  # Map to [-1, 1] for conditioning
             basis = jnp.zeros((n_states, self._basis_dim))
             for k in range(self._basis_dim):
                 basis = basis.at[:, k].set(s_cheb ** k)

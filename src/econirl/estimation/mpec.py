@@ -63,6 +63,15 @@ class MPECConfig:
     rho_max: float = 1e6
     rho_growth: float = 10.0
     outer_max_iter: int = 50
+    # Backward compat aliases (map to max_iter / tol)
+    inner_max_iter: int | None = None
+    inner_tol: float | None = None
+
+    def __post_init__(self):
+        if self.inner_max_iter is not None:
+            self.max_iter = self.inner_max_iter
+        if self.inner_tol is not None:
+            self.tol = self.inner_tol
 
 
 class MPECEstimator(BaseEstimator):
