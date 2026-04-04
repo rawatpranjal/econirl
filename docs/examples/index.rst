@@ -1,7 +1,7 @@
 Examples
 ========
 
-These examples span six application domains. The spatial navigation examples use synthetic environments with known ground truth to validate estimators and benchmark parameter recovery. The remaining examples apply the same estimators to real data from maintenance engineering, healthcare, transportation, labor economics, and consumer markets.
+These examples span six application domains. The spatial navigation examples use synthetic environments with known ground truth to validate estimators and benchmark parameter recovery. The remaining examples apply the same estimators to real data from maintenance engineering, healthcare, transportation, labor economics, and consumer markets. For estimator comparisons, post-estimation diagnostics, and identification studies, see :doc:`../tutorials/index`.
 
 Spatial Navigation
 ------------------
@@ -82,27 +82,6 @@ Sequential search, browsing, and purchase decisions in markets.
 
    trivago_search
    instacart
-
-Post-Estimation
----------------
-
-Cross-cutting tools for post-estimation diagnostics, model comparison, and inference.
-
-.. toctree::
-   :maxdepth: 1
-
-   post_estimation
-   neural_counterfactuals
-
-Abstract MDPs
--------------
-
-Minimal synthetic MDP studies for identification and counterfactual robustness.
-
-.. toctree::
-   :maxdepth: 1
-
-   ../tutorials/identification_study
 
 Theory and Replication
 -----------------------

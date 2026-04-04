@@ -1,26 +1,49 @@
 Tutorials
 =========
 
+Tutorials teach methods, concepts, and cross-cutting tools. For domain-specific applications, see :doc:`../examples/index`.
+
+Estimator Comparisons
+---------------------
+
+Head-to-head benchmarks showing when each estimator class has an advantage.
+
+.. toctree::
+   :maxdepth: 1
+
+   mpec_vs_nfxp
+   sees_vs_nfxp
+   nnes_vs_nfxp
+
+Post-Estimation
+---------------
+
+Cross-cutting tools for diagnostics, model comparison, inference, and counterfactual analysis.
+
+.. toctree::
+   :maxdepth: 1
+
+   post_estimation
+   neural_counterfactuals
+
+Identification and Counterfactuals
+-----------------------------------
+
+Why structural estimation matters: observational equivalence, reward identification, and counterfactual robustness.
+
+.. toctree::
+   :maxdepth: 1
+
+   identification_study
+   abstract_mdp_identification
+
+Replication and Workflows
+--------------------------
+
+Paper replications and end-to-end estimation workflows.
+
 .. toctree::
    :maxdepth: 1
 
    rust_1987_replication
-   identification_study
-   abstract_mdp_identification
    neural_airl_trajectory_panel
-
-**Rust (1987) Replication API**
-   Programmatic replication of Rust's original tables with the replication module.
-   Includes Table II, Table IV, and Table V generation with LaTeX export.
-
-**Identification Study**
-   End‑to‑end simulation study on reward recovery and counterfactual robustness
-   across Reduced‑form, AIRL ± anchors, IQ‑Learn, GLADIUS, and NFXP.
-
-**Abstract MDP Identification**
-   Minimal three state example that shows why observational equivalence
-   in the baseline environment can break under transition changes.
-
-**NeuralAIRL with TrajectoryPanel**
-   End to end example that fits `NeuralAIRL` from a JAX backed
-   `TrajectoryPanel` and projects the learned reward onto features.
