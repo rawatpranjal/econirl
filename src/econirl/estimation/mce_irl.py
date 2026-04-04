@@ -39,10 +39,10 @@ from typing import Literal
 import jax
 import jax.numpy as jnp
 import numpy as np
-from scipy import optimize
 from tqdm import tqdm
 
 from econirl.core.bellman import SoftBellmanOperator
+from econirl.core.optimizer import minimize_lbfgsb
 from econirl.core.solvers import hybrid_iteration, policy_iteration, value_iteration, backward_induction
 from econirl.core.types import DDCProblem, Panel
 from econirl.estimation.base import BaseEstimator, EstimationResult
@@ -662,35 +662,18 @@ class MCEIRLEstimator(BaseEstimator):
                     self._log(f"Eval {n_function_evals}: NLL={-ll:.2f}, ||grad||={np.linalg.norm(grad_ll):.6f}")
                 return -ll, -grad_ll
 
-            from tqdm import tqdm
-            _mce_pbar = tqdm(
-                total=self.config.outer_max_iter,
-                desc="MCE-IRL L-BFGS-B",
-                disable=not self.config.verbose,
-                leave=True,
-            )
-            _mce_state = {"nll": float("inf")}
-
-            def _mce_callback(xk):
-                _mce_pbar.update(1)
-                _mce_pbar.set_postfix({"nfev": n_function_evals})
-
-            result_scipy = optimize.minimize(
+            result_opt = minimize_lbfgsb(
                 neg_ll_and_grad,
-                np.asarray(params).astype(np.float64),
-                method=self.config.optimizer,
-                jac=True,
-                callback=_mce_callback,
-                options={
-                    "maxiter": self.config.outer_max_iter,
-                    "ftol": 1e-10,
-                    "gtol": self.config.outer_tol,
-                    "disp": False,
-                },
+                jnp.asarray(params, dtype=jnp.float64),
+                bounds=None,
+                maxiter=self.config.outer_max_iter,
+                tol=self.config.outer_tol,
+                verbose=self.config.verbose,
+                desc="MCE-IRL L-BFGS-B",
+                value_and_grad=True,
             )
-            _mce_pbar.close()
-            final_params = jnp.array(result_scipy.x, dtype=jnp.float32)
-            converged = result_scipy.success
+            final_params = jnp.array(result_opt.x, dtype=jnp.float32)
+            converged = result_opt.success
 
             # Final solution
             reward_matrix = reward_fn.compute(final_params).astype(jnp.float64)
@@ -705,7 +688,7 @@ class MCEIRLEstimator(BaseEstimator):
             log_probs = operator.compute_log_choice_probabilities(reward_matrix, V)
             ll = float(log_probs[all_states, all_actions].sum())
 
-            self._log(f"L-BFGS-B complete: NLL={-ll:.2f}, ||grad||={np.linalg.norm(result_scipy.jac):.6f}, converged={converged}")
+            self._log(f"L-BFGS-B complete: NLL={-ll:.2f}, converged={converged}")
             if inner_not_converged > 0:
                 self._log(f"Warning: Inner loop did not converge {inner_not_converged} times")
 
@@ -729,7 +712,7 @@ class MCEIRLEstimator(BaseEstimator):
                 num_iterations=n_function_evals,
                 num_function_evals=n_function_evals,
                 num_inner_iterations=0,
-                message=result_scipy.message,
+                message=result_opt.message,
                 optimization_time=optimization_time,
                 metadata={
                     "optimizer": self.config.optimizer,

@@ -310,35 +310,21 @@ class IQLearnEstimator(BaseEstimator):
 
         # Optimize
         if self.config.optimizer == "L-BFGS-B":
-            from tqdm import tqdm
-            _iq_pbar = tqdm(
-                total=self.config.max_iter,
+            from econirl.core.optimizer import minimize_lbfgsb
+            result_opt = minimize_lbfgsb(
+                objective,
+                jnp.array(theta_init, dtype=jnp.float64),
+                maxiter=self.config.max_iter,
+                tol=self.config.convergence_tol,
+                verbose=self.config.verbose,
                 desc="IQ-Learn L-BFGS-B",
-                disable=not self.config.verbose,
-                leave=True,
             )
-
-            def _iq_callback(xk):
-                _iq_pbar.update(1)
-
-            result_scipy = optimize.minimize(
-                objective_and_gradient,
-                theta_init,
-                method="L-BFGS-B",
-                jac=True,
-                callback=_iq_callback,
-                options={
-                    "maxiter": self.config.max_iter,
-                    "gtol": self.config.convergence_tol,
-                },
-            )
-            _iq_pbar.close()
-            theta_opt = jnp.array(result_scipy.x)
-            converged = result_scipy.success
-            num_iterations = result_scipy.nit
-            num_fevals = result_scipy.nfev
-            message = result_scipy.message if isinstance(result_scipy.message, str) else result_scipy.message.decode()
-            final_obj = result_scipy.fun
+            theta_opt = result_opt.x
+            converged = result_opt.success
+            num_iterations = result_opt.nit
+            num_fevals = result_opt.nfev
+            message = result_opt.message
+            final_obj = result_opt.fun
         else:
             # Adam optimizer (manual implementation)
             theta_np = theta_init.copy()

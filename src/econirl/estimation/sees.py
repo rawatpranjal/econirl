@@ -28,8 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 import jax
 import jax.numpy as jnp
-from scipy import optimize
-
+from econirl.core.optimizer import minimize_lbfgsb
 from econirl.core.types import DDCProblem, Panel
 from econirl.estimation.base import BaseEstimator, EstimationResult
 from econirl.inference.standard_errors import SEMethod, compute_numerical_hessian
@@ -249,52 +248,25 @@ class SEESEstimator(BaseEstimator):
 
         self._ll_fn = penalized_ll
 
-        # JAX autodiff gradient
+        # JAX autodiff objective (minimization: negate the penalized log-likelihood)
         _neg_penalized_ll = jax.jit(lambda x: -penalized_ll(x))
-        _grad_fn = jax.jit(jax.grad(_neg_penalized_ll))
-
-        def objective(x_np):
-            return float(_neg_penalized_ll(jnp.array(x_np, dtype=jnp.float64)))
-
-        def gradient(x_np):
-            return np.asarray(_grad_fn(jnp.array(x_np, dtype=jnp.float64)))
 
         # Bounds: theta bounds from utility, alpha bounded loosely
         lower_theta, upper_theta = utility.get_parameter_bounds()
         lower = jnp.concatenate([lower_theta, jnp.full((n_alpha,), -50.0)])
         upper = jnp.concatenate([upper_theta, jnp.full((n_alpha,), 50.0)])
-        bounds = list(zip(np.asarray(lower), np.asarray(upper)))
 
         self._log(f"SEES: {n_theta} structural + {n_alpha} basis params, omega={omega}")
 
-        from tqdm import tqdm
-        _sees_pbar = tqdm(
-            total=self._max_iter,
+        result = minimize_lbfgsb(
+            _neg_penalized_ll,
+            x0,
+            bounds=(lower, upper),
+            maxiter=self._max_iter,
+            tol=self._tol,
+            verbose=self._verbose,
             desc="SEES L-BFGS-B",
-            disable=not self._verbose,
-            leave=True,
         )
-        _sees_state = {"last_obj": float("inf")}
-
-        def _sees_callback(xk):
-            obj_val = float(objective(xk))
-            _sees_state["last_obj"] = obj_val
-            _sees_pbar.update(1)
-            _sees_pbar.set_postfix({"obj": f"{obj_val:.4f}"})
-
-        result = optimize.minimize(
-            objective,
-            np.asarray(x0),
-            method="L-BFGS-B",
-            jac=gradient,
-            bounds=bounds,
-            callback=_sees_callback,
-            options={
-                "maxiter": self._max_iter,
-                "gtol": self._tol,
-            },
-        )
-        _sees_pbar.close()
 
         x_opt = jnp.array(result.x, dtype=jnp.float32)
         theta_opt = x_opt[:n_theta]

@@ -35,6 +35,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from econirl.core.bellman import SoftBellmanOperator
+from econirl.core.optimizer import minimize_lbfgsb
 from econirl.core.solvers import value_iteration, policy_iteration
 from econirl.core.types import DDCProblem, Panel
 from econirl.estimation.base import BaseEstimator, EstimationResult
@@ -326,69 +327,37 @@ class MaxEntIRLEstimator(BaseEstimator):
         # These are consistent because the MaxEnt IRL gradient IS ∂(-LL)/∂θ.
         self._log(f"Starting MaxEnt IRL optimization with L-BFGS-B")
 
-        def objective_and_gradient(params_np):
+        # Pure JAX objective: returns scalar NLL so jaxopt can differentiate it.
+        def jax_objective(params):
             nonlocal total_inner_iterations, num_function_evals
             num_function_evals += 1
 
-            params = jnp.array(params_np, dtype=jnp.float32)
             reward_matrix = reward_fn.compute(params)
             solver_result = self._solve_inner(operator, reward_matrix)
             total_inner_iterations += solver_result.num_iterations
 
-            # Compute negative log-likelihood (objective to minimize)
             log_probs = operator.compute_log_choice_probabilities(
                 reward_matrix, solver_result.V
             )
-            nll = float(-log_probs[panel.get_all_states(), panel.get_all_actions()].sum())
-
-            # Gradient of NLL = expected - empirical features
-            expected_features = self._compute_expected_features(
-                solver_result.policy,
-                transitions,
-                reward_fn,
-                problem,
-                panel,
-            )
-            grad = np.asarray(expected_features - empirical_features, dtype=float)
-
-            if self._verbose and num_function_evals % 10 == 0:
-                self._log(f"Eval {num_function_evals}: NLL={nll:.2f}, ||grad||={np.linalg.norm(grad):.6f}")
-
-            return nll, grad
+            nll = -log_probs[panel.get_all_states(), panel.get_all_actions()].sum()
+            return nll
 
         lower, upper = reward_fn.get_parameter_bounds()
-        bounds = list(zip(np.asarray(lower), np.asarray(upper)))
+        lower_jax = jnp.asarray(lower, dtype=jnp.float64)
+        upper_jax = jnp.asarray(upper, dtype=jnp.float64)
 
-        from scipy import optimize
-        from tqdm import tqdm
-        _maxent_pbar = tqdm(
-            total=self._outer_max_iter,
+        result_opt = minimize_lbfgsb(
+            jax_objective,
+            jnp.array(initial_params, dtype=jnp.float64),
+            bounds=(lower_jax, upper_jax),
+            maxiter=self._outer_max_iter,
+            tol=self._outer_tol,
+            verbose=self._verbose,
             desc="MaxEnt-IRL L-BFGS-B",
-            disable=not self._verbose,
-            leave=True,
         )
 
-        def _maxent_callback(xk):
-            _maxent_pbar.update(1)
-            _maxent_pbar.set_postfix({"nfev": num_function_evals})
-
-        result = optimize.minimize(
-            objective_and_gradient,
-            np.asarray(initial_params),
-            method="L-BFGS-B",
-            jac=True,
-            bounds=bounds,
-            callback=_maxent_callback,
-            options={
-                "maxiter": self._outer_max_iter,
-                "gtol": self._outer_tol,
-                "disp": False,
-            },
-        )
-        _maxent_pbar.close()
-
-        final_params = jnp.array(result.x, dtype=jnp.float32)
-        converged = result.success
+        final_params = jnp.array(result_opt.x, dtype=jnp.float32)
+        converged = result_opt.success
 
         # Compute final value function and policy
         reward_matrix = reward_fn.compute(final_params)
@@ -448,10 +417,10 @@ class MaxEntIRLEstimator(BaseEstimator):
             hessian=hessian,
             gradient_contributions=gradient_contributions,
             converged=converged,
-            num_iterations=result.nit,
+            num_iterations=result_opt.nit,
             num_function_evals=num_function_evals,
             num_inner_iterations=total_inner_iterations,
-            message=str(result.message) if hasattr(result, 'message') else "",
+            message=result_opt.message,
             optimization_time=optimization_time,
             metadata={
                 "optimizer": self._optimizer,
