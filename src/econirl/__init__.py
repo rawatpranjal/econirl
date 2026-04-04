@@ -60,9 +60,7 @@ from econirl.environments.rust_bus import RustBusEnvironment
 # Preferences
 from econirl.preferences.linear import LinearUtility
 
-# Legacy Estimators (for backward compatibility)
-from econirl.estimation.nfxp import NFXPEstimator
-from econirl.estimation.ccp import CCPEstimator
+# Legacy Estimators — handled by __getattr__ with deprecation warnings
 
 # Sklearn-style Estimators (JAX backend)
 from econirl.estimators import NFXP, CCP, MaxEntIRL, MaxMarginIRL, MCEIRL, NNES, SEES, TDCCP
@@ -137,3 +135,23 @@ __all__ = [
     # Replication
     "replication",
 ]
+
+_DEPRECATED_LEGACY = {
+    "NFXPEstimator": ("econirl.estimation.nfxp", "NFXPEstimator", "NFXP"),
+    "CCPEstimator": ("econirl.estimation.ccp", "CCPEstimator", "CCP"),
+}
+
+
+def __getattr__(name: str):
+    if name in _DEPRECATED_LEGACY:
+        module_path, class_name, replacement = _DEPRECATED_LEGACY[name]
+        import warnings
+        import importlib
+        warnings.warn(
+            f"{name} is deprecated. Use econirl.{replacement} (sklearn-style API) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        mod = importlib.import_module(module_path)
+        return getattr(mod, class_name)
+    raise AttributeError(f"module 'econirl' has no attribute {name!r}")
