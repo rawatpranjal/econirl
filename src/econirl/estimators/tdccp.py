@@ -146,14 +146,23 @@ class TDCCP:
         discount: float = 0.9999,
         utility: str | RewardSpec = "linear_cost",
         se_method: Literal["robust", "asymptotic"] = "asymptotic",
-        # TD-CCP specific hyperparameters
+        # Method selection (new: Adusumilli-Eckardt 2025)
+        method: Literal["semigradient", "neural"] = "semigradient",
+        cross_fitting: bool = True,
+        robust_se: bool = True,
+        # Semi-gradient specific
+        basis_dim: int = 8,
+        # Neural AVI specific
         hidden_dim: int = 64,
         num_hidden_layers: int = 2,
         avi_iterations: int = 20,
         epochs_per_avi: int = 30,
         learning_rate: float = 1e-3,
         batch_size: int = 8192,
-        n_policy_iterations: int = 3,
+        # CCP estimation
+        ccp_method: Literal["frequency", "logit"] = "frequency",
+        # NPL iteration (not in paper, optional)
+        n_policy_iterations: int = 1,
         verbose: bool = False,
     ):
         """Initialize the TD-CCP estimator.
@@ -170,6 +179,15 @@ class TDCCP:
             Utility specification to use.
         se_method : str, default="asymptotic"
             Method for computing standard errors.
+        method : str, default="semigradient"
+            TD method: "semigradient" (fast closed-form, eq 3.5) or
+            "neural" (AVI with neural networks, Algorithm 1).
+        cross_fitting : bool, default=True
+            Use 2-fold cross-fitting (Algorithm 2) for valid inference.
+        robust_se : bool, default=True
+            Compute locally robust standard errors (Section 4).
+        basis_dim : int, default=8
+            Number of polynomial basis functions for semi-gradient method.
         hidden_dim : int, default=64
             Hidden units per layer in EV component networks.
         num_hidden_layers : int, default=2
@@ -182,8 +200,10 @@ class TDCCP:
             Learning rate for neural network training.
         batch_size : int, default=8192
             Mini-batch size for SGD training.
-        n_policy_iterations : int, default=3
-            Number of NPL-style policy iterations.
+        ccp_method : str, default="frequency"
+            CCP estimation: "frequency" or "logit".
+        n_policy_iterations : int, default=1
+            Number of NPL-style policy iterations. Paper uses 1.
         verbose : bool, default=False
             Whether to print progress messages.
         """
@@ -192,12 +212,17 @@ class TDCCP:
         self.discount = discount
         self.utility = utility
         self.se_method = se_method
+        self.method = method
+        self.cross_fitting = cross_fitting
+        self.robust_se = robust_se
+        self.basis_dim = basis_dim
         self.hidden_dim = hidden_dim
         self.num_hidden_layers = num_hidden_layers
         self.avi_iterations = avi_iterations
         self.epochs_per_avi = epochs_per_avi
         self.learning_rate = learning_rate
         self.batch_size = batch_size
+        self.ccp_method = ccp_method
         self.n_policy_iterations = n_policy_iterations
         self.verbose = verbose
 
@@ -315,14 +340,19 @@ class TDCCP:
             state_encoder=lambda s: jnp.expand_dims(jnp.asarray(s, dtype=jnp.float32) / max(self.n_states - 1, 1), axis=-1),
         )
 
-        # Create the underlying TD-CCP estimator
+        # Create the underlying TD-CCP estimator with all config options
         config = TDCCPConfig(
+            method=self.method,
+            basis_dim=self.basis_dim,
             hidden_dim=self.hidden_dim,
             num_hidden_layers=self.num_hidden_layers,
             avi_iterations=self.avi_iterations,
             epochs_per_avi=self.epochs_per_avi,
             learning_rate=self.learning_rate,
             batch_size=self.batch_size,
+            ccp_method=self.ccp_method,
+            cross_fitting=self.cross_fitting,
+            robust_se=self.robust_se,
             n_policy_iterations=self.n_policy_iterations,
             compute_se=True,
             verbose=self.verbose,

@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import pytest
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -88,7 +89,7 @@ class TestTDCCPEstimatorProperties:
 
     def test_name(self):
         estimator = TDCCPEstimator()
-        assert estimator.name == "TD-CCP Neural"
+        assert estimator.name == "TD-CCP"
 
     def test_default_config(self):
         estimator = TDCCPEstimator()
@@ -145,58 +146,92 @@ class TestCCPEstimation:
 
 
 # ============================================================================
-# Flow decomposition tests
+# Transition extraction tests
 # ============================================================================
 
 
-class TestFlowDecomposition:
-    """Tests for the flow decomposition step."""
+class TestTransitionExtraction:
+    """Tests for extracting (a,x,a',x') tuples from panel data."""
 
-    def test_flow_features_shape(self, rust_env_small, small_panel, problem_spec_small):
-        """Flow features should have shape (num_states, num_features)."""
-        estimator = TDCCPEstimator()
+    def test_transition_lengths_match(self, rust_env_small, small_panel):
+        """All transition arrays should have the same length."""
+        actions, states, next_actions, next_states = TDCCPEstimator._extract_transitions(small_panel)
+        assert len(actions) == len(states) == len(next_actions) == len(next_states)
+
+    def test_transitions_non_empty(self, rust_env_small, small_panel):
+        """Should extract at least one transition."""
+        actions, states, next_actions, next_states = TDCCPEstimator._extract_transitions(small_panel)
+        assert len(states) > 0
+
+    def test_actions_valid(self, rust_env_small, small_panel, problem_spec_small):
+        """All actions should be valid (0 or 1 for binary choice)."""
+        actions, states, next_actions, next_states = TDCCPEstimator._extract_transitions(small_panel)
+        assert np.all(actions >= 0) and np.all(actions < problem_spec_small.num_actions)
+        assert np.all(next_actions >= 0) and np.all(next_actions < problem_spec_small.num_actions)
+
+    def test_states_valid(self, rust_env_small, small_panel, problem_spec_small):
+        """All states should be valid indices."""
+        actions, states, next_actions, next_states = TDCCPEstimator._extract_transitions(small_panel)
+        assert np.all(states >= 0) and np.all(states < problem_spec_small.num_states)
+        assert np.all(next_states >= 0) and np.all(next_states < problem_spec_small.num_states)
+
+
+# ============================================================================
+# Semi-gradient method tests
+# ============================================================================
+
+
+class TestSemigradientSolve:
+    """Tests for the linear semi-gradient method (eq 3.5)."""
+
+    def test_h_table_shape(self, rust_env_small, small_panel, problem_spec_small):
+        """h_table should have shape (num_states, num_actions, num_features)."""
+        estimator = TDCCPEstimator(config=TDCCPConfig(method="semigradient"))
         utility = LinearUtility.from_environment(rust_env_small)
         ccps = estimator._estimate_ccps(
             small_panel, problem_spec_small.num_states, problem_spec_small.num_actions
         )
-        flow_features, flow_entropy = TDCCPEstimator._compute_flow_components(
-            ccps, utility.feature_matrix
+        actions, states, next_actions, next_states = TDCCPEstimator._extract_transitions(small_panel)
+        h_table, g_table = estimator._semigradient_solve(
+            actions, states, next_actions, next_states,
+            np.array(utility.feature_matrix), np.array(ccps),
+            problem_spec_small.num_states, problem_spec_small.num_actions,
+            problem_spec_small.discount_factor,
         )
-        assert flow_features.shape == (problem_spec_small.num_states, utility.num_parameters)
+        assert h_table.shape == (problem_spec_small.num_states, problem_spec_small.num_actions, utility.num_parameters)
 
-    def test_flow_entropy_shape(self, rust_env_small, small_panel, problem_spec_small):
-        """Flow entropy should have shape (num_states,)."""
-        estimator = TDCCPEstimator()
+    def test_g_table_shape(self, rust_env_small, small_panel, problem_spec_small):
+        """g_table should have shape (num_states, num_actions)."""
+        estimator = TDCCPEstimator(config=TDCCPConfig(method="semigradient"))
         utility = LinearUtility.from_environment(rust_env_small)
         ccps = estimator._estimate_ccps(
             small_panel, problem_spec_small.num_states, problem_spec_small.num_actions
         )
-        flow_features, flow_entropy = TDCCPEstimator._compute_flow_components(
-            ccps, utility.feature_matrix
+        actions, states, next_actions, next_states = TDCCPEstimator._extract_transitions(small_panel)
+        h_table, g_table = estimator._semigradient_solve(
+            actions, states, next_actions, next_states,
+            np.array(utility.feature_matrix), np.array(ccps),
+            problem_spec_small.num_states, problem_spec_small.num_actions,
+            problem_spec_small.discount_factor,
         )
-        assert flow_entropy.shape == (problem_spec_small.num_states,)
+        assert g_table.shape == (problem_spec_small.num_states, problem_spec_small.num_actions)
 
-    def test_entropy_non_negative(self, rust_env_small, small_panel, problem_spec_small):
-        """Entropy should be non-negative."""
-        estimator = TDCCPEstimator()
+    def test_h_g_finite(self, rust_env_small, small_panel, problem_spec_small):
+        """h and g should be finite everywhere."""
+        estimator = TDCCPEstimator(config=TDCCPConfig(method="semigradient"))
         utility = LinearUtility.from_environment(rust_env_small)
         ccps = estimator._estimate_ccps(
             small_panel, problem_spec_small.num_states, problem_spec_small.num_actions
         )
-        _, flow_entropy = TDCCPEstimator._compute_flow_components(
-            ccps, utility.feature_matrix
+        actions, states, next_actions, next_states = TDCCPEstimator._extract_transitions(small_panel)
+        h_table, g_table = estimator._semigradient_solve(
+            actions, states, next_actions, next_states,
+            np.array(utility.feature_matrix), np.array(ccps),
+            problem_spec_small.num_states, problem_spec_small.num_actions,
+            problem_spec_small.discount_factor,
         )
-        assert (flow_entropy >= -1e-8).all()
-
-    def test_uniform_ccps_max_entropy(self):
-        """Uniform CCPs should give maximum entropy = log(num_actions)."""
-        num_states, num_actions, num_features = 5, 2, 2
-        ccps = jnp.ones((num_states, num_actions)) / num_actions
-        np.random.seed(0)
-        features = jnp.array(np.random.randn(num_states, num_actions, num_features))
-        _, flow_entropy = TDCCPEstimator._compute_flow_components(ccps, features)
-        expected = jnp.full((num_states,), np.log(num_actions))
-        np.testing.assert_allclose(np.asarray(flow_entropy), np.asarray(expected), atol=1e-5)
+        assert np.all(np.isfinite(h_table))
+        assert np.all(np.isfinite(g_table))
 
 
 # ============================================================================
@@ -207,115 +242,29 @@ class TestFlowDecomposition:
 class TestEVComponentNetwork:
     """Tests for the MLP component network."""
 
-    def test_output_shape(self):
-        """Network output should be (batch, 1)."""
-        net = _EVComponentNetwork(input_dim=1, hidden_dim=32, num_hidden_layers=2)
-        np.random.seed(0)
-        x = jnp.array(np.random.randn(10, 1))
+    def test_output_scalar(self):
+        """Network output should be a scalar for single input."""
+        key = jax.random.PRNGKey(0)
+        net = _EVComponentNetwork(input_dim=3, hidden_dim=32, num_hidden_layers=2, key=key)
+        x = jnp.ones(3)
         out = net(x)
-        assert out.shape == (10, 1)
+        assert out.shape == ()
 
-    def test_single_input(self):
-        """Network should handle single-sample input."""
-        net = _EVComponentNetwork(input_dim=1, hidden_dim=16, num_hidden_layers=1)
-        np.random.seed(0)
-        x = jnp.array(np.random.randn(1, 1))
-        out = net(x)
-        assert out.shape == (1, 1)
+    def test_vmap_batch(self):
+        """Network should work with vmap for batched input."""
+        key = jax.random.PRNGKey(0)
+        net = _EVComponentNetwork(input_dim=3, hidden_dim=16, num_hidden_layers=1, key=key)
+        x = jnp.ones((10, 3))
+        out = jax.vmap(net)(x)
+        assert out.shape == (10,)
 
     def test_gradient_flows(self):
         """Gradients should flow through the network."""
-        net = _EVComponentNetwork(input_dim=1, hidden_dim=16, num_hidden_layers=2)
-        np.random.seed(0)
-        x = jnp.array(np.random.randn(5, 1))
+        key = jax.random.PRNGKey(0)
+        net = _EVComponentNetwork(input_dim=3, hidden_dim=16, num_hidden_layers=2, key=key)
+        x = jnp.ones(3)
         out = net(x)
-        assert jnp.isfinite(out).all()
-
-
-# ============================================================================
-# NN training convergence tests
-# ============================================================================
-
-
-class TestNNTrainingConvergence:
-    """Tests that NN training loss decreases over time."""
-
-    def test_loss_decreases(self, rust_env_small, problem_spec_small):
-        """Training loss should decrease from first to last epoch."""
-        panel = simulate_panel(rust_env_small, n_individuals=50, n_periods=50, seed=42)
-        utility = LinearUtility.from_environment(rust_env_small)
-
-        cfg = TDCCPConfig(
-            avi_iterations=5,
-            epochs_per_avi=10,
-            hidden_dim=32,
-            num_hidden_layers=1,
-            learning_rate=1e-3,
-            batch_size=2048,
-            verbose=False,
-        )
-        estimator = TDCCPEstimator(config=cfg)
-
-        ccps = estimator._estimate_ccps(
-            panel, problem_spec_small.num_states, problem_spec_small.num_actions
-        )
-        flow_features, flow_entropy = TDCCPEstimator._compute_flow_components(
-            ccps, utility.feature_matrix
-        )
-
-        states = panel.get_all_states()
-        next_states = panel.get_all_next_states()
-
-        # Train on the first feature component
-        net, losses = estimator._train_component_network(
-            flow=flow_features[:, 0],
-            states=states,
-            next_states=next_states,
-            problem=problem_spec_small,
-            gamma=problem_spec_small.discount_factor,
-        )
-
-        # Average of first 5 losses vs average of last 5 losses
-        early_loss = np.mean(losses[:5])
-        late_loss = np.mean(losses[-5:])
-        assert late_loss < early_loss, (
-            f"Loss did not decrease: early={early_loss:.6f}, late={late_loss:.6f}"
-        )
-
-    def test_train_all_components_returns_correct_counts(
-        self, rust_env_small, problem_spec_small
-    ):
-        """_train_all_components should return one net per feature plus entropy."""
-        panel = simulate_panel(rust_env_small, n_individuals=20, n_periods=20, seed=42)
-        utility = LinearUtility.from_environment(rust_env_small)
-
-        cfg = TDCCPConfig(
-            avi_iterations=2,
-            epochs_per_avi=3,
-            hidden_dim=16,
-            num_hidden_layers=1,
-            verbose=False,
-        )
-        estimator = TDCCPEstimator(config=cfg)
-
-        ccps = estimator._estimate_ccps(
-            panel, problem_spec_small.num_states, problem_spec_small.num_actions
-        )
-        flow_features, flow_entropy = TDCCPEstimator._compute_flow_components(
-            ccps, utility.feature_matrix
-        )
-
-        feature_nets, entropy_net, loss_histories = estimator._train_all_components(
-            flow_features=flow_features,
-            flow_entropy=flow_entropy,
-            panel=panel,
-            problem=problem_spec_small,
-            gamma=problem_spec_small.discount_factor,
-        )
-
-        assert len(feature_nets) == utility.num_parameters
-        assert entropy_net is not None
-        assert len(loss_histories) == utility.num_parameters + 1  # features + entropy
+        assert jnp.isfinite(out)
 
 
 # ============================================================================
@@ -332,11 +281,9 @@ class TestTDCCPQuickIntegration:
         utility = LinearUtility.from_environment(rust_env_small)
 
         cfg = TDCCPConfig(
-            avi_iterations=3,
-            epochs_per_avi=5,
-            hidden_dim=16,
-            num_hidden_layers=1,
-            batch_size=512,
+            method="semigradient",
+            cross_fitting=False,
+            robust_se=False,
             outer_max_iter=20,
             compute_se=False,
             verbose=False,
@@ -362,11 +309,9 @@ class TestTDCCPQuickIntegration:
         utility = LinearUtility.from_environment(rust_env_small)
 
         cfg = TDCCPConfig(
-            avi_iterations=3,
-            epochs_per_avi=5,
-            hidden_dim=16,
-            num_hidden_layers=1,
-            batch_size=512,
+            method="semigradient",
+            cross_fitting=False,
+            robust_se=False,
             outer_max_iter=20,
             compute_se=True,
             verbose=False,
@@ -381,7 +326,7 @@ class TestTDCCPQuickIntegration:
         )
 
         assert summary is not None
-        assert summary.method == "TD-CCP Neural"
+        assert summary.method == "TD-CCP"
         assert len(summary.parameters) == utility.num_parameters
         assert summary.parameter_names == utility.parameter_names
 
@@ -391,11 +336,9 @@ class TestTDCCPQuickIntegration:
         utility = LinearUtility.from_environment(rust_env_small)
 
         cfg = TDCCPConfig(
-            avi_iterations=3,
-            epochs_per_avi=5,
-            hidden_dim=16,
-            num_hidden_layers=1,
-            batch_size=512,
+            method="semigradient",
+            cross_fitting=False,
+            robust_se=False,
             outer_max_iter=20,
             compute_se=False,
             verbose=False,
