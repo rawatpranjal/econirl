@@ -105,12 +105,12 @@ class FIRLEstimator(BaseEstimator):
         """
         all_states = panel.get_all_states()
         all_actions = panel.get_all_actions()
-        idx = all_states * n_actions + all_actions
-        counts = jnp.zeros(n_states * n_actions).scatter_add_(
-            0, idx.long(), jnp.ones(idx.shape[0])
-        ).reshape(n_states, n_actions)
+        idx = (all_states * n_actions + all_actions).astype(jnp.int32)
+        counts = jnp.zeros(n_states * n_actions)
+        counts = counts.at[idx].add(1.0)
+        counts = counts.reshape(n_states, n_actions)
         total = counts.sum()
-        return counts / total.clamp(min=1)
+        return counts / jnp.maximum(total, 1.0)
 
     def _compute_policy_marginal(
         self,
@@ -133,11 +133,11 @@ class FIRLEstimator(BaseEstimator):
             [traj.states[0].item() for traj in panel.trajectories if len(traj) > 0],
             dtype=jnp.int32,
         )
-        init_counts.scatter_add_(0, init_states, jnp.ones_like(init_states, dtype=jnp.float32))
-        mu = init_counts / init_counts.sum().clamp(min=1)
+        init_counts = init_counts.at[init_states].add(1.0)
+        mu = init_counts / jnp.maximum(init_counts.sum(), 1.0)
 
         # Forward propagation of state visitation
-        state_vis = mu.copy()
+        state_vis = mu
         P_pi = jnp.einsum("sa,ast->st", policy, transitions)
 
         for t in range(1, self._horizon):
@@ -147,7 +147,7 @@ class FIRLEstimator(BaseEstimator):
         state_vis = state_vis / state_vis.sum()
 
         # State-action marginal: d(s) * pi(a|s)
-        sa_marginal = state_vis.unsqueeze(1) * policy
+        sa_marginal = state_vis[:, None] * policy
         return sa_marginal
 
     def _f_divergence_gradient(
@@ -168,8 +168,8 @@ class FIRLEstimator(BaseEstimator):
             Gradient direction, shape (n_states, n_actions).
         """
         eps = 1e-10
-        p_policy_safe = p_policy.clamp(min=eps)
-        p_expert_safe = p_expert.clamp(min=eps)
+        p_policy_safe = jnp.clip(p_policy, min=eps)
+        p_expert_safe = jnp.clip(p_expert, min=eps)
 
         if self._f_divergence == "kl":
             # Gradient of KL(expert || policy) w.r.t. log-reward
@@ -204,7 +204,7 @@ class FIRLEstimator(BaseEstimator):
         expert_marginal = self._compute_expert_marginal(panel, n_states, n_actions)
 
         # Initialize tabular reward
-        reward = jnp.zeros(n_states, n_actions)
+        reward = jnp.zeros((n_states, n_actions))
 
         best_ll = float("-inf")
         best_policy = None
@@ -230,7 +230,7 @@ class FIRLEstimator(BaseEstimator):
             # Compute divergence gradient and update reward
             grad = self._f_divergence_gradient(expert_marginal, policy_marginal)
             reward = reward + self._lr * grad
-            reward = reward.clamp(-self._reward_clip, self._reward_clip)
+            reward = jnp.clip(reward, -self._reward_clip, self._reward_clip)
 
             # Track best policy by log-likelihood
             log_probs = operator.compute_log_choice_probabilities(
@@ -242,12 +242,12 @@ class FIRLEstimator(BaseEstimator):
 
             if ll > best_ll:
                 best_ll = ll
-                best_policy = policy.copy()
-                best_V = solver_result.V.copy()
-                best_reward = reward.copy()
+                best_policy = jnp.array(policy)
+                best_V = jnp.array(solver_result.V)
+                best_reward = jnp.array(reward)
 
             if self._verbose and (it + 1) % 100 == 0:
-                div = (expert_marginal - policy_marginal).abs().sum().item()
+                div = jnp.abs(expert_marginal - policy_marginal).sum().item()
                 self._log(
                     f"  Iter {it+1}: LL={ll:.2f}, best_LL={best_ll:.2f}, "
                     f"marginal_diff={div:.6f}"
