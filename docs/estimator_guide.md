@@ -1,6 +1,6 @@
 # Guide
 
-This guide explains why each of econirl's 9 core estimators exists, what theorem makes it unique, and when to use it. Every estimator occupies a point in the capability space that no other method covers.
+This guide explains why each of econirl's 10 core estimators exists, what theorem makes it unique, and when to use it. Every estimator occupies a point in the capability space that no other method covers.
 
 ## Quick Reference
 
@@ -13,6 +13,7 @@ This guide explains why each of econirl's 9 core estimators exists, what theorem
 | NNES | Forward (θ→π) | Linear | Yes | Valid (orthogonality) | Yes (neural V) | No |
 | SEES | Forward (θ→π) | Linear | Yes | Marginal Hessian | Yes (O(1) in \|S\|) | No |
 | AIRL | Inverse (π→R) | Linear / Tabular | Yes | No | No | Yes |
+| GLADIUS | Inverse (π→R) | Linear (projected) | Yes | Projected | Yes (neural Q) | No |
 | f-IRL | Inverse (π→R) | Tabular | Yes | No | No | No |
 | BC | Imitation | None | No | No | No | No |
 
@@ -29,6 +30,7 @@ Every estimator must resolve the fundamental non-identification of rewards in dy
 | TD-CCP | Linear r = theta phi(s,a) | Parametric form + TD approximation | theta (structural params) | No (uses data transitions) |
 | SEES | Linear r = theta phi(s,a) | Parametric form + sieve V approximation | theta (structural params) | Yes |
 | IQ-Learn | Nonparametric R(s,a) | chi-squared regularizer (min L2 norm of implied reward) | R(s,a) matrix | Yes (tabular) |
+| GLADIUS | Neural Q(s,a) projected to linear | Bi-conjugate Bellman error + linear projection | θ (projected structural params) | Yes |
 | AIRL | Nonparametric R(s) | Disentanglement (state-only reward + shaping potential) | R(s) function | No (adversarial) |
 | f-IRL | Nonparametric R(s,a) | f-divergence minimization (occupancy matching) | R(s,a) matrix | Yes |
 
@@ -55,6 +57,7 @@ Do you have a parametric utility model u(s,a;θ)?
     ├── Know what features matter?
     │   ├── Need interpretable linear weights + SEs? → MCE-IRL
     │   ├── Need nonlinear reward? → MCE-IRL (Deep)
+    │   ├── Need nonlinear + interpretable projection? → GLADIUS
     │   └── Need reward that transfers across environments? → AIRL
     ├── Don't know what features matter? → f-IRL
     └── Just need a baseline? → BC
@@ -62,7 +65,7 @@ Do you have a parametric utility model u(s,a;θ)?
 
 ---
 
-## The 9 Estimators
+## The 10 Estimators
 
 ### 1. NFXP-NK — Structural MLE Gold Standard
 
@@ -179,7 +182,21 @@ The discriminator structure `D = exp(f)/(exp(f) + π(a|s))` with `f = g_θ(s) + 
 
 ---
 
-### 8. f-IRL — Feature-Free Distribution Matching
+### 8. GLADIUS — Model-Free Neural with Linear Projection
+
+**Paper**: Kang, Iyengar & Sang (2025)
+
+**Core idea**: GLADIUS learns a neural Q-network and a neural EV-network jointly, using the bi-conjugate Bellman error as a consistency penalty. After training, the neural reward is projected onto a linear feature basis via least squares, recovering interpretable structural parameters. The projection R-squared diagnostic shows how much of the neural reward the linear basis captures.
+
+**Why it's irreplaceable**: The only estimator that combines **neural Q-function flexibility** with **linear parameter interpretability** via post-hoc projection. NFXP needs a pre-specified linear reward. AIRL recovers non-parametric reward. GLADIUS learns non-parametrically then projects, giving both accuracy and interpretation.
+
+**When to use**: Continuous or high-dimensional state spaces where tabular methods cannot be applied, or when rewards are observed in the data. The projection R-squared tells you how much of the neural reward is captured by linear features.
+
+**Limitation**: In the IRL setting (without observed rewards), Q is identified only up to a state-dependent constant. This causes GLADIUS to recover replacement cost within 8 percent but overestimate operating cost by about 40 percent on the Rust bus. This is a structural identification bias, not a tuning problem.
+
+---
+
+### 9. f-IRL — Feature-Free Distribution Matching
 
 **Paper**: Ni, Sikchi, Wang & Bhatt (2022, CoRL)
 
@@ -193,7 +210,7 @@ The discriminator structure `D = exp(f)/(exp(f) + π(a|s))` with `f = g_θ(s) + 
 
 ---
 
-### 9. BC — The Honest Baseline
+### 10. BC — The Honest Baseline
 
 **Papers**: Pomerleau (1991); Ross, Gordon & Bagnell (2011)
 
@@ -220,5 +237,6 @@ Each row has at least one unique cell:
 | **NNES** | | | | **Yes** | | | | | |
 | **SEES** | | | | | **Yes** | | | | |
 | **AIRL** | | | | | | **Yes** | | | |
+| **GLADIUS** | | | **Yes + projected** | | **Yes** | | | | |
 | **f-IRL** | | | | | | | **Yes** | | |
 | **BC** | | | | | | | | | **Yes** |

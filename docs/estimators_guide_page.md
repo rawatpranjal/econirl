@@ -13,6 +13,7 @@ This page helps you choose the right estimator.
 | NNES | Forward ($\theta \to \pi$) | Linear | Yes | Valid (orthogonality) | Yes (neural V) | No |
 | SEES | Forward ($\theta \to \pi$) | Linear | Yes | Marginal Hessian | Yes ($O(1)$ in $|\mathcal{S}|$) | No |
 | AIRL | Inverse ($\pi \to R$) | Linear / Tabular | Yes | No | No | Yes |
+| GLADIUS | Inverse ($\pi \to R$) | Linear (projected) | Yes | Projected | Yes (neural Q) | No |
 | f-IRL | Inverse ($\pi \to R$) | Tabular | Yes | No | No | No |
 | BC | Imitation | None | No | No | No | No |
 
@@ -29,6 +30,7 @@ Every estimator must resolve the fundamental non-identification of rewards in dy
 | TD-CCP | Linear $r = \theta \cdot \phi(s,a)$ | Parametric form and TD approximation | $\theta$ (structural params) | No (uses data transitions) |
 | SEES | Linear $r = \theta \cdot \phi(s,a)$ | Parametric form and sieve $V$ approximation | $\theta$ (structural params) | Yes |
 | IQ-Learn | Nonparametric $R(s,a)$ | Chi-squared regularizer (min $\ell^2$ norm of implied reward) | $R(s,a)$ matrix | Yes (tabular) |
+| GLADIUS | Neural $Q(s,a)$ projected to linear | Bi-conjugate Bellman error and linear projection | $\theta$ (projected structural params) | Yes |
 | AIRL | Nonparametric $R(s)$ | Disentanglement (state-only reward and shaping potential) | $R(s)$ function | No (adversarial) |
 | f-IRL | Nonparametric $R(s,a)$ | f-divergence minimization (occupancy matching) | $R(s,a)$ matrix | Yes |
 
@@ -54,6 +56,8 @@ Comparing estimators across these two groups requires evaluating on quantities t
 
 **AIRL** is for when the learned reward needs to work in a different environment than the one it was trained in.
 
+**GLADIUS** is for continuous state spaces when you want both neural flexibility and interpretable parameters. It learns a neural reward and projects it onto linear features. Check the projection R-squared to see how much the linear approximation captures.
+
 **f-IRL** is for exploring what the reward looks like when you have no idea which features matter.
 
 **BC** should always be your first step. If nothing beats it, the data may not have enough structure for model-based methods.
@@ -71,5 +75,6 @@ Each row has at least one unique cell.
 | **NNES** | | | | **Yes** | | | | | |
 | **SEES** | | | | | **Yes** | | | | |
 | **AIRL** | | | | | | **Yes** | | | |
+| **GLADIUS** | | | **Yes + projected** | | **Yes** | | | | |
 | **f-IRL** | | | | | | | **Yes** | | |
 | **BC** | | | | | | | | | **Yes** |
