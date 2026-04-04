@@ -47,3 +47,37 @@ def test_protocol_is_runtime_checkable():
     assert hasattr(EstimatorProtocol, '__protocol_attrs__') or True  # runtime_checkable
     est = _MockEstimator()
     assert isinstance(est, EstimatorProtocol)
+
+
+from econirl.estimators import (
+    NFXP, CCP, NNES, SEES, TDCCP,
+    MaxEntIRL, MaxMarginIRL, MCEIRL,
+    NeuralGLADIUS, NeuralAIRL, MCEIRLNeural, GCL,
+)
+
+# Core estimators that should always be available
+_CORE_ESTIMATORS = [NFXP, CCP, NNES, SEES, TDCCP, MaxEntIRL, MaxMarginIRL, MCEIRL]
+
+# Optional estimators (may be None if import failed)
+_OPTIONAL = [
+    ("NeuralGLADIUS", NeuralGLADIUS),
+    ("NeuralAIRL", NeuralAIRL),
+    ("MCEIRLNeural", MCEIRLNeural),
+    ("GCL", GCL),
+]
+
+
+@pytest.mark.parametrize("cls", _CORE_ESTIMATORS, ids=lambda c: c.__name__)
+def test_core_estimator_satisfies_protocol(cls):
+    """Every core sklearn estimator should satisfy EstimatorProtocol before fitting."""
+    est = cls()
+    assert isinstance(est, EstimatorProtocol), f"{cls.__name__} does not satisfy EstimatorProtocol"
+
+
+@pytest.mark.parametrize("name,cls", _OPTIONAL, ids=[n for n, _ in _OPTIONAL])
+def test_optional_estimator_satisfies_protocol(name, cls):
+    """Optional estimators should satisfy protocol if available."""
+    if cls is None:
+        pytest.skip(f"{name} not available")
+    est = cls()
+    assert isinstance(est, EstimatorProtocol), f"{name} does not satisfy EstimatorProtocol"

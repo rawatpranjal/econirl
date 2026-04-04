@@ -121,10 +121,16 @@ class GCL:
         self.normalize_reward = normalize_reward
         self.verbose = verbose
 
-        # Fitted attributes
-        self.cost_matrix_: np.ndarray | None = None
-        self.reward_matrix_: np.ndarray | None = None
+        # Protocol-required fitted attributes
+        self.params_: dict[str, float] | None = None
+        self.se_: dict[str, float] | None = None
+        self.pvalues_: dict[str, float] | None = None
         self.policy_: np.ndarray | None = None
+        self.value_: np.ndarray | None = None
+        self.reward_matrix_: np.ndarray | None = None
+
+        # GCL-specific fitted attributes
+        self.cost_matrix_: np.ndarray | None = None
         self.value_function_: np.ndarray | None = None
         self.transitions_: np.ndarray | None = None
         self.log_likelihood_: float | None = None
@@ -296,6 +302,7 @@ class GCL:
         # Value function
         if self._result.value_function is not None:
             self.value_function_ = np.asarray(self._result.value_function)
+            self.value_ = self.value_function_
 
         # Store the learned cost function
         if self._estimator is not None:
@@ -303,6 +310,37 @@ class GCL:
 
         self.log_likelihood_ = float(self._result.log_likelihood)
         self.converged_ = bool(self._result.converged)
+
+        # Populate protocol attributes. GCL uses a neural cost function so
+        # individual named parameters and standard errors are not available.
+        import warnings
+        self.params_ = {"log_likelihood": self.log_likelihood_}
+        self.se_ = {"log_likelihood": float("nan")}
+        warnings.warn(
+            "GCL uses a neural cost function. Standard errors are not available.",
+            stacklevel=2,
+        )
+        self.pvalues_ = {"log_likelihood": float("nan")}
+
+    def conf_int(self, alpha: float = 0.05) -> dict:
+        """Compute confidence intervals for parameters.
+
+        GCL uses a neural cost function, so confidence intervals are not
+        available. Returns NaN bounds for all parameters.
+
+        Parameters
+        ----------
+        alpha : float, default=0.05
+            Significance level (unused).
+
+        Returns
+        -------
+        ci : dict
+            Dictionary mapping parameter names to (lower, upper) tuples.
+        """
+        if self.params_ is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        return {k: (float("nan"), float("nan")) for k in self.params_}
 
     def predict_proba(self, states: np.ndarray) -> np.ndarray:
         """Predict choice probabilities.
