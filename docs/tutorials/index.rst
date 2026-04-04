@@ -11,10 +11,8 @@ Head-to-head benchmarks showing when each estimator class has an advantage.
 .. toctree::
    :maxdepth: 1
 
-   mpec_vs_nfxp
-   sees_vs_nfxp
-   nnes_vs_nfxp
-   tdccp_vs_nfxp
+   classical_benchmarks
+   approximate_benchmarks
 
 Post-Estimation
 ---------------
@@ -48,8 +46,17 @@ Theoretical comparisons and paper replications that validate econirl against pub
 
    ddc_irl_equivalence
    ziebart_mce_irl
-   mce_irl
    rust_1987_replication
+
+Dataset Readiness
+-----------------
+
+Pre-estimation workflows for screening raw datasets and assessing DDC feasibility.
+
+.. toctree::
+   :maxdepth: 1
+
+   dataset_readiness
 
 Workflows
 ----------
@@ -60,3 +67,5 @@ End-to-end estimation workflows.
    :maxdepth: 1
 
    neural_airl_trajectory_panel
+   simulated_data_workflow
+   real_data_example
