@@ -252,6 +252,17 @@ class MPECEstimator(BaseEstimator):
 
         self._log("Starting MPEC with SLSQP solver")
 
+        from tqdm import tqdm
+        _mpec_pbar = tqdm(
+            total=cfg.max_iter,
+            desc="MPEC SLSQP",
+            disable=not self._verbose,
+            leave=True,
+        )
+
+        def _mpec_slsqp_callback(xk):
+            _mpec_pbar.update(1)
+
         result = optimize.minimize(
             obj_scipy, x0,
             method="SLSQP",
@@ -262,11 +273,13 @@ class MPECEstimator(BaseEstimator):
                 "fun": constraint_fn,
                 "jac": constraint_jac_fn,
             },
+            callback=_mpec_slsqp_callback,
             options={
                 "maxiter": cfg.max_iter,
                 "ftol": cfg.tol,
             },
         )
+        _mpec_pbar.close()
 
         theta = jnp.array(result.x[:n_params], dtype=jnp.float64)
         V = jnp.array(result.x[n_params:], dtype=jnp.float64)

@@ -267,17 +267,34 @@ class SEESEstimator(BaseEstimator):
 
         self._log(f"SEES: {n_theta} structural + {n_alpha} basis params, omega={omega}")
 
+        from tqdm import tqdm
+        _sees_pbar = tqdm(
+            total=self._max_iter,
+            desc="SEES L-BFGS-B",
+            disable=not self._verbose,
+            leave=True,
+        )
+        _sees_state = {"last_obj": float("inf")}
+
+        def _sees_callback(xk):
+            obj_val = float(objective(xk))
+            _sees_state["last_obj"] = obj_val
+            _sees_pbar.update(1)
+            _sees_pbar.set_postfix({"obj": f"{obj_val:.4f}"})
+
         result = optimize.minimize(
             objective,
             np.asarray(x0),
             method="L-BFGS-B",
             jac=gradient,
             bounds=bounds,
+            callback=_sees_callback,
             options={
                 "maxiter": self._max_iter,
                 "gtol": self._tol,
             },
         )
+        _sees_pbar.close()
 
         x_opt = jnp.array(result.x, dtype=jnp.float32)
         theta_opt = x_opt[:n_theta]

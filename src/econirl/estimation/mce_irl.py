@@ -662,11 +662,25 @@ class MCEIRLEstimator(BaseEstimator):
                     self._log(f"Eval {n_function_evals}: NLL={-ll:.2f}, ||grad||={np.linalg.norm(grad_ll):.6f}")
                 return -ll, -grad_ll
 
+            from tqdm import tqdm
+            _mce_pbar = tqdm(
+                total=self.config.outer_max_iter,
+                desc="MCE-IRL L-BFGS-B",
+                disable=not self.config.verbose,
+                leave=True,
+            )
+            _mce_state = {"nll": float("inf")}
+
+            def _mce_callback(xk):
+                _mce_pbar.update(1)
+                _mce_pbar.set_postfix({"nfev": n_function_evals})
+
             result_scipy = optimize.minimize(
                 neg_ll_and_grad,
                 np.asarray(params).astype(np.float64),
                 method=self.config.optimizer,
                 jac=True,
+                callback=_mce_callback,
                 options={
                     "maxiter": self.config.outer_max_iter,
                     "ftol": 1e-10,
@@ -674,6 +688,7 @@ class MCEIRLEstimator(BaseEstimator):
                     "disp": False,
                 },
             )
+            _mce_pbar.close()
             final_params = jnp.array(result_scipy.x, dtype=jnp.float32)
             converged = result_scipy.success
 

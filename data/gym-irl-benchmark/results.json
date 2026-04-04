@@ -1,0 +1,89 @@
+[
+  {
+    "env": "CartPole-v1",
+    "n_trajectories": 2,
+    "seed": 42,
+    "n_transitions": 1000,
+    "expert_avg_reward": 500.0,
+    "gladius": {
+      "action_accuracy": 0.763,
+      "mean_reward": 308.4,
+      "std_reward": 200.43103552094922,
+      "normalized_reward": 0.6167999999999999,
+      "time_s": 28.879349946975708,
+      "epochs": 194,
+      "converged": true,
+      "forward_rl_mean": null,
+      "forward_rl_std": null
+    },
+    "airl": {
+      "action_accuracy": 0.76,
+      "mean_reward": 74.56,
+      "std_reward": 24.456622824911864,
+      "normalized_reward": 0.14912,
+      "time_s": 29.186824321746826,
+      "epochs": 69,
+      "converged": true,
+      "forward_rl_mean": null,
+      "forward_rl_std": null
+    }
+  },
+  {
+    "env": "Acrobot-v1",
+    "n_trajectories": 2,
+    "seed": 42,
+    "n_transitions": 153,
+    "expert_avg_reward": -87.08000183105469,
+    "gladius": {
+      "action_accuracy": 0.5098039215686274,
+      "mean_reward": -500.0,
+      "std_reward": 0.0,
+      "normalized_reward": -5.741846457124082,
+      "time_s": 10.327269077301025,
+      "epochs": 286,
+      "converged": true,
+      "forward_rl_mean": null,
+      "forward_rl_std": null
+    },
+    "airl": {
+      "action_accuracy": 0.49019607843137253,
+      "mean_reward": -500.0,
+      "std_reward": 0.0,
+      "normalized_reward": -5.741846457124082,
+      "time_s": 23.008682012557983,
+      "epochs": 107,
+      "converged": true,
+      "forward_rl_mean": null,
+      "forward_rl_std": null
+    }
+  },
+  {
+    "env": "LunarLander-v3",
+    "n_trajectories": 2,
+    "seed": 42,
+    "n_transitions": 687,
+    "expert_avg_reward": 259.06866455078125,
+    "gladius": {
+      "action_accuracy": 0.5502183406113537,
+      "mean_reward": -488.3560929670878,
+      "std_reward": 162.53831390791134,
+      "normalized_reward": -1.8850450084879442,
+      "time_s": 31.248334169387817,
+      "epochs": 300,
+      "converged": true,
+      "forward_rl_mean": null,
+      "forward_rl_std": null
+    },
+    "airl": {
+      "action_accuracy": 0.5021834061135371,
+      "mean_reward": -882.2393962422678,
+      "std_reward": 678.0022286580481,
+      "normalized_reward": -3.405426888551147,
+      "time_s": 40.30790090560913,
+      "epochs": 76,
+      "converged": true,
+      "forward_rl_mean": null,
+      "forward_rl_std": null
+    }
+  }
+]

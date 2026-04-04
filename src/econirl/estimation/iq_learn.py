@@ -310,16 +310,29 @@ class IQLearnEstimator(BaseEstimator):
 
         # Optimize
         if self.config.optimizer == "L-BFGS-B":
+            from tqdm import tqdm
+            _iq_pbar = tqdm(
+                total=self.config.max_iter,
+                desc="IQ-Learn L-BFGS-B",
+                disable=not self.config.verbose,
+                leave=True,
+            )
+
+            def _iq_callback(xk):
+                _iq_pbar.update(1)
+
             result_scipy = optimize.minimize(
                 objective_and_gradient,
                 theta_init,
                 method="L-BFGS-B",
                 jac=True,
+                callback=_iq_callback,
                 options={
                     "maxiter": self.config.max_iter,
                     "gtol": self.config.convergence_tol,
                 },
             )
+            _iq_pbar.close()
             theta_opt = jnp.array(result_scipy.x)
             converged = result_scipy.success
             num_iterations = result_scipy.nit

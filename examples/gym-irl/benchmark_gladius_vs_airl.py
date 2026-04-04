@@ -31,7 +31,6 @@ from dataclasses import dataclass
 
 import gymnasium as gym
 import numpy as np
-import torch
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -100,28 +99,27 @@ class IRLRewardWrapper(gym.Wrapper):
         obs_normed = (self._last_obs - self.obs_min) / self.obs_range
         obs_normed = np.clip(obs_normed, 0.0, 1.0)
 
-        with torch.no_grad():
-            s_feat = torch.tensor(obs_normed, dtype=torch.float32).unsqueeze(0)
-            ctx_feat = self.model._context_encoder(
-                torch.zeros(1, dtype=torch.long)
-            )
+        s_feat = np.asarray(obs_normed, dtype=np.float32)[None, :]
+        ctx_feat = self.model._context_encoder(np.zeros(1, dtype=np.int32))
 
-            if self.model_type == "gladius":
-                # Implied reward: r = Q(s,a) - beta * EV(s,a)
-                a_onehot = torch.zeros(1, self.n_actions)
-                a_onehot[0, action] = 1.0
-                q_val = self.model._q_net(s_feat, ctx_feat, a_onehot)
-                ev_val = self.model._ev_net(s_feat, ctx_feat, a_onehot)
-                irl_reward = float(
-                    (q_val - self.model.discount * ev_val).item()
-                )
-            else:
-                # AIRL reward: g(s,a)
-                a_onehot = torch.zeros(1, self.n_actions)
-                a_onehot[0, action] = 1.0
-                irl_reward = float(
-                    self.model._reward_net(s_feat, ctx_feat, a_onehot).item()
-                )
+        if self.model_type == "gladius":
+            # Implied reward: r = Q(s,a) - beta * EV(s,a)
+            a_onehot = np.zeros((1, self.n_actions), dtype=np.float32)
+            a_onehot[0, action] = 1.0
+            q_val = self.model._q_net(s_feat, ctx_feat, a_onehot)
+            ev_val = self.model._ev_net(s_feat, ctx_feat, a_onehot)
+            irl_reward = float(
+                np.asarray(q_val - self.model.discount * ev_val).item()
+            )
+        else:
+            # AIRL reward: g(s,a)
+            a_onehot = np.zeros((1, self.n_actions), dtype=np.float32)
+            a_onehot[0, action] = 1.0
+            irl_reward = float(
+                np.asarray(
+                    self.model._reward_net(s_feat, ctx_feat, a_onehot)
+                ).item()
+            )
 
         self._last_obs = obs
         return obs, irl_reward, terminated, truncated, info
@@ -256,7 +254,6 @@ def run_benchmark():
             for seed in SEEDS:
                 # Set seeds for reproducibility
                 np.random.seed(seed)
-                torch.manual_seed(seed)
 
                 # Load and subset data
                 data = load_expert_data(env_name, n_trajectories=n_traj)

@@ -360,18 +360,32 @@ class MaxEntIRLEstimator(BaseEstimator):
         bounds = list(zip(np.asarray(lower), np.asarray(upper)))
 
         from scipy import optimize
+        from tqdm import tqdm
+        _maxent_pbar = tqdm(
+            total=self._outer_max_iter,
+            desc="MaxEnt-IRL L-BFGS-B",
+            disable=not self._verbose,
+            leave=True,
+        )
+
+        def _maxent_callback(xk):
+            _maxent_pbar.update(1)
+            _maxent_pbar.set_postfix({"nfev": num_function_evals})
+
         result = optimize.minimize(
             objective_and_gradient,
             np.asarray(initial_params),
             method="L-BFGS-B",
             jac=True,
             bounds=bounds,
+            callback=_maxent_callback,
             options={
                 "maxiter": self._outer_max_iter,
                 "gtol": self._outer_tol,
-                "disp": self._verbose,
+                "disp": False,
             },
         )
+        _maxent_pbar.close()
 
         final_params = jnp.array(result.x, dtype=jnp.float32)
         converged = result.success

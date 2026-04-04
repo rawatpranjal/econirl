@@ -12,7 +12,6 @@ import os
 import gymnasium as gym
 import numpy as np
 import pandas as pd
-import torch
 
 
 # ---------------------------------------------------------------------------
@@ -177,10 +176,11 @@ def build_dataframe_and_encoder(
         state_to_obs.max(axis=0) - obs_global_min, 1e-8
     )
     state_to_obs_normed = (state_to_obs - obs_global_min) / obs_global_range
-    obs_lookup = torch.tensor(state_to_obs_normed, dtype=torch.float32)
+    obs_lookup = state_to_obs_normed.astype(np.float32, copy=False)
 
-    def state_encoder(state_indices: torch.Tensor) -> torch.Tensor:
-        return obs_lookup[state_indices.long()]
+    def state_encoder(state_indices) -> np.ndarray:
+        state_idx = np.asarray(state_indices, dtype=np.int32)
+        return obs_lookup[state_idx]
 
     df = pd.DataFrame({
         "agent_id": episode_ids,
@@ -259,22 +259,17 @@ def evaluate_neural_policy(
             obs_normed = (obs - obs_min) / obs_range
             obs_normed = np.clip(obs_normed, 0.0, 1.0)
 
-            with torch.no_grad():
-                s_feat = torch.tensor(
-                    obs_normed, dtype=torch.float32
-                ).unsqueeze(0)
-                ctx_feat = model._context_encoder(
-                    torch.zeros(1, dtype=torch.long)
-                )
+            s_feat = np.asarray(obs_normed, dtype=np.float32)[None, :]
+            ctx_feat = model._context_encoder(np.zeros(1, dtype=np.int32))
 
-                if model_type == "gladius":
-                    q_vals = model._q_net.all_actions(
-                        s_feat, ctx_feat, n_actions
-                    )
-                    action = int(q_vals.argmax(dim=1).item())
-                else:
-                    logits = model._policy_net(s_feat, ctx_feat)
-                    action = int(logits.argmax(dim=1).item())
+            if model_type == "gladius":
+                q_vals = np.asarray(
+                    model._q_net.all_actions(s_feat, ctx_feat, n_actions)
+                )
+                action = int(np.argmax(q_vals, axis=1)[0])
+            else:
+                probs = np.asarray(model._policy_net(s_feat, ctx_feat))
+                action = int(np.argmax(probs, axis=1)[0])
 
             obs, reward, terminated, truncated, _ = env.step(action)
             episode_reward += reward
