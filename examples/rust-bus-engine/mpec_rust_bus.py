@@ -62,8 +62,11 @@ print()
 
 print("--- Running MPEC ---")
 mpec_config = MPECConfig(
-    solver="slsqp",
-    max_iter=500,
+    rho_initial=1.0,
+    rho_max=1e6,
+    rho_growth=10.0,
+    outer_max_iter=50,
+    inner_max_iter=500,
     constraint_tol=1e-8,
 )
 mpec = MPECEstimator(config=mpec_config, verbose=True)
