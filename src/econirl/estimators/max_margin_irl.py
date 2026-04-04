@@ -30,6 +30,7 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm as scipy_norm
 
 from econirl.core.types import DDCProblem, Panel, Trajectory
 from econirl.contrib.max_margin_irl import MaxMarginIRLEstimator
@@ -164,10 +165,12 @@ class MaxMarginIRL:
         # Fitted attributes (set after fit())
         self.params_: dict[str, float] | None = None
         self.se_: dict[str, float] | None = None
+        self.pvalues_: dict[str, float] | None = None
         self.coef_: np.ndarray | None = None
         self.reward_: np.ndarray | None = None
         self.margin_: float | None = None
         self.value_function_: np.ndarray | None = None
+        self.policy_: np.ndarray | None = None
         self.transitions_: np.ndarray | None = None
         self.converged_: bool | None = None
 
@@ -425,6 +428,67 @@ class MaxMarginIRL:
 
         if self._result.value_function is not None:
             self.value_function_ = np.asarray(self._result.value_function)
+
+        if self._result.policy is not None:
+            self.policy_ = np.asarray(self._result.policy)
+
+        # p-values from t-statistics
+        if self.se_ is not None and self.params_ is not None:
+            pvalues: dict[str, float] = {}
+            for name in self.params_:
+                se_val = self.se_[name]
+                if se_val and se_val > 0:
+                    t_stat = self.params_[name] / se_val
+                    pvalues[name] = float(
+                        2 * (1 - scipy_norm.cdf(abs(t_stat)))
+                    )
+                else:
+                    pvalues[name] = float("nan")
+            self.pvalues_ = pvalues
+
+    @property
+    def value_(self) -> np.ndarray | None:
+        """Value function V(s) of shape (n_states,)."""
+        return self.value_function_
+
+    @property
+    def reward_matrix_(self) -> np.ndarray | None:
+        """Reward matrix R(s,a) of shape (n_states, n_actions).
+
+        MaxMarginIRL learns a state-only reward R(s). This property broadcasts
+        it to all actions so that the shape matches the protocol requirement.
+        """
+        if self.reward_ is None:
+            return None
+        return np.tile(self.reward_[:, np.newaxis], (1, self.n_actions))
+
+    def conf_int(self, alpha: float = 0.05) -> dict:
+        """Compute confidence intervals for parameters.
+
+        Parameters
+        ----------
+        alpha : float, default=0.05
+            Significance level.  Returns (1 - alpha) confidence intervals.
+
+        Returns
+        -------
+        dict
+            ``{param_name: (lower, upper)}`` confidence intervals.
+
+        Raises
+        ------
+        RuntimeError
+            If the model has not been fitted yet.
+        """
+        if self.params_ is None or self.se_ is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        z = scipy_norm.ppf(1 - alpha / 2)
+        intervals: dict[str, tuple[float, float]] = {}
+        for name in self.params_:
+            est = self.params_[name]
+            se = self.se_[name]
+            intervals[name] = (est - z * se, est + z * se)
+        return intervals
 
     def summary(self) -> str:
         """Generate a formatted summary of estimation results.

@@ -832,6 +832,23 @@ class MCEIRLNeural(NeuralEstimatorMixin):
     # Prediction methods
     # ------------------------------------------------------------------
 
+    @property
+    def reward_matrix_(self) -> np.ndarray | None:
+        """Reward matrix R(s,a) of shape (n_states, n_actions).
+
+        For ``reward_type="state_action"``, ``self.reward_`` already has
+        shape (n_states, n_actions) and is returned directly.  For
+        ``reward_type="state"``, the state-only reward is broadcast to all
+        actions.
+        """
+        if self.reward_ is None:
+            return None
+        if self.reward_.ndim == 2:
+            return self.reward_
+        # State-only reward: broadcast to all actions
+        n_actions = self._n_actions or self.n_actions
+        return np.tile(self.reward_[:, np.newaxis], (1, n_actions))
+
     def predict_proba(self, states: np.ndarray) -> np.ndarray:
         """Predict choice probabilities for given states.
 
