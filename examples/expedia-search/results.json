@@ -1,0 +1,34 @@
+{
+  "dataset": "expedia-search",
+  "estimator": "NPL (K=10)",
+  "n_observations": 120527,
+  "n_individuals": 8625,
+  "log_likelihood": -38386.7655619454,
+  "parameters": {
+    "theta_position": {
+      "coef": 0.23422478139400482,
+      "std_err": 0.0066836419618614305
+    },
+    "theta_price": {
+      "coef": 0.7560345530509949,
+      "std_err": 0.02979452335339796
+    },
+    "theta_quality": {
+      "coef": 0.4259895384311676,
+      "std_err": 0.02560293724962473
+    },
+    "click_cost": {
+      "coef": -3.188800573348999,
+      "std_err": 0.023573399156106865
+    },
+    "book_value": {
+      "coef": -2.4406375885009766,
+      "std_err": 0.023845397225542228
+    }
+  },
+  "diagnostics": {
+    "feature_rank": 5,
+    "state_coverage": 30,
+    "n_states": 30
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "dataset": "kkbox-churn",
+  "estimator": "NPL (K=10)",
+  "n_observations": 61750,
+  "n_individuals": 4961,
+  "log_likelihood": -7655.47,
+  "aic": 15320.9,
+  "bic": 15366.1,
+  "prediction_accuracy": 0.971,
+  "parameters": {
+    "theta_tenure": {
+      "coef": 0.0501,
+      "std_err": 0.0203,
+      "t": 2.47,
+      "p": 0.014
+    },
+    "theta_price": {
+      "coef": -0.1523,
+      "std_err": 0.0607,
+      "t": -2.51,
+      "p": 0.012
+    },
+    "theta_auto_renew": {
+      "coef": -2.6249,
+      "std_err": 1.0873,
+      "t": -2.41,
+      "p": 0.016
+    },
+    "theta_discount": {
+      "coef": 0.1219,
+      "std_err": 0.0260,
+      "t": 4.69,
+      "p": 0.000
+    },
+    "constant": {
+      "coef": -29.6883,
+      "std_err": 11.1542,
+      "t": -2.66,
+      "p": 0.008
+    }
+  },
+  "sign_checks": {
+    "theta_tenure": "PASS (positive: loyal customers prefer staying)",
+    "theta_price": "PASS (negative: higher price reduces renewal utility)",
+    "theta_auto_renew": "NOTE: negative -- auto-renew users are passively renewed, not actively choosing; lower active renewal utility is consistent with passive behavior",
+    "theta_discount": "PASS (positive: discounts increase renewal utility)"
+  },
+  "diagnostics": {
+    "feature_rank": 5,
+    "condition_number": 3.4,
+    "state_coverage": 36,
+    "n_states": 36,
+    "single_action_states": 21,
+    "npl_converged_at_iteration": 6
+  },
+  "empirical_vs_predicted_cancel_rate": {
+    "tenure_1": {"empirical": 0.0000, "predicted": 0.0151},
+    "tenure_2": {"empirical": 0.0169, "predicted": 0.0199},
+    "tenure_3_4": {"empirical": 0.0205, "predicted": 0.0189},
+    "tenure_5_8": {"empirical": 0.0261, "predicted": 0.0188},
+    "tenure_9_16": {"empirical": 0.0199, "predicted": 0.0234},
+    "tenure_17plus": {"empirical": 0.0202, "predicted": 0.0217}
+  }
+}

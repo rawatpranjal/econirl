@@ -19,6 +19,20 @@ When reporting results, write the number into the sentence naturally. Do not use
 
 Write heavy code comments in the code itself as you refine your understanding, with sources from papers in the repo.
 
+## Pre-Estimation Diagnostics
+
+Before running any estimator on a new dataset, always run and report these checks.
+
+Feature matrix rank: compute `np.linalg.matrix_rank` on the flattened feature matrix `(n_states * n_actions, n_features)`. If rank is less than `n_features`, the model is under-identified before even looking at data. Drop or redesign collinear features. Common trap: two action-specific intercepts that are both 1 for action A and 0 otherwise are identical columns.
+
+Condition number: compute `np.linalg.cond` on the nonzero rows of the feature matrix. Values above 1e6 signal near-collinearity that will inflate standard errors even if the matrix is technically full rank.
+
+State coverage: report how many of the `n_states` states have at least one observation. States with zero observations produce degenerate CCP estimates.
+
+Single-action states: count states where only one action is ever observed. CCPs at the boundary (0 or 1) are structurally degenerate and produce uninformative Bellman updates.
+
+Print all four diagnostics before calling `estimator.estimate()`. If the feature matrix is rank deficient, stop and fix it before running.
+
 ## Benchmarking and Case Studies
 
 When running ML benchmarks across datasets, use 5-fold cross-validation as the definitive estimate. Single holdout splits overfit at small N and produce inflated lifts. Always report in-sample versus out-of-sample metrics so overfitting is visible. When a result does not replicate under CV, say so honestly.

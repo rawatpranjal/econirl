@@ -1,0 +1,40 @@
+{
+  "dataset": "ahs-housing",
+  "estimator": "NPL (K=10)",
+  "n_observations": 100000,
+  "n_individuals": 10000,
+  "log_likelihood": -44223.279662722416,
+  "parameters": {
+    "theta_burden": {
+      "coef": 0.7269901633262634,
+      "std_err": 0.037222318702542626
+    },
+    "theta_duration": {
+      "coef": 0.19420690834522247,
+      "std_err": 0.01559636214109778
+    },
+    "theta_renter": {
+      "coef": -0.5741291642189026,
+      "std_err": 0.013157781815742982
+    },
+    "theta_age": {
+      "coef": 3.6833345890045166,
+      "std_err": 0.08067303132458542
+    },
+    "move_cost": {
+      "coef": 1.9415278434753418,
+      "std_err": 0.05893819328974794
+    }
+  },
+  "diagnostics": {
+    "feature_rank": 5,
+    "state_coverage": 54,
+    "n_states": 54,
+    "single_action_states": 0
+  },
+  "cross_section_moments": {
+    "renter_share": 0.40738376423023726,
+    "move_rate_overall": 0.23700393658899882,
+    "median_burden_renters": 0.2857142857142857
+  }
+}

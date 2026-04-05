@@ -1,0 +1,38 @@
+{
+  "env": {
+    "K": 2,
+    "M": 30,
+    "n_states": 900
+  },
+  "true": {
+    "replacement_cost": 3.0,
+    "operating_cost": 0.001,
+    "quadratic_cost": 0.0005
+  },
+  "nfxp": {
+    "params": {
+      "replacement_cost": 3.025677699335794,
+      "operating_cost": 0.011893133780543347,
+      "quadratic_cost": -0.0038342883006078194
+    },
+    "se": {
+      "replacement_cost": 0.05084263160824776,
+      "operating_cost": 0.02094743587076664,
+      "quadratic_cost": 0.009051589295268059
+    },
+    "time": 71.48628687858582
+  },
+  "nnes": {
+    "params": {
+      "replacement_cost": 3.0275471210479736,
+      "operating_cost": 0.16025306284427643,
+      "quadratic_cost": -0.04490427300333977
+    },
+    "se": {
+      "replacement_cost": 0.04574718156197266,
+      "operating_cost": 0.1327104063673928,
+      "quadratic_cost": 0.07040198534043804
+    },
+    "time": 99.93875789642334
+  }
+}
