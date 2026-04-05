@@ -87,6 +87,8 @@ MaxEnt IRL fails catastrophically on transfer because the non-causal state visit
    center_dist          0.5000       0.5050       0.7937       0.5050
    Cosine sim                        1.0000       0.9999       1.0000
 
-Across all three cases, MCE IRL and NFXP produce identical results. MaxEnt IRL underperforms most dramatically in Case 1 where action-dependent features expose the causal structure gap. The advantage narrows in Cases 2 and 3 where simpler feature specifications reduce the scope for the non-causal computation to diverge.
+All three cases use deterministic gridworld transitions. MaxEnt IRL can recover rewards under deterministic dynamics when the feature structure is simple. In Cases 2 and 3, where the reward uses only two parameters, MaxEnt achieves cosine similarity above 0.999 and matches MCE IRL and NFXP on in-sample and out-of-sample policy performance. The failure in Case 1 is not about transition stochasticity but about feature complexity. Four action-dependent parameters (including directional preferences) create enough structure for the non-causal state visitation computation to diverge from the causal one, even though the transitions themselves are deterministic.
+
+The practical takeaway is that MaxEnt IRL is a viable approximation in deterministic environments with simple reward specifications, but MCE IRL is strictly safer. When features vary across actions and the reward structure is rich, the causal formulation prevents the silent sign-flip errors visible in Case 1.
 
 The full script is at ``examples/ziebart-mce-irl/run_gridworld.py``.

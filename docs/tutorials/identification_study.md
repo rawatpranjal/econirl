@@ -59,6 +59,12 @@ Artifacts live in `experiments/identification/results/`:
 - Paywall (F): Reduced‑form 0.185, AIRL‑no‑anchors 0.009; structural methods 0.000.
 - State‑only (G): AIRL state‑only transfers perfectly (Type II 0.000), as predicted by Fu et al. (Theorem 5.1).
 
+## AIRL with R(s) versus R(s,a) rewards
+
+AIRL has two reward variants. The state-only variant R(s) recovers the true reward up to a constant because the potential-based shaping function Φ(s) can be absorbed into the reward without changing the policy (Fu et al. 2018, Theorem 5.1). The state-action variant R(s,a) recovers only the shaped reward r(s,a) + γΦ(s') − Φ(s), which bundles the true flow utility with continuation value differences. The shaping term cancels in the original environment but produces systematic counterfactual errors when the transition law changes (Type B).
+
+The simulation confirms this distinction. With R(s) rewards, AIRL achieves zero Type II CCP error at every tested skip magnitude, matching NFXP and IQ-Learn. With R(s,a) rewards and no anchors, AIRL produces Type II errors between 0.014 and 0.025 that grow with the magnitude of the transition change. Adding anchor constraints (LSW) restores exact counterfactual transfer for R(s,a) rewards by pinning the shaping function to zero at the absorbing state.
+
 ## Results (finite sample, NFXP quick pass)
 
 From `make nfxp` (3 seeds per N, Type B k=3):
