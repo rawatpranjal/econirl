@@ -121,7 +121,8 @@ def run_replication():
             print(f"\n  Feature Matching:")
             print(f"    Empirical:  {[f'{x:.6f}' for x in emp]}")
             print(f"    Expected:   {[f'{x:.6f}' for x in exp]}")
-            print(f"    ||diff||:   {diff:.8f}")
+            if diff is not None:
+                print(f"    ||diff||:   {diff:.8f}")
 
     # --- MaxEnt IRL (Ziebart 2008) ---
     print(f"\n{'='*50}")
@@ -188,7 +189,7 @@ def run_replication():
   MCE IRL (Ziebart 2010) successfully recovers reward parameters from
   expert demonstrations in a {grid_size}x{grid_size} gridworld:
 
-  - Feature matching converges (||diff|| = {diff:.8f})
+  - Feature matching converges (||diff|| = {diff if diff is not None else 'N/A'})
   - Reward direction recovery: cosine similarity = {cos_sim:.4f}
   - Policy accuracy: {mce_acc:.1f}% of states match optimal action
   - KL divergence from true policy: {kl_mce:.6f}
