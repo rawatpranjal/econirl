@@ -13,6 +13,10 @@ Head-to-head benchmarks showing when each estimator class has an advantage.
 
    classical_benchmarks
    approximate_benchmarks
+   tdccp_transition_free
+   gladius_bellman
+   nnes_efficiency
+   airl_het_heterogeneity
 
 Post-Estimation
 ---------------

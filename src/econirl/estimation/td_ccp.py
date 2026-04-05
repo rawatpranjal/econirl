@@ -1395,7 +1395,7 @@ class TDCCPEstimator(BaseEstimator):
                 self._last_g_table = g_table
 
                 def ll_fn(p):
-                    return jnp.array(self._pseudo_log_likelihood(
+                    return jnp.array(self._pseudo_log_likelihood_jax(
                         np.array(p), h_table, g_table, feature_matrix,
                         np.array(panel.get_all_states()),
                         np.array(panel.get_all_actions()),
@@ -1407,7 +1407,7 @@ class TDCCPEstimator(BaseEstimator):
         optimization_time = time.time() - start_time
 
         # Store the log-likelihood function for external use
-        self._log_likelihood_fn = lambda p: self._pseudo_log_likelihood(
+        self._log_likelihood_fn = lambda p: self._pseudo_log_likelihood_jax(
             np.array(p), h_table, g_table, feature_matrix,
             np.array(panel.get_all_states()),
             np.array(panel.get_all_actions()),
