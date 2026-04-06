@@ -2,14 +2,14 @@
 % 2-component bus, 30 bins/comp, 900 states, 10000 obs, seed=42
 
 \newcommand{\seesNstates}{900}
-\newcommand{\seesBeta}{0.99}
+\newcommand{\seesBeta}{0.9999}
 \newcommand{\seesNobs}{10,000}
 \newcommand{\seesKcomp}{2}
 \newcommand{\seesMbins}{30}
-\newcommand{\seesSpeedup}{3}
-\newcommand{\seesLLgap}{0.09}
-\newcommand{\seesNfxpTime}{12.4}
-\newcommand{\seesTime}{3.6}
+\newcommand{\seesSpeedup}{160}
+\newcommand{\seesLLgap}{0.36}
+\newcommand{\seesNfxpTime}{397.2}
+\newcommand{\seesTime}{2.5}
 
 \begin{table}[h!]
 \centering\small
@@ -19,14 +19,14 @@
 \toprule
 & True & NFXP & SEES \\
 \midrule
-$replacement_cost$ & 3.0000 & 2.9294 & 2.9563 \\
-\quad SE & --- & 0.1104 & 0.1049 \\
-$operating_cost$ & 0.0010 & -0.0481 & -0.0228 \\
-\quad SE & --- & 0.0473 & 0.0803 \\
-$quadratic_cost$ & 0.0005 & 0.0238 & 0.0126 \\
-\quad SE & --- & 0.0208 & 0.0407 \\
-Log-lik & --- & $-1948.7$ & $-1948.6$ \\
-Time (s) & --- & 12.4 & 3.6 \\
+$replacement_cost$ & 3.0000 & 2.9274 & 3.0345 \\
+\quad SE & --- & 0.1115 & 0.0946 \\
+$operating_cost$ & 0.0010 & -0.0477 & 0.0925 \\
+\quad SE & --- & 0.0460 & 0.0306 \\
+$quadratic_cost$ & 0.0005 & 0.0230 & -0.0390 \\
+\quad SE & --- & 0.0199 & 0.0238 \\
+Log-lik & --- & $-1948.7$ & $-1949.0$ \\
+Time (s) & --- & 397.2 & 2.5 \\
 \bottomrule
 \end{tabular*}
 \end{table}
