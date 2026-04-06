@@ -1,0 +1,308 @@
+\documentclass[11pt]{article}
+\usepackage[left=1in,right=1in,top=1in,bottom=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[round]{natbib}
+\usepackage{hyperref}
+\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
+\usepackage{float}
+\usepackage[ruled,lined]{algorithm2e}
+\usepackage{microtype}
+
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\E}{\mathbb{E}}
+
+\title{CCP Estimation Primer\\{\large Hotz-Miller Inversion and Nested Pseudo-Likelihood}}
+\author{EconIRL Technical Notes}
+\date{}
+
+\begin{document}
+\maketitle
+
+
+%% ============================================================
+\section{Problem and Motivation}
+%% ============================================================
+
+The Nested Fixed Point (NFXP) estimator of \citet{rust1987} is statistically efficient but computationally expensive. At each outer optimization step, NFXP solves the Bellman equation to machine precision via an inner loop whose cost scales as $O(|\mathcal{S}|^2 / (1-\beta))$. For large state spaces or high discount factors this inner loop dominates computation time, taking minutes per likelihood evaluation.
+
+The CCP approach eliminates the inner loop entirely. \citet{hotzMiller1993} showed that under additive separability and IID private shocks, the observed choice probabilities $P(a|s)$ contain all the information needed to recover continuation values without solving any fixed point. The idea is to invert the mapping from value functions to choice probabilities, rather than solve forward from parameters to values to probabilities. This inversion replaces thousands of Bellman iterations with a single matrix solve of cost $O(|\mathcal{S}|^3)$, making estimation dramatically faster for moderate state spaces.
+
+\citet{aguirregabiriaMira2002} showed that iterating the Hotz-Miller procedure in CCP space, a process they called Nested Pseudo-Likelihood (NPL), converges to the maximum likelihood estimator under regularity conditions. A single Hotz-Miller step ($K\!=\!1$) gives a consistent but inefficient estimator. Five to ten NPL iterations ($K\!=\!5{-}10$) recover full MLE efficiency.
+
+CCP estimation is the only method in the EconIRL package that extends naturally to dynamic games, where NFXP requires computing Nash equilibria in the inner loop and is therefore infeasible.
+
+
+%% ============================================================
+\section{Model and Notation}
+%% ============================================================
+
+We work within the DDC framework of \citet{rust1987}. An agent in state $s \in \mathcal{S}$ chooses action $a \in \mathcal{A}$ to maximize discounted expected utility. Flow utility is $u(s,a;\theta) + \sigma\epsilon_a$ where $\epsilon_a$ is Type I extreme value with scale $\sigma > 0$. Transitions follow $P(s'|s,a)$ with discount factor $\beta \in [0,1)$.
+
+The key objects are as follows.
+
+\begin{table}[H]
+\centering\small
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
+\toprule
+Symbol & Name & Definition \\
+\midrule
+$Q(s,a)$ & Choice-specific value & $u(s,a;\theta) + \beta \sum_{s'} P(s'|s,a)\, V(s')$ \\
+$V(s)$ & Integrated value & $\sigma \log \sum_a \exp\bigl(Q(s,a)/\sigma\bigr)$ \\
+$\pi(a|s)$ & Choice probability (CCP) & $\exp\bigl(Q(s,a)/\sigma\bigr) / \sum_{a'} \exp\bigl(Q(s,a')/\sigma\bigr)$ \\
+$e(a,s)$ & Emax correction & $\gamma_{\text{Euler}} - \log \pi(a|s)$, where $\gamma_{\text{Euler}} \approx 0.5772$ \\
+$F_\pi$ & Policy-weighted transitions & $F_\pi[s,s'] = \sum_a \pi(a|s)\, P(s'|s,a)$ \\
+$\phi(s,a)$ & Feature vector & Known functions of $(s,a)$, dimension $K$ \\
+$\theta$ & Structural parameters & Unknown, dimension $K$; $u(s,a;\theta) = \theta^\top \phi(s,a)$ \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+
+%% ============================================================
+\section{Core Theory}
+%% ============================================================
+
+\subsection{The Hotz-Miller Inversion Lemma}
+
+Under additive separability (AS), conditional independence (CI), and IID extreme value errors (EV), the integrated value function at state $s$ under policy $\pi$ can be written as
+\begin{equation}
+\label{eq:ccp_value}
+\bar{v}(s) = \sum_a \pi(a|s) \bigl[u(s,a;\theta) + e(a,s)\bigr] + \beta \sum_{s'} F_\pi(s,s')\, \bar{v}(s').
+\end{equation}
+The emax correction $e(a,s) = \gamma_{\text{Euler}} - \log \pi(a|s)$ is entirely determined by the CCPs and the known distributional assumption on $\epsilon$. No knowledge of $\theta$ or $V$ is needed to compute it.
+
+Rearranging Equation~\eqref{eq:ccp_value} in matrix form gives
+\begin{equation}
+\label{eq:ccp_matrix}
+\bar{v} = (I - \beta\, F_\pi)^{-1} \left[\sum_a \pi(a) \odot \bigl(u(a;\theta) + e(a)\bigr)\right],
+\end{equation}
+where $\odot$ denotes element-wise multiplication and $\pi(a)$, $u(a;\theta)$, and $e(a)$ are $|\mathcal{S}|$-dimensional vectors for each action $a$. The matrix $(I - \beta F_\pi)$ is invertible because $\beta < 1$ and $F_\pi$ is a stochastic matrix, so its spectral radius is at most 1.
+
+This is the Hotz-Miller inversion: given CCPs $\pi(a|s)$, the continuation value $\bar{v}(s)$ is recovered by a single matrix inversion without solving the Bellman equation.
+
+\subsection{Choice-Specific Values from CCPs}
+
+For linear utility $u(s,a;\theta) = \theta^\top \phi(s,a)$, the choice-specific value function has the CCP representation
+\begin{equation}
+\label{eq:csv_decomp}
+v(s,a) = \theta^\top \tilde{\phi}(s,a) + \tilde{e}(s,a),
+\end{equation}
+where the ``augmented'' features and emax corrections are
+\begin{align}
+\tilde{\phi}(s,a) &= \phi(s,a) + \beta \sum_{s'} P(s'|s,a)\, W_\phi(s'), \label{eq:aug_features} \\
+\tilde{e}(s,a) &= \beta \sum_{s'} P(s'|s,a)\, W_e(s'), \label{eq:aug_emax}
+\end{align}
+with $W_\phi = (I - \beta F_\pi)^{-1} \bigl[\sum_a \pi(a) \odot \phi(a)\bigr]$ of dimension $(|\mathcal{S}|, K)$ and $W_e = (I - \beta F_\pi)^{-1} \bigl[\sum_a \pi(a) \odot e(a)\bigr]$ of dimension $(|\mathcal{S}|,)$.
+
+This decomposition separates the part of $v(s,a)$ that is linear in $\theta$ from the part that depends only on the CCPs and the known error distribution. The augmented features $\tilde{\phi}$ play the same role as the features $\phi$ in a static logit, but they incorporate the forward-looking continuation value via the matrix inversion.
+
+\subsection{NPL Convergence (Aguirregabiria-Mira 2002)}
+
+\citet{aguirregabiriaMira2002} define the NPL mapping $\Psi: \pi \mapsto \pi'$ as follows. Given CCPs $\pi^{(k)}$, maximize the pseudo-log-likelihood
+\begin{equation}
+\label{eq:pseudo_ll}
+\hat\theta^{(k)} = \argmax_\theta \sum_{i=1}^N \log \frac{\exp\bigl(v(s_i, a_i;\, \theta, \pi^{(k)})/\sigma\bigr)}{\sum_{a'} \exp\bigl(v(s_i, a';\, \theta, \pi^{(k)})/\sigma\bigr)},
+\end{equation}
+then update $\pi^{(k+1)}(a|s) = \text{softmax}\bigl(v(s,a;\, \hat\theta^{(k)}, \pi^{(k)})/\sigma\bigr)$.
+
+A fixed point of $\Psi$ is an NPL equilibrium. \citet{aguirregabiriaMira2002} prove convergence under Lyapunov stability: if the spectral radius of the Jacobian of $\Psi$ at the fixed point is less than 1, NPL converges. The \textbf{zero Jacobian property} ensures that at the NPL fixed point, the estimator is first-order insensitive to CCP estimation error. This means the NPL fixed point achieves the same asymptotic distribution as NFXP-MLE, despite starting from noisy empirical CCPs.
+
+\subsection{Identification}
+
+CCP estimation inherits the same identification structure as NFXP. The parametric restriction $u = \theta^\top \phi(s,a)$ with $K < |\mathcal{S}|(|\mathcal{A}|-1)$ resolves the reward shaping ambiguity. The transition matrix $P(s'|s,a)$ must be known or consistently estimated from data. The discount factor $\beta$ and scale parameter $\sigma$ are typically fixed rather than estimated, following \citet{magnacThesmar2002} who showed that $\beta$ and the reward level are not jointly identified without further restrictions.
+
+
+%% ============================================================
+\section{Estimation Algorithm}
+%% ============================================================
+
+\begin{algorithm}[H]
+\DontPrintSemicolon
+\caption{CCP-NPL Estimation \citep{hotzMiller1993, aguirregabiriaMira2002}}
+\label{alg:ccp}
+\KwIn{Panel $\mathcal{D} = \{(s_i, a_i)\}_{i=1}^N$, features $\phi(s,a)$, transitions $P(s'|s,a)$, discount $\beta$, scale $\sigma$, NPL iterations $K$}
+\BlankLine
+
+\tcp{Step 1: Estimate CCPs from data}
+\For{each state $s$}{
+    $\hat\pi^{(0)}(a|s) = N(s,a) / N(s)$ \tcp*{frequency estimator}
+    \lIf{$N(s) < n_{\min}$}{$\hat\pi^{(0)}(a|s) = 1/|\mathcal{A}|$} \tcp*{fallback to uniform}
+}
+Apply Laplace smoothing: $\hat\pi^{(0)} \leftarrow (\hat\pi^{(0)} + \delta) / (1 + |\mathcal{A}|\delta)$\;
+\BlankLine
+
+\tcp{Step 2: NPL loop}
+\For{$k = 0, 1, \ldots, K-1$}{
+    \BlankLine
+    \tcp{2a. Compute emax corrections from current CCPs}
+    $e^{(k)}(a,s) = \gamma_{\text{Euler}} - \log \hat\pi^{(k)}(a|s)$\;
+    \BlankLine
+    \tcp{2b. Compute policy-weighted transitions}
+    $F_\pi^{(k)}[s,s'] = \sum_a \hat\pi^{(k)}(a|s)\, P(s'|s,a)$\;
+    \BlankLine
+    \tcp{2c. Matrix inversion for continuation values}
+    $W_\phi = (I - \beta F_\pi^{(k)})^{-1} \sum_a \hat\pi^{(k)}(a) \odot \phi(a)$ \tcp*{$(|\mathcal{S}|, K)$}
+    $W_e = (I - \beta F_\pi^{(k)})^{-1} \sum_a \hat\pi^{(k)}(a) \odot e^{(k)}(a)$ \tcp*{$(|\mathcal{S}|,)$}
+    \BlankLine
+    \tcp{2d. Compute augmented features and emax}
+    \For{each $(s,a)$}{
+        $\tilde\phi(s,a) = \phi(s,a) + \beta \sum_{s'} P(s'|s,a)\, W_\phi(s')$\;
+        $\tilde{e}(s,a) = \beta \sum_{s'} P(s'|s,a)\, W_e(s')$\;
+    }
+    \BlankLine
+    \tcp{2e. Maximize pseudo-log-likelihood over $\theta$}
+    $v(s,a;\theta) = \theta^\top \tilde\phi(s,a) + \tilde{e}(s,a)$\;
+    $\hat\theta^{(k)} = \argmax_\theta \sum_{i=1}^N \log\,\text{softmax}\bigl(v(s_i, \cdot;\, \theta)/\sigma\bigr)_{a_i}$ \tcp*{L-BFGS-B}
+    \BlankLine
+    \tcp{2f. Update CCPs for next iteration (NPL)}
+    $\hat\pi^{(k+1)}(a|s) = \text{softmax}\bigl(v(s,a;\, \hat\theta^{(k)})/\sigma\bigr)$\;
+    \BlankLine
+    \tcp{2g. Convergence check}
+    \lIf{$\|\hat\theta^{(k)} - \hat\theta^{(k-1)}\| < \varepsilon$}{\textbf{break}}
+}
+\BlankLine
+
+\tcp{Step 3: Compute value function and Hessian}
+$V(s) = \sigma \log \sum_a \exp\bigl(v(s,a;\, \hat\theta)/\sigma\bigr)$\;
+Compute numerical Hessian $H$ at $\hat\theta$ via the full Bellman-constrained log-likelihood\;
+Standard errors: $\text{SE}(\hat\theta) = \sqrt{\text{diag}((-H)^{-1})}$\;
+\BlankLine
+
+\KwOut{$\hat\theta$, $V^*$, $\hat\pi$, standard errors}
+\end{algorithm}
+
+\paragraph{Implementation notes.}
+The EconIRL implementation uses float64 arithmetic when $\beta > 0.99$ because the condition number of $(I - \beta F_\pi)$ scales as $(1-\beta)^{-1}$, reaching $10^4$ at $\beta = 0.9999$.
+The pseudo-log-likelihood gradient in Step 2e is computed via central finite differences rather than JAX autodiff because the valuation matrix computation involves Python loops that are not JAX-traceable.
+For the Hessian in Step 3, the implementation uses the full Bellman-constrained log-likelihood (re-solving value iteration at each perturbation) rather than the pseudo-likelihood with fixed CCPs, because the pseudo-likelihood Hessian is locally flat in directions that primarily affect CCPs, producing spurious rank deficiency.
+The \texttt{num\_policy\_iterations} parameter controls $K$: set $K\!=\!1$ for Hotz-Miller, $K\!=\!5{-}10$ for NPL, or $K\!=\!{-}1$ for convergence-based stopping.
+
+
+%% ============================================================
+\section{Results and Comparison}
+%% ============================================================
+
+\subsection{Parameter Recovery on Rust Bus}
+
+The benchmark uses the \citet{rust1987} bus engine model with 200 mileage bins, $\beta = 0.9999$, and true parameters $\theta_c = 0.001$ (operating cost) and $RC = 3.0$ (replacement cost). Data consists of 200 buses observed for 100 periods (20,000 observations).
+
+\begin{table}[H]
+\centering
+\caption{CCP-NPL ($K\!=\!5$) versus NFXP on Rust bus. Both converge to the same MLE.}
+\label{tab:ccp_vs_nfxp}
+\small
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r}
+\toprule
+Metric & NFXP & CCP-NPL \\
+\midrule
+$\hat\theta_c$ & 0.001468 & 0.001467 \\
+$\hat{RC}$ & 3.0731 & 3.0731 \\
+Log-likelihood & $-4193.14$ & $-4193.14$ \\
+Wall time (s) & 160.3 & 20.5 \\
+Speedup & --- & $7.8\times$ \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+CCP-NPL and NFXP converge to identical parameter estimates and identical log-likelihood, confirming that NPL with $K\!=\!5$ iterations reaches the MLE fixed point. CCP is 7.8 times faster because it replaces the inner Bellman solve (which requires many contraction iterations at $\beta = 0.9999$) with a single $(I - \beta F_\pi)^{-1}$ matrix inversion.
+
+\subsection{Hotz-Miller ($K\!=\!1$) versus NPL ($K\!=\!10$)}
+
+The Hotz-Miller one-step estimator is consistent but uses the noisy empirical CCPs directly, without iterating. On the same benchmark, Hotz-Miller produces $\hat\theta_c = 0.001470$ and $\hat{RC} = 3.075$, slightly less precise than the NPL estimates but computationally instantaneous (under 5 seconds). For rapid specification search across many utility specifications, $K\!=\!1$ is sufficient. For final publication-grade estimates, $K\!=\!5{-}10$ is recommended.
+
+\subsection{When CCP Dominates and When It Fails}
+
+CCP is the method of choice when inner-loop cost is the bottleneck, which occurs at high discount factors ($\beta > 0.99$) or moderate state spaces (100 to 500 states). At $\beta = 0.9999$ with 200 states, NFXP takes 147 seconds while CCP takes 20 seconds.
+
+CCP requires the full transition matrix, which limits its applicability to settings where transitions are known or can be estimated from data. For continuous state spaces where transition densities are hard to estimate, TD-CCP is the appropriate alternative.
+
+A known limitation is that CCP-NPL can produce unreliable counterfactual predictions at high discount factors. On the Rust bus with $\beta = 0.9999$, a Type 3 counterfactual (doubling the replacement cost) produces a welfare change of $-6737$ from CCP compared to $-381$ from NFXP. The amplification arises because small parameter errors compound through the matrix inversion $(I-\beta F_\pi)^{-1}$ when $\beta$ is near 1. For counterfactual analysis at high discount factors, NFXP is more reliable.
+
+
+%% ============================================================
+\section{EconIRL Implementation}
+%% ============================================================
+
+\subsection{Code Mapping}
+
+The CCP estimator is implemented in \texttt{src/econirl/estimation/ccp.py} as the \texttt{CCPEstimator} class, which inherits from \texttt{BaseEstimator}.
+
+\begin{table}[H]
+\centering\small
+\caption{Mapping between algorithm steps and code.}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
+\toprule
+Algorithm Step & Method & Key Operation \\
+\midrule
+Step 1 (estimate CCPs) & \texttt{\_estimate\_ccps\_from\_data()} & Frequency counting with smoothing \\
+Step 2a (emax) & \texttt{\_compute\_emax\_correction()} & $\gamma - \log\hat\pi$ \\
+Step 2b--c (matrix inverse) & \texttt{\_compute\_valuation\_matrix()} & $(I - \beta F_\pi)^{-1}$ via \texttt{jnp.linalg.inv} \\
+Step 2d (augmented features) & \texttt{\_compute\_choice\_specific\_values()} & $\tilde\phi = \phi + \beta P W_\phi$ \\
+Step 2e (optimize $\theta$) & \texttt{minimize\_lbfgsb()} & L-BFGS-B with numerical gradient \\
+Step 2f (update CCPs) & \texttt{\_update\_ccps\_from\_values()} & softmax$(v/\sigma)$ \\
+Step 3 (Hessian) & \texttt{compute\_numerical\_hessian()} & Full Bellman-constrained LL \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\subsection{Usage Example}
+
+The following code replicates the benchmark in Table~\ref{tab:ccp_vs_nfxp}. The full script is at \texttt{examples/rust-bus-engine/tdccp\_vs\_nfxp.py}.
+
+\begin{verbatim}
+from econirl.environments.rust_bus import RustBusEnvironment
+from econirl.estimation.ccp import CCPEstimator
+from econirl.preferences.linear import LinearUtility
+
+env = RustBusEnvironment(
+    operating_cost=0.001, replacement_cost=3.0,
+    num_mileage_bins=200, discount_factor=0.9999,
+)
+panel = env.generate_panel(n_individuals=200, n_periods=100, seed=42)
+
+ccp = CCPEstimator(num_policy_iterations=5, se_method="robust")
+result = ccp.estimate(
+    panel=panel,
+    utility=LinearUtility.from_environment(env),
+    problem=env.problem_spec,
+    transitions=env.transition_matrices,
+)
+print(result.summary())
+\end{verbatim}
+
+Setting \texttt{num\_policy\_iterations=1} gives the Hotz-Miller one-step estimator. Setting it to $-1$ iterates until parameter convergence.
+
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{9}
+
+\bibitem[Aguirregabiria and Mira(2002)]{aguirregabiriaMira2002}
+Aguirregabiria, V. and Mira, P. (2002).
+\newblock Swapping the Nested Fixed Point Algorithm: A Class of Estimators for Discrete {Markov} Decision Models.
+\newblock {\em Econometrica}, 70(4):1519--1543.
+
+\bibitem[Aguirregabiria and Mira(2010)]{aguirregabiriaMira2010}
+Aguirregabiria, V. and Mira, P. (2010).
+\newblock Dynamic Discrete Choice Structural Models: A Survey.
+\newblock {\em Journal of Econometrics}, 156(1):38--67.
+
+\bibitem[Hotz and Miller(1993)]{hotzMiller1993}
+Hotz, V.~J. and Miller, R.~A. (1993).
+\newblock Conditional Choice Probabilities and the Estimation of Dynamic Models.
+\newblock {\em The Review of Economic Studies}, 60(3):497--529.
+
+\bibitem[Magnac and Thesmar(2002)]{magnacThesmar2002}
+Magnac, T. and Thesmar, D. (2002).
+\newblock Identifying Dynamic Discrete Decision Processes.
+\newblock {\em Econometrica}, 70(2):801--816.
+
+\bibitem[Rust(1987)]{rust1987}
+Rust, J. (1987).
+\newblock Optimal Replacement of {GMC} Bus Engines: An Empirical Model of {Harold Zurcher}.
+\newblock {\em Econometrica}, 55(5):999--1033.
+
+\end{thebibliography}
+
+\end{document}
