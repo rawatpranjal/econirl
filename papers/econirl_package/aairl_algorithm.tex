@@ -1,0 +1,124 @@
+\section{Anchored AIRL with Unobserved Heterogeneity}
+\label{sec:aairl}
+
+This appendix describes the Anchored AIRL (AAIRL) algorithm, which extends the AIRL estimator of \citet{fu2018} with latent user segments and anchor constraints for point identification of rewards following Lee, Sudhir, and Wang (2026).
+The algorithm recovers segment-specific reward functions $r^*(s, a, z)$ and policies $\pi^*(a \mid s, z)$ from observed trajectories under the maximum causal entropy framework.
+
+\paragraph{Setup.}
+Each user $i$ belongs to a latent segment $z \in \{1, \ldots, K\}$ with $K$ determined by the researcher.
+Segment membership is shared across all series or episodes consumed by the same user, providing cross-episode identification.
+The objective is
+\[
+\max_\pi \; \mathbb{E}\!\left[\sum_{t=0}^{\infty} \gamma^t \big(r(s_t, a_t, z) + \mathcal{H}(\pi(\cdot \mid s_t, z))\big)\right].
+\]
+
+\paragraph{Networks.}
+Four neural networks parameterize the model.
+
+\begin{table}[H]
+\centering\small
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
+\toprule
+Component & Parameterizes & Architecture \\
+\midrule
+$g_\theta(s, a, z)$ & Immediate reward & 2-layer MLP, Leaky ReLU \\
+$h_\phi(s, z)$ & Shaping potential $\approx V(s)$ & 2-layer MLP, Leaky ReLU \\
+$\pi_\omega(a \mid s, z)$ & Policy (CCPs) & 2-layer MLP, Leaky ReLU \\
+$q_\psi(z \mid \tau)$ & Posterior (segment assignment) & Bi-LSTM + MLP \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+\paragraph{Discriminator structure.}
+The discriminator embeds a Bellman-consistent decomposition
+\begin{align}
+f_{\theta,\phi}(s, a, s', z) &= g_\theta(s, a, z) + \gamma\, h_\phi(s', z) - h_\phi(s, z), \label{eq:aairl_f}\\[2pt]
+D_{\theta,\phi}(s, a, s', z) &= \frac{\exp\!\big(f_{\theta,\phi}\big)}{\exp\!\big(f_{\theta,\phi}\big) + \pi_\omega(a \mid s, z)}. \label{eq:aairl_D}
+\end{align}
+
+\paragraph{Anchor constraints.}
+The anchor action (exit) is constrained to have zero reward $g_\theta(s, \text{exit}, z) = 0$ for all $s, z$, and the absorbing state has zero value $h_\phi(s_{\text{abs}}, z) = 0$.
+These constraints resolve the reward shaping ambiguity discussed in Section~\ref{sec:framework}, making the decomposition unique at convergence so that $g_\theta(s, a, z) = r^*(s, a, z)$ and $h_\phi(s, z) = V^*(s, z)$.
+
+\paragraph{Algorithm.}
+The five steps iterate until convergence.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.5cm,
+    >={Stealth[length=3mm]},
+    block/.style={
+        rectangle, draw, rounded corners=3pt,
+        text width=13cm, align=left,
+        inner sep=7pt, font=\small
+    },
+    stepblock/.style={
+        rectangle, draw, rounded corners=3pt, fill=gray!8,
+        text width=13cm, align=left,
+        inner sep=7pt, font=\small
+    },
+    arrow/.style={->, thick, draw=black!70},
+    looparrow/.style={->, very thick, draw=blue!60},
+]
+
+% Init
+\node[block] (init) {
+    \textbf{Initialize} parameters $\theta_0, \phi_0, \omega_0, \psi_0$
+};
+
+% S1
+\node[stepblock, below=0.4cm of init] (s1) {
+    \textbf{S1. Simulate trajectories.}
+    For each segment $z$, roll out $\pi_\omega(a \mid s, z)$ to generate synthetic transitions $\mathcal{D}_{\text{sim}}$.
+};
+
+% S2
+\node[stepblock, below=0.4cm of s1] (s2) {
+    \textbf{S2. Discriminator update} (updates $\theta, \phi$).
+    Compute $f$ and $D$ via Equations~\eqref{eq:aairl_f}--\eqref{eq:aairl_D}.
+    Minimize $\mathcal{L}_{\text{disc}} = -\frac{1}{|\mathcal{D}_{\text{obs}}|}\sum \log D - \frac{1}{|\mathcal{D}_{\text{sim}}|}\sum \log(1 - D)$.
+};
+
+% S3
+\node[stepblock, below=0.4cm of s2] (s3) {
+    \textbf{S3. Posterior update} (updates $\psi$).
+    Compute $q_\psi(z \mid \tau_i)$ for each trajectory.
+    Minimize $\mathcal{L}_{\text{classify}} + \lambda_{\text{CR}} \cdot \mathcal{L}_{\text{consistency}}$ (same user across series gets similar $z$).
+};
+
+% S4
+\node[stepblock, below=0.4cm of s3] (s4) {
+    \textbf{S4. Reward assignment} (no parameter updates).
+    For each simulated $(s, a, s')$: $\tilde{r} = f_{\theta,\phi}(s,a,s',z) - \log \pi_\omega(a \mid s, z) + \lambda_{\text{MI}} \log q_\psi(z \mid \tau)$.
+};
+
+% S5
+\node[stepblock, below=0.4cm of s4] (s5) {
+    \textbf{S5. Policy update} (updates $\omega$).
+    For each segment $z$, update $\omega$ via PPO on $\max_{\pi_\omega} \mathbb{E}[\sum_t \gamma^t \tilde{r}]$.
+};
+
+% Convergence check
+\node[block, below=0.4cm of s5, fill=blue!5] (conv) {
+    \textbf{Check:} $\max_{s,a,z} |\pi^{\text{new}} - \pi^{\text{old}}| < \varepsilon$? Stop. Else repeat from S1.
+};
+
+% Arrows
+\draw[arrow] (init) -- (s1);
+\draw[arrow] (s1) -- (s2);
+\draw[arrow] (s2) -- (s3);
+\draw[arrow] (s3) -- (s4);
+\draw[arrow] (s4) -- (s5);
+\draw[arrow] (s5) -- (conv);
+
+% Loop arrow
+\draw[looparrow, rounded corners=8pt]
+    (conv.east) -- ++(1.0,0) |- (s1.east)
+    node[pos=0.25, right, font=\small\itshape, text=blue!60] {repeat};
+
+\end{tikzpicture}
+\end{center}
+
+\paragraph{At convergence.}
+When $D = 1/2$ everywhere, the discriminator cannot distinguish observed from simulated transitions, and $f_{\theta,\phi} = \log \pi^*(a \mid s, z) = A^*(s, a, z)$.
+With the anchor constraints enforced, the decomposition is unique and $g_\theta$ recovers the true segment-specific reward function.
