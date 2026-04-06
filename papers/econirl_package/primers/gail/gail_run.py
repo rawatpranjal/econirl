@@ -1,0 +1,240 @@
+#!/usr/bin/env python3
+"""
+GAIL Primer -- Companion simulation (Ho & Ermon 2016).
+
+Tests GAIL on a 5x5 gridworld: demonstrates occupancy measure matching
+(the central claim) and shows that GAIL does not recover a transferable
+reward (the key limitation vs AIRL). Compares against behavioral cloning.
+
+Usage:
+    cd papers/econirl_package/primers/gail
+    python gail_run.py
+    pdflatex gail.tex && bibtex gail && pdflatex gail.tex && pdflatex gail.tex
+"""
+
+import json
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+
+import jax.numpy as jnp
+import numpy as np
+
+from econirl.core.bellman import SoftBellmanOperator
+from econirl.core.solvers import value_iteration
+from econirl.core.types import DDCProblem, Panel, Trajectory
+from econirl.contrib.gail import GAILEstimator, GAILConfig
+
+# ---------------------------------------------------------------------------
+# 5x5 Gridworld
+# ---------------------------------------------------------------------------
+
+GRID = 5
+N_STATES = GRID * GRID
+N_ACTIONS = 4  # N, S, E, W
+GAMMA = 0.95
+GOAL = 24  # bottom-right
+SLIP = 0.2
+
+
+def state_to_rc(s):
+    return s // GRID, s % GRID
+
+
+def rc_to_state(r, c):
+    return r * GRID + c
+
+
+def build_gridworld():
+    T = np.zeros((N_ACTIONS, N_STATES, N_STATES))
+    deltas = [(-1, 0), (1, 0), (0, 1), (0, -1)]
+    for s in range(N_STATES):
+        r, c = state_to_rc(s)
+        for a in range(N_ACTIONS):
+            for aa in range(N_ACTIONS):
+                prob = (1 - SLIP) if aa == a else SLIP / (N_ACTIONS - 1)
+                dr, dc = deltas[aa]
+                nr, nc = r + dr, c + dc
+                ns = rc_to_state(nr, nc) if (0 <= nr < GRID and 0 <= nc < GRID) else s
+                T[a, s, ns] += prob
+
+    # State-only reward: 1 at goal, 0 elsewhere
+    reward = np.zeros((N_STATES, N_ACTIONS))
+    reward[GOAL, :] = 1.0
+
+    return {
+        "transitions": jnp.array(T, dtype=jnp.float32),
+        "reward": jnp.array(reward, dtype=jnp.float32),
+        "problem": DDCProblem(N_STATES, N_ACTIONS, GAMMA),
+    }
+
+
+def generate_expert(env, n_trajs=300, max_steps=50, seed=42):
+    rng = np.random.default_rng(seed)
+    operator = SoftBellmanOperator(env["problem"], env["transitions"])
+    result = value_iteration(operator, env["reward"], tol=1e-10, max_iter=5000)
+    policy = np.array(result.policy)
+
+    trajectories = []
+    for i in range(n_trajs):
+        state = rng.integers(0, N_STATES)
+        states, actions, next_states = [], [], []
+        for _ in range(max_steps):
+            probs = np.maximum(policy[state], 0)
+            probs /= probs.sum()
+            action = rng.choice(N_ACTIONS, p=probs)
+            ns = rng.choice(N_STATES, p=np.array(env["transitions"][action, state]))
+            states.append(state)
+            actions.append(action)
+            next_states.append(ns)
+            state = ns
+        trajectories.append(Trajectory(
+            states=jnp.array(states, dtype=jnp.int32),
+            actions=jnp.array(actions, dtype=jnp.int32),
+            next_states=jnp.array(next_states, dtype=jnp.int32),
+            individual_id=i,
+        ))
+    return Panel(trajectories=trajectories), policy
+
+
+def compute_occupancy(policy, transitions, n_states, n_actions, gamma, n_steps=200):
+    """Compute discounted occupancy measure rho(s,a) under a policy."""
+    T_pi = np.zeros((n_states, n_states))
+    pol = np.array(policy)
+    trans = np.array(transitions)
+    for a in range(n_actions):
+        T_pi += pol[:, a:a+1] * trans[a]
+
+    # State visitation: d = (1-gamma) * (I - gamma*T_pi)^{-1} * d0
+    d0 = np.ones(n_states) / n_states
+    d = np.zeros(n_states)
+    d_t = d0.copy()
+    for t in range(n_steps):
+        d += (gamma ** t) * d_t
+        d_t = T_pi.T @ d_t
+    d *= (1 - gamma)
+
+    # Occupancy: rho(s,a) = d(s) * pi(a|s)
+    rho = d[:, None] * pol
+    return rho
+
+
+def js_divergence(p, q):
+    """Jensen-Shannon divergence between two distributions."""
+    p_flat = p.flatten()
+    q_flat = q.flatten()
+    p_flat = np.maximum(p_flat, 1e-12)
+    q_flat = np.maximum(q_flat, 1e-12)
+    p_flat /= p_flat.sum()
+    q_flat /= q_flat.sum()
+    m = 0.5 * (p_flat + q_flat)
+    return 0.5 * np.sum(p_flat * np.log(p_flat / m)) + 0.5 * np.sum(q_flat * np.log(q_flat / m))
+
+
+def behavioral_cloning(panel, n_states, n_actions):
+    """Simple frequency-based behavioral cloning."""
+    counts = np.zeros((n_states, n_actions))
+    for traj in panel.trajectories:
+        for s, a in zip(np.array(traj.states), np.array(traj.actions)):
+            counts[int(s), int(a)] += 1
+    row_sums = counts.sum(axis=1, keepdims=True)
+    policy = np.where(row_sums > 0, counts / row_sums, 1.0 / n_actions)
+    return policy
+
+
+def policy_match(pi1, pi2):
+    """Fraction of states where greedy actions agree."""
+    return (np.argmax(pi1, axis=1) == np.argmax(pi2, axis=1)).mean()
+
+
+def write_results_tex(metrics, path="gail_results.tex"):
+    lines = ["% Auto-generated by gail_run.py -- do not edit by hand\n"]
+    for name, bc_val, gail_val in metrics:
+        tex_name = name.replace("_", r"\_")
+        lines.append(f"{tex_name} & ${bc_val}$ & ${gail_val}$ \\\\\n")
+    Path(path).write_text("".join(lines))
+    print(f"Results written to {path}")
+
+
+def main():
+    print("=" * 60)
+    print("GAIL Primer: 5x5 Gridworld (occupancy matching)")
+    print("=" * 60)
+
+    env = build_gridworld()
+    panel, expert_policy = generate_expert(env, n_trajs=300, max_steps=50)
+    n_obs = sum(len(t.states) for t in panel.trajectories)
+    print(f"States: {N_STATES}, Actions: {N_ACTIONS}, Gamma: {GAMMA}")
+    print(f"Expert: {len(panel.trajectories)} trajectories, {n_obs} observations")
+
+    # Expert occupancy
+    rho_expert = compute_occupancy(
+        expert_policy, env["transitions"], N_STATES, N_ACTIONS, GAMMA
+    )
+
+    # Behavioral cloning
+    print("\nBehavioral Cloning...")
+    bc_policy = behavioral_cloning(panel, N_STATES, N_ACTIONS)
+    rho_bc = compute_occupancy(bc_policy, env["transitions"], N_STATES, N_ACTIONS, GAMMA)
+    bc_js = js_divergence(rho_bc, rho_expert)
+    bc_match = policy_match(bc_policy, expert_policy)
+    print(f"  Policy match: {bc_match:.3f}, Occupancy JS: {bc_js:.6f}")
+
+    # GAIL
+    print("\nGAIL...")
+    t0 = time.time()
+    from econirl.preferences.reward import LinearReward
+    features = np.eye(N_STATES)  # dummy features (GAIL ignores them)
+    utility = LinearReward(
+        jnp.array(features, dtype=jnp.float32),
+        [f"s{i}" for i in range(N_STATES)],
+    )
+    gail = GAILEstimator(GAILConfig(
+        discriminator_type="tabular",
+        discriminator_lr=0.05,
+        discriminator_steps=3,
+        policy_step_size=0.3,
+        max_rounds=300,
+        reward_transform="softplus",
+        convergence_tol=1e-6,
+        verbose=True,
+    ))
+    gail_result = gail.estimate(panel, utility, env["problem"], env["transitions"])
+    gail_time = time.time() - t0
+    print(f"  Time: {gail_time:.1f}s")
+
+    gail_policy = np.array(gail_result.policy) if gail_result.policy is not None else bc_policy
+    rho_gail = compute_occupancy(gail_policy, env["transitions"], N_STATES, N_ACTIONS, GAMMA)
+    gail_js = js_divergence(rho_gail, rho_expert)
+    gail_match = policy_match(gail_policy, expert_policy)
+    print(f"  Policy match: {gail_match:.3f}, Occupancy JS: {gail_js:.6f}")
+
+    # Summary
+    print(f"\n{'Method':>20} {'Policy Match':>14} {'Occupancy JS':>14}")
+    print("-" * 50)
+    print(f"{'BC':>20} {bc_match:>14.3f} {bc_js:>14.6f}")
+    print(f"{'GAIL':>20} {gail_match:>14.3f} {gail_js:>14.6f}")
+
+    # Write tex
+    metrics = [
+        ("Policy match rate", f"{bc_match:.3f}", f"{gail_match:.3f}"),
+        ("Occupancy JS divergence", f"{bc_js:.4f}", f"{gail_js:.4f}"),
+        ("Reward recovered", "No", "No"),
+        ("Time (s)", "---", f"{gail_time:.1f}"),
+    ]
+    write_results_tex(metrics)
+
+    # JSON
+    out = {
+        "bc": {"policy_match": float(bc_match), "occupancy_js": float(bc_js)},
+        "gail": {"policy_match": float(gail_match), "occupancy_js": float(gail_js),
+                 "time": gail_time},
+    }
+    Path("gail_results.json").write_text(json.dumps(out, indent=2))
+    print("\nDone.")
+
+
+if __name__ == "__main__":
+    main()

@@ -71,6 +71,8 @@ class GAILConfig:
     generator_solver: Literal["value", "hybrid"] = "hybrid"
     generator_tol: float = 1e-8
     generator_max_iter: int = 5000
+    policy_step_size: float = 1.0  # Conservative policy iteration mixing.
+    # 1.0 = full VI (original). <1 = mix old/new policy to prevent instability.
     max_rounds: int = 100
     batch_size: int = 0  # 0 means use all
     entropy_coef: float = 0.0
@@ -483,7 +485,15 @@ class GAILEstimator(BaseEstimator):
                 )
 
             # Update policy via soft value iteration
-            policy, V = self._compute_policy(reward_matrix, operator)
+            new_policy, V = self._compute_policy(reward_matrix, operator)
+
+            # Conservative policy iteration: mix old and new
+            alpha = self.config.policy_step_size
+            if alpha < 1.0:
+                policy = (1 - alpha) * old_policy + alpha * new_policy
+                policy = policy / policy.sum(axis=1, keepdims=True)
+            else:
+                policy = new_policy
 
             # Track best policy by log-likelihood on expert data
             log_probs_iter = operator.compute_log_choice_probabilities(reward_matrix, V)
