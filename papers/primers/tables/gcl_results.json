@@ -1,0 +1,22 @@
+{
+  "estimator": "GCL",
+  "paper": "Finn, Levine, and Abbeel (2016)",
+  "environment": {
+    "name": "Gridworld",
+    "grid_size": 5,
+    "n_states": 25,
+    "n_actions": 5,
+    "n_observations": 10000,
+    "beta": 0.99
+  },
+  "results": {
+    "mce_irl": {
+      "policy_accuracy": 1.0,
+      "time": 83.66
+    },
+    "gcl": {
+      "policy_accuracy": 0.84,
+      "time": 99.35
+    }
+  }
+}

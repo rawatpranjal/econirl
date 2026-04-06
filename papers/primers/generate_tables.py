@@ -73,6 +73,25 @@ def generate_tdccp_table(data: dict, outpath: Path):
     print(f"  Wrote {outpath}")
 
 
+def generate_comparison_table(data: dict, outpath: Path):
+    """Write a two-method comparison table (e.g. GCL vs MCE-IRL)."""
+    r = data.get("results", {})
+    methods = list(r.keys())
+    lines = [r"\begin{tabular}{l" + "r" * len(methods) + "}",
+             r"\toprule",
+             " & ".join([""] + [m.replace("_", "-").upper() for m in methods]) + r" \\",
+             r"\midrule"]
+    # Policy accuracy row
+    accs = [f"{100*r[m].get('policy_accuracy', 0):.1f}\\%" for m in methods]
+    lines.append("Policy accuracy & " + " & ".join(accs) + r" \\")
+    # Time row
+    times = [f"{r[m].get('time', 0)}" for m in methods]
+    lines.append("Time (seconds) & " + " & ".join(times) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    outpath.write_text("\n".join(lines) + "\n")
+    print(f"  Wrote {outpath}")
+
+
 def generate_generic_table(data: dict, outpath: Path):
     """Generic fallback table generator for any estimator."""
     est = data.get("estimated_params", {})
@@ -113,6 +132,8 @@ def main():
             generate_nfxp_table(data, tex_path)
         elif "td_ccp" in estimator or "tdccp" in jf.stem:
             generate_tdccp_table(data, tex_path)
+        elif "gcl" in estimator or "gcl" in jf.stem:
+            generate_comparison_table(data, outpath=tex_path)
         else:
             generate_generic_table(data, tex_path)
 
