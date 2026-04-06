@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.3.8)  6 APR 2026 17:18
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.3.8)  6 APR 2026 17:34
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -450,7 +450,7 @@ and I'll forget about whatever was undefined.
 ! Misplaced \noalign.
 \bottomrule ->\noalign 
                        {\ifnum 0=`}\fi \@aboverulesep =\aboverulesep \global...
-l.190 \bottomrule
+l.202 \bottomrule
                  
 I expect to see \noalign only after the \cr of
 an alignment. Proceed, and I'll ignore this case.
@@ -458,7 +458,7 @@ an alignment. Proceed, and I'll ignore this case.
 ! Missing } inserted.
 <inserted text> 
                 }
-l.191 \end
+l.203 \end
           {tabular}
 I've inserted something that you may have forgotten.
 (See the <inserted text> above.)
@@ -469,7 +469,7 @@ my insertion and my current dilemma will both disappear.
 ! Missing } inserted.
 <inserted text> 
                 }
-l.191 \end
+l.203 \end
           {tabular}
 I've inserted something that you may have forgotten.
 (See the <inserted text> above.)
@@ -480,7 +480,7 @@ my insertion and my current dilemma will both disappear.
 ! Missing } inserted.
 <inserted text> 
                 }
-l.191 \end
+l.203 \end
           {tabular}
 I've inserted something that you may have forgotten.
 (See the <inserted text> above.)
@@ -491,14 +491,14 @@ my insertion and my current dilemma will both disappear.
 ! Missing \cr inserted.
 <inserted text> 
                 \cr 
-l.191 \end
+l.203 \end
           {tabular}
 I'm guessing that you meant to end an alignment here.
 
 ! Missing { inserted.
 <inserted text> 
                 {
-l.191 \end
+l.203 \end
           {tabular}
 I've put in what seems to be necessary to fix
 the current column of the current alignment.
@@ -507,7 +507,7 @@ Try to go on, since this might almost work.
 ! Undefined control sequence.
 \@BTrule ...\doublerulesep \fi \fi \fi \@BTswitch 
                                                   
-l.191 \end
+l.203 \end
           {tabular}
 The control sequence at the end of the top line
 of your error message was never \def'ed. If you have
@@ -518,7 +518,7 @@ and I'll forget about whatever was undefined.
 ! Misplaced \crcr.
 <recently read> \crcr 
                       
-l.191 \end{tabular}
+l.203 \end{tabular}
                    
 I can't figure out why you would want to use a tab mark
 or \cr or \span just now. If something like a right brace
@@ -529,7 +529,7 @@ might try typing `S' now just to see what is salvageable.
 ! Extra }, or forgotten $.
 \endtabular ->\crcr \egroup \egroup 
                                     $\egroup 
-l.191 \end{tabular}
+l.203 \end{tabular}
                    
 I've deleted a group-closing symbol because it seems to be
 spurious, as in `$x}$'. But perhaps the } is legitimate and
@@ -549,16 +549,16 @@ LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-01-18>
  ***********
 Package rerunfilecheck Info: File `airl.out' has not changed.
-(rerunfilecheck)             Checksum: BC4B12F86FEB50C8C128D5408EA9AA09;890.
+(rerunfilecheck)             Checksum: 7099D8B1FC7F619C1BCF3E326A0D47AF;797.
  ) 
 Here is how much of TeX's memory you used:
- 10300 strings out of 473190
- 155697 string characters out of 5715801
- 572198 words of memory out of 5000000
- 33383 multiletter control sequences out of 15000+600000
- 569062 words of font info for 76 fonts, out of 8000000 for 9000
+ 10299 strings out of 473190
+ 155682 string characters out of 5715801
+ 572058 words of memory out of 5000000
+ 33380 multiletter control sequences out of 15000+600000
+ 568754 words of font info for 75 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,10n,79p,260b,609s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,10n,79p,253b,609s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb
 ></usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb>
 </usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb><
@@ -579,10 +579,10 @@ xmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2025/tex
 mf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2025/texm
 f-dist/fonts/type1/public/amsfonts/symbols/msam10.pfb></usr/local/texlive/2025/
 texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb>
-Output written on airl.pdf (5 pages, 252593 bytes).
+Output written on airl.pdf (5 pages, 251956 bytes).
 PDF statistics:
- 237 PDF objects out of 1000 (max. 8388607)
- 188 compressed objects within 2 object streams
- 50 named destinations out of 1000 (max. 500000)
- 57 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 236 PDF objects out of 1000 (max. 8388607)
+ 187 compressed objects within 2 object streams
+ 52 named destinations out of 1000 (max. 500000)
+ 49 words of extra memory for PDF output out of 10000 (max. 10000000)
 

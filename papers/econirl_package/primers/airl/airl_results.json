@@ -1,0 +1,9 @@
+{
+  "cosine_similarity": 0.1649171287633772,
+  "correlation": -0.3621204917444152,
+  "policy_match": 0.6,
+  "goal_reward_true": 1.0,
+  "goal_reward_airl": 43.61054066743888,
+  "mean_nongol_airl": 53.01853579963133,
+  "airl_time": 301.00928807258606
+}

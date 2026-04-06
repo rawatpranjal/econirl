@@ -182,11 +182,11 @@ def main():
     t0 = time.time()
     airl = AIRLEstimator(AIRLConfig(
         reward_type="tabular",
-        max_rounds=300,
-        reward_lr=0.01,
-        reward_weight_decay=0.01,
-        discriminator_steps=1,
-        policy_step_size=0.1,
+        max_rounds=1000,
+        reward_lr=0.02,
+        reward_weight_decay=0.0,
+        discriminator_steps=3,
+        policy_step_size=0.3,
         use_shaping=True,
         convergence_tol=1e-6,
         verbose=True,
