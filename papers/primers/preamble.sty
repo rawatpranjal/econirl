@@ -1,0 +1,50 @@
+% preamble.sty — Shared preamble for econirl estimator primers
+\ProvidesPackage{preamble}
+
+% Layout
+\RequirePackage[left=1in,right=1in,top=1in,bottom=1in]{geometry}
+
+% Math
+\RequirePackage{amsmath,amsthm,amssymb}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+% Tables
+\RequirePackage{booktabs}
+\RequirePackage{multirow}
+
+% Algorithms
+\RequirePackage[ruled,lined]{algorithm2e}
+
+% Code listings
+\RequirePackage{listings}
+\lstset{
+  language=Python,
+  basicstyle=\small\ttfamily,
+  keywordstyle=\bfseries,
+  commentstyle=\itshape\color{gray},
+  breaklines=true,
+  frame=single,
+  xleftmargin=1em,
+  numbers=none,
+}
+
+% Links
+\RequirePackage{hyperref}
+\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
+\RequirePackage{url}
+
+% Graphics
+\RequirePackage{graphicx}
+\RequirePackage{float}
+\RequirePackage{xcolor}
+
+% Typography
+\RequirePackage{microtype}
+
+% Theorem environments
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\newtheorem{definition}{Definition}
