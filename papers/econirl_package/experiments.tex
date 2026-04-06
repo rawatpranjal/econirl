@@ -15,7 +15,7 @@ We simulate data from the \citet{rust1987} bus engine replacement model with 90 
 We generate 200 individuals observed for 100 periods each, producing 20{,}000 observations.
 Table~\ref{tab:case1} reports parameter estimates, log-likelihood, cosine similarity to the true parameter vector, and computation time for all twelve estimators.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Case Study 1: Rust bus engine benchmark. True parameters: $\theta_{\text{oc}} = 0.001$, $\theta_{\text{rc}} = 3.0$. Data: 200 individuals, 100 periods, $\beta = 0.9999$.}
 \label{tab:case1}
@@ -59,7 +59,7 @@ BC provides the non-structural floor at log-likelihood $-4238$.
 
 Figure~\ref{fig:case1} visualizes the accuracy-speed tradeoff across all estimators.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{fig/fig1_tabular_convergence.pdf}
 \caption{Case Study 1: Parameter recovery on the Rust bus benchmark. Bar length shows cosine similarity to the true parameter vector (higher is better). Bar color indicates computation time on a log scale.}
@@ -74,7 +74,7 @@ We use the multi-component bus environment with $K=2$ independent components and
 True parameters are replacement cost $3.0$, operating cost $0.001$, and quadratic cost $0.0005$.
 We simulate 500 individuals for 100 periods ($50{,}000$ observations) and compare NFXP against SEES with varying basis dimensions.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Case Study 2: Multi-component bus (400 states). SEES basis sweep compared to NFXP.}
 \label{tab:case2}
@@ -102,7 +102,7 @@ The NNES bias arises from the difficulty of training the neural value network wh
 
 Figure~\ref{fig:case2} shows the SEES accuracy-compression tradeoff and the timing comparison.
 
-\begin{figure}[t]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.85\textwidth]{fig/fig2_scaling.pdf}
 \caption{Case Study 2: Left panel shows RMSE of SEES parameter estimates versus NFXP as a function of basis dimension. Right panel shows computation time for each estimator. SEES achieves NFXP-level accuracy at a fraction of the cost.}
@@ -117,7 +117,7 @@ We use the Objectworld environment of \citet{wulfmeier2016}, an $8 \times 8$ gri
 The true reward depends nonlinearly on the minimum Euclidean distances to randomly placed colored objects.
 We generate 200 expert trajectories of length 50 and compare linear MCE-IRL (with continuous distance features), f-IRL with two divergence choices (KL and chi-squared), and behavioral cloning.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Case Study 3: Objectworld ($8\times 8$, 64 states, nonlinear reward). Policy accuracy is the fraction of states where the learned policy matches the expert.}
 \label{tab:case3}
@@ -149,7 +149,7 @@ When features are unavailable or unreliable, f-IRL provides a feature-free alter
 
 Table~\ref{tab:realdata} summarizes four real-data applications that demonstrate the library handles datasets ranging from sixty thousand to two million observations.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Real-data applications. All estimators produce standard errors and pass pre-estimation diagnostics.}
 \label{tab:realdata}

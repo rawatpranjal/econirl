@@ -7,7 +7,7 @@ The neural structural estimators (NNES, TD-CCP, SEES) approximate the value func
 The inverse reinforcement learning estimators (MCE-IRL, AIRL, GLADIUS, f-IRL, IQ-Learn) recover rewards from demonstrations, with behavioral cloning as a non-structural baseline.
 Table~\ref{tab:estimators} summarizes the capability of each method.
 
-\begin{table}[t]
+\begin{table}[H]
 \centering
 \caption{Estimator summary. ``Direction'' indicates whether the estimator solves the forward problem (parameters to policy) or the inverse problem (demonstrations to reward). ``Needs $P$'' indicates whether known transition matrices are required. ``SEs'' indicates whether valid standard errors are available.}
 \label{tab:estimators}
@@ -44,7 +44,7 @@ Gradients of the log-likelihood with respect to $\theta$ are computed analytical
 The outer loop uses BHHH optimization, which guarantees a positive-definite Hessian approximation from the outer product of per-observation score vectors.
 Algorithm~\ref{alg:nfxp} shows the main loop.
 
-\begin{algorithm}[t]
+\begin{algorithm}[H]
 \DontPrintSemicolon
 \caption{NFXP-NK \citep{rust1987, iskhakov2016}}
 \label{alg:nfxp}
@@ -91,7 +91,7 @@ The temporal-difference CCP estimator of \citet{adusumilliEckardt2025} is the on
 The key insight is that the CCP value function components $h(a,x)$ and $g(a,x)$ can be characterized via temporal-difference fixed-point equations that depend only on sample expectations over observed transitions $(s, a, s')$, not on the density $p(s'|s,a)$.
 Algorithm~\ref{alg:tdccp} shows the linear semi-gradient variant, which solves for $h$ via a single matrix inversion.
 
-\begin{algorithm}[t]
+\begin{algorithm}[H]
 \DontPrintSemicolon
 \caption{TD-CCP, linear semi-gradient \citep{adusumilliEckardt2025}}
 \label{alg:tdccp}
@@ -126,7 +126,7 @@ The forward pass computes state visitation frequencies $D_\pi$ via the occupancy
 The gradient is the feature matching residual $\nabla_\theta \mathcal{L} = \E_{\text{data}}[\phi] - \E_\pi[\phi]$.
 Algorithm~\ref{alg:mceirl} shows the main loop.
 
-\begin{algorithm}[t]
+\begin{algorithm}[H]
 \DontPrintSemicolon
 \caption{MCE-IRL \citep{ziebart2010}}
 \label{alg:mceirl}
@@ -156,7 +156,7 @@ The discriminator takes the form $D(s,a,s') = \exp(f)/(\exp(f) + \pi(a|s))$ wher
 This structure disentangles the state-only reward $g(s)$ from the shaping potential $h(s)$.
 Algorithm~\ref{alg:airl} shows the adversarial training loop.
 
-\begin{algorithm}[t]
+\begin{algorithm}[H]
 \DontPrintSemicolon
 \caption{AIRL \citep{fu2018}}
 \label{alg:airl}
