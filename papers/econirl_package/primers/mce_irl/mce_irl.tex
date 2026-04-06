@@ -166,9 +166,9 @@ The deep variant replaces $\theta^\top \phi(s,a)$ with a neural network $r_\psi(
 \section{Results}
 %% ============================================================
 
-We run MCE-IRL, NFXP, and behavioral cloning on a \mceGridSize$\times$\mceGridSize\ gridworld with \mceNstates\ states, 5 actions, and three action-dependent features (step penalty, terminal reward, distance weight). Data consists of \mceNobs\ observations from \mceGridSize00 simulated trajectories at $\beta = \mceBeta$.
-
 \input{mce_irl_results}
+
+We run MCE-IRL, NFXP, and behavioral cloning on a \mceGridSize$\times$\mceGridSize\ gridworld with \mceNstates\ states, 5 actions, and three action-dependent features (step penalty, terminal reward, distance weight). Data consists of \mceNobs\ observations at $\beta = \mceBeta$.
 
 MCE-IRL and NFXP achieve identical policy accuracy (\mcePolicyAcc\% and \mceNfxpPolicyAcc\%), confirming that they solve the same MLE. Both substantially outperform behavioral cloning (\mceBcPolicyAcc\%), which does not learn from MDP structure. The cosine similarities differ because rewards are identified only up to an additive constant and scale, so the raw parameter vectors may point in different directions while producing the same policy. Policy accuracy is the correct evaluation metric for IRL.
 
