@@ -1,0 +1,227 @@
+\documentclass[11pt]{article}
+\usepackage{preamble}
+\usepackage{placeins}
+\usepackage{titling}
+\setlength{\droptitle}{-2em}
+\posttitle{\par\end{center}\vspace{-1em}}
+
+\title{Primer: Temporal-Difference CCP (TD-CCP)\\[4pt]
+\large Adusumilli and Eckardt (2025)}
+\author{econirl package documentation}
+\date{}
+
+\begin{document}
+\maketitle
+
+%% ============================================================
+\section{Context and Problem}
+%% ============================================================
+
+CCP estimation (Hotz and Miller 1993) avoids the inner Bellman loop of NFXP by inverting observed choice probabilities into value differences.
+The inversion requires computing the expected future value $\E[V(s') \mid s,a]$, which in turn requires the transition density $p(s' \mid s,a)$.
+When the state space is continuous or high-dimensional, estimating this density is the binding constraint.
+Kernel methods suffer from the curse of dimensionality, and discretization introduces approximation bias that grows with the number of state variables.
+
+Adusumilli and Eckardt (2025) eliminate the transition density entirely.
+Their key insight is that the CCP value function components $h(a,x)$ and $g(a,x)$ satisfy temporal-difference fixed-point equations that depend only on sample expectations over observed transitions $(x_t, a_t, x_{t+1})$, not on the density $p(x' \mid x,a)$.
+This is the same idea that makes TD learning in reinforcement learning model-free: replace $\E_{p}[V(s')]$ with the sample next state $V(s'_{t+1})$.
+
+The estimator comes in two flavors.
+The linear semi-gradient method approximates $h$ and $g$ with polynomial basis functions and solves a single linear system, running in sub-second time.
+The neural approximate value iteration (AVI) method uses neural networks for $h$ and $g$, iterating Bellman-like regression targets until convergence.
+Both produce locally robust standard errors at the parametric $\sqrt{n}$ rate, even though the first-stage $h$ and $g$ estimates converge at slower nonparametric rates.
+
+TD-CCP is the only estimator in econirl that requires neither transition densities nor an inner Bellman loop.
+NFXP and CCP require known transitions.
+NNES and SEES require transitions for the Bellman target.
+AIRL avoids transitions but does not produce valid standard errors.
+TD-CCP provides all three: no transitions, scalability, and valid inference.
+
+The name ``temporal-difference CCP'' reflects the connection to TD learning in reinforcement learning.
+Just as TD($0$) updates value estimates using the observed next state rather than the full expectation over the transition kernel, TD-CCP updates value function components $h_k$ and $g$ using observed next transitions $(x_{t+1}, a_{t+1})$ rather than the density $p(x' \mid x,a)$.
+The semi-gradient fixed-point equation~\eqref{eq:semigradient} is the structural econometrics analog of the Tsitsiklis and Van Roy (1997) linear TD method with function approximation.
+
+%% ============================================================
+\section{Model and Notation}
+%% ============================================================
+
+\begin{table}[h!]
+\centering\small
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$x \in \mathcal{X}$ & State (continuous or discrete) \\
+$a \in \mathcal{A}$ & Action (discrete, $|\mathcal{A}|$ choices) \\
+$\beta \in [0,1)$, $\sigma > 0$ & Discount factor, logit scale \\
+$\phi_k(a,x) \in \R$ & Feature $k$ for action $a$ at state $x$ \\
+$\theta \in \R^K$ & Structural parameters \\
+\midrule
+$P(a \mid x)$ & Conditional choice probability (CCP) \\
+$e(a,x) = \gamma_E - \ln P(a \mid x)$ & Emax correction (Euler constant $\gamma_E \approx 0.577$) \\
+$h_k(a,x)$ & Expected discounted feature $k$ under action $a$ \\
+$g(a,x)$ & Expected discounted emax under action $a$ \\
+$z_k(a,x), z_g(a,x)$ & Pseudo-outcome for $h_k$, $g$ \\
+\midrule
+$\Psi(a,x) \in \R^{K_\Psi}$ & Basis functions for semi-gradient \\
+$\omega_k \in \R^{K_\Psi}$ & Basis coefficients for $h_k$ \\
+$\lambda_k(a,x)$ & Backward value function (for robust SEs) \\
+\bottomrule
+\end{tabular}
+\end{table}
+\FloatBarrier
+
+The CCP decomposition of Hotz and Miller (1993) writes the choice-specific value as
+\begin{equation}
+\label{eq:ccp_decomp}
+Q(a,x;\theta) \;=\; \sum_{k=1}^K \theta_k\,h_k(a,x) \;+\; \sigma\,g(a,x),
+\end{equation}
+where $h_k(a,x) = \E\bigl[\sum_{t=0}^\infty \beta^t \phi_k(a_t, x_t) \mid a_0 = a, x_0 = x\bigr]$ is the expected discounted feature $k$ and $g(a,x) = \E\bigl[\sum_{t=1}^\infty \beta^t e(a_t, x_t) \mid a_0 = a, x_0 = x\bigr]$ is the expected discounted emax.
+The pseudo-log-likelihood is
+\begin{equation}
+\label{eq:pseudo_ll}
+Q_n(\theta) \;=\; \frac{1}{n}\sum_{i=1}^n \ln \pi\!\bigl(a_i \mid x_i;\, \theta,\, h,\, g\bigr), \qquad \pi(a \mid x) = \frac{\exp\bigl(Q(a,x;\theta)/\sigma\bigr)}{\sum_{a'}\exp\bigl(Q(a',x;\theta)/\sigma\bigr)}.
+\end{equation}
+The key objects $h_k$ and $g$ satisfy temporal-difference fixed-point equations that do not involve the transition density.
+
+%% ============================================================
+\section{Identification and Theory}
+%% ============================================================
+
+\begin{proposition}[TD fixed point for $h$]
+The component $h_k(a,x)$ satisfies the fixed-point equation $h_k(a,x) = z_k(a,x) + \beta\,\E[h_k(a',x') \mid a,x]$, where $z_k(a,x) = \phi_k(a,x) + \beta\sum_{a'} P(a' \mid x)\bigl[\phi_k(a',x) - \phi_k(a,x)\bigr]$ is the pseudo-outcome and $(a',x')$ is the next observed state-action pair.
+The expectation is over the data-generating process, not over a model transition density.
+\end{proposition}
+
+The semi-gradient method approximates $h_k(a,x) \approx \Psi(a,x)^\top \omega_k$ and solves
+\begin{equation}
+\label{eq:semigradient}
+\hat\omega_k \;=\; \Bigl[\frac{1}{n}\sum_{i=1}^n \Psi_i\bigl(\Psi_i - \beta\,\Psi_i'\bigr)^\top\Bigr]^{-1} \frac{1}{n}\sum_{i=1}^n \Psi_i\, z_{k,i},
+\end{equation}
+where $\Psi_i = \Psi(a_i, x_i)$ and $\Psi_i' = \Psi(a_i', x_i')$ are basis evaluations at current and next transitions.
+This is a single matrix inversion, shared across all $K$ components.
+
+\begin{proposition}[Locally robust inference]
+Define the backward value function $\lambda_k(a,x)$ as the solution to the adjoint equation $(I - \beta F_\pi^\top)\lambda_k = \partial Q / \partial h_k$.
+The locally robust moment condition is
+\begin{equation}
+\label{eq:robust_moment}
+\zeta_i(\theta) \;=\; m_i(\theta) \;+\; \sum_k \theta_k\,\lambda_k(a_i', x_i')\,\delta_{h,k,i} \;+\; \sigma\,\lambda_g(a_i', x_i')\,\delta_{g,i},
+\end{equation}
+where $m_i$ is the standard score, $\delta_{h,k,i} = z_{k,i} + \beta\,\hat h_k(a_i', x_i') - \hat h_k(a_i, x_i)$ is the TD error for $h_k$, and $\delta_{g,i}$ is defined analogously for $g$.
+Under regularity conditions, $\hat\theta$ is asymptotically normal at rate $\sqrt{n}$ with sandwich variance $V = (G^\top \Omega^{-1} G)^{-1}$, even when $\hat h$ and $\hat g$ converge at slower nonparametric rates.
+\end{proposition}
+
+The key property is Neyman orthogonality: the moment condition $\zeta_i$ has zero derivative with respect to the nuisance functions $h$ and $g$ at the true values.
+This means first-order errors in $\hat h$ and $\hat g$ drop out of the influence function for $\hat\theta$, so the structural parameters inherit the parametric $\sqrt{n}$ rate even when the nonparametric first stage converges at a slower rate such as $n^{-1/3}$ or $n^{-2/5}$.
+Without the correction terms in~\eqref{eq:robust_moment}, naive standard errors would understate uncertainty by ignoring the estimation error in $h$ and $g$.
+
+Cross-fitting (splitting data into two folds, estimating $h,g$ on one fold and $\theta$ on the other) eliminates the Donsker condition that would otherwise restrict the complexity of the first-stage estimator.
+On tabular problems where the state space is finite, the standard approach without cross-fitting also produces valid SEs because the CCP estimates converge at the parametric rate.
+The paper recommends cross-fitting for continuous-state applications where nonparametric rates apply.
+
+The identification conditions for $\theta$ are the same as for NFXP: the feature matrix must have full column rank, and the discount factor $\beta$ must be fixed a priori.
+The TD-CCP approach does not weaken or strengthen the identification requirements relative to standard CCP.
+What it changes is the computational requirements: the transition density is no longer needed for estimation, only for counterfactual simulation after estimation.
+
+%% ============================================================
+\section{Estimation Algorithm}
+%% ============================================================
+
+\begin{algorithm}[H]
+\DontPrintSemicolon
+\caption{TD-CCP with Semi-Gradient (Adusumilli and Eckardt 2025)}
+\label{alg:tdccp}
+\KwIn{Panel $\{(x_i, a_i, x_i', a_i')\}_{i=1}^n$, features $\phi$, basis $\Psi$, discount $\beta$}
+\textbf{Cross-fitting:} split data into folds $\mathcal{I}_1, \mathcal{I}_2$\tcp*{\texttt{\_estimate\_with\_cross\_fitting()}}
+\For{fold $\ell = 1, 2$}{
+  \textbf{Step 1: Estimate CCPs}\tcp*{\texttt{\_estimate\_ccps()}}
+  $\hat P(a \mid x) \leftarrow$ frequency counts (or logit on polynomial features)\;
+  $e_i \leftarrow \gamma_E - \ln \hat P(a_i \mid x_i)$ for each observation\;
+  \BlankLine
+  \textbf{Step 2: Build pseudo-outcomes}\;
+  $z_{k,i} \leftarrow \phi_k(a_i,x_i) + \beta\sum_{a'} \hat P(a' \mid x_i)[\phi_k(a',x_i) - \phi_k(a_i,x_i)]$\;
+  $z_{g,i} \leftarrow e_i + \beta\sum_{a'} \hat P(a' \mid x_i)[e(a',x_i) - e(a_i,x_i)]$\;
+  \BlankLine
+  \textbf{Step 3: Solve semi-gradient}\tcp*{\texttt{\_semigradient\_solve()}}
+  $A \leftarrow \frac{1}{|\mathcal{I}_\ell|}\sum_{i \in \mathcal{I}_\ell} \Psi_i(\Psi_i - \beta\Psi_i')^\top$\;
+  \For{$k = 1, \ldots, K$ and for $g$}{
+    $\hat\omega_k \leftarrow A^{-1}\bigl[\frac{1}{|\mathcal{I}_\ell|}\sum_{i \in \mathcal{I}_\ell} \Psi_i\,z_{k,i}\bigr]$\tcp*{Eq.~\ref{eq:semigradient}}
+  }
+  \BlankLine
+  \textbf{Step 4: Partial MLE on other fold}\tcp*{\texttt{\_partial\_mle()}}
+  $\hat\theta^{(\ell)} \leftarrow \argmax_\theta \frac{1}{|\mathcal{I}_{-\ell}|}\sum_{i \in \mathcal{I}_{-\ell}} \ln \pi(a_i \mid x_i;\,\theta,\,\hat h,\,\hat g)$\;
+  \BlankLine
+  \textbf{Step 5: Backward value function}\tcp*{\texttt{\_compute\_backward\_value()}}
+  Solve $(I - \beta\hat F_\pi^\top)\hat\lambda_k = \partial Q/\partial h_k$ for each $k$\;
+  \BlankLine
+  \textbf{Step 6: Robust SEs}\tcp*{\texttt{\_compute\_robust\_se()}}
+  Compute $\hat\zeta_i$ via~\eqref{eq:robust_moment}\;
+  $\hat V^{(\ell)} \leftarrow (\hat G^\top \hat\Omega^{-1} \hat G)^{-1}$\;
+}
+$\hat\theta \leftarrow \tfrac{1}{2}(\hat\theta^{(1)} + \hat\theta^{(2)})$, \quad $\hat V \leftarrow \tfrac{1}{2}(\hat V^{(1)} + \hat V^{(2)})$\;
+\KwOut{$\hat\theta$, $\hat V$ for robust SEs, $\hat h$, $\hat g$ for diagnostics}
+\end{algorithm}
+
+Code annotations reference methods in \texttt{src/econirl/estimation/td\_ccp.py}.
+The matrix $A$ in Step~3 is shared across all components, so the cost is one matrix inversion plus $K+1$ back-solves.
+Default configuration: $K_\Psi = 8$ polynomial basis, 2-fold cross-fitting, robust SEs enabled.
+For neural AVI, replace Step~3 with iterative regression networks (\texttt{\_neural\_avi\_solve()}).
+
+%% ============================================================
+\section{Simulation}
+%% ============================================================
+
+The companion script \texttt{tdccp\_demo.py} runs TD-CCP (semi-gradient, $K_\Psi = 8$, robust SEs) alongside NFXP on the Rust bus engine (90 states, $\beta = 0.95$, 50{,}000 observations).
+
+\begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
+from econirl.estimation.td_ccp import TDCCPEstimator, TDCCPConfig
+
+config = TDCCPConfig(method="semigradient", basis_dim=8,
+    robust_se=True)
+result = TDCCPEstimator(config=config).estimate(
+    panel, utility, problem, transitions)
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{TD-CCP vs NFXP on the Rust bus engine (90 states, $\beta = 0.95$, 50{,}000 obs).}
+\label{tab:tdccp_results}
+\input{tables/tdccp_results}
+\end{table}
+
+TD-CCP recovers both parameters near the true values with valid robust standard errors.
+The replacement cost is estimated at 3.00 with a standard error of 0.015, and the operating cost at 0.0017 with a standard error of 0.0002.
+NFXP is slightly more precise because it solves the Bellman equation exactly, but NFXP requires the full transition matrix $P(s' \mid s,a)$ while TD-CCP uses only the observed transitions $(x_t, a_t, x_{t+1})$ in the data.
+On this 90-state tabular problem both methods run in under 3 seconds.
+TD-CCP's advantage appears on continuous-state problems where estimating $P$ is infeasible.
+
+\paragraph{Cross-estimator comparison.}
+The Rust bus benchmark confirms that NFXP, CCP, and MCE-IRL recover identical parameters when transitions are known.
+TD-CCP trades a small amount of parameter accuracy for independence from the transition density.
+The locally robust standard errors are valid despite the nonparametric first stage, which is TD-CCP's unique theoretical contribution.
+No other estimator in econirl achieves $\sqrt{n}$ inference without requiring transition probabilities.
+
+The per-feature decomposition $h_1(a,x), \ldots, h_K(a,x)$ provides a diagnostic that other estimators lack.
+Each $h_k$ measures how much feature $k$ contributes to the expected discounted value under each action.
+Plotting $h_k$ against the state reveals whether a feature's dynamic contribution is well-approximated by the chosen basis.
+If the semi-gradient residual $\delta_{h,k}$ is large for a particular feature, the basis dimension for that feature should be increased.
+
+\paragraph{Basis selection.}
+The semi-gradient method requires choosing the basis dimension $K_\Psi$.
+Too few basis functions produce approximation bias in $h$ and $g$ that propagates to $\hat\theta$.
+Too many basis functions overfit and inflate variance.
+The paper recommends polynomial bases of degree 2 to 4 for continuous states, with cross-validation to select the degree.
+In the tabular setting (finite states), the basis can be the full state indicator, which recovers the exact CCP estimator as a special case.
+
+\paragraph{Counterfactual exercise.}
+Because TD-CCP estimates structural parameters $\hat\theta$ in the same linear utility $u = \theta^\top\phi$, it supports the same counterfactual exercises as NFXP.
+Changing $\theta$ and re-solving the Bellman equation produces a counterfactual policy, with welfare effect $\Delta W = \E_{\mu_0}[V(s;\theta') - V(s;\hat\theta)]$.
+The transition density is needed for the counterfactual solve, but it can be estimated separately from the data or specified by the researcher as a modeling assumption.
+The locally robust SEs on $\hat\theta$ propagate to counterfactual welfare via the delta method.
+The companion script \texttt{tdccp\_demo.py} demonstrates this workflow end to end.
+For continuous-state applications where TD-CCP is most valuable, the neural AVI variant (\texttt{method="neural"}) replaces the polynomial basis with a two-layer MLP, trading the closed-form solution for flexibility in high-dimensional state spaces at the cost of iterative training.
+Early stopping monitors the relative change in $\hat h$ between AVI iterations and halts when improvement falls below 1 percent, preventing overfitting.
+Full documentation is at \texttt{docs/estimators/tdccp.md}.
+
+\end{document}

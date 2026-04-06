@@ -42,6 +42,37 @@ def generate_nfxp_table(data: dict, outpath: Path):
     print(f"  Wrote {outpath}")
 
 
+def generate_tdccp_table(data: dict, outpath: Path):
+    """Write TD-CCP results as a tex tabular comparing to NFXP."""
+    true = data["true_params"]
+    r = data["results"]
+    nfxp = r["nfxp"]
+    tdccp = r["tdccp"]
+
+    lines = [
+        r"\begin{tabular}{lrrrr}",
+        r"\toprule",
+        r"& True & NFXP & TD-CCP & TD-CCP SE \\",
+        r"\midrule",
+        f"Operating cost ($\\theta_c$) & {true['operating_cost']} "
+        f"& {nfxp['operating_cost']} & {tdccp['operating_cost']} "
+        f"& ({tdccp['se_oc']}) \\\\",
+        f"Replacement cost ($RC$) & {true['replacement_cost']:.1f} "
+        f"& {nfxp['replacement_cost']} & {tdccp['replacement_cost']} "
+        f"& ({tdccp['se_rc']}) \\\\",
+        r"\midrule",
+        f"Log-likelihood & & {nfxp['ll']} "
+        f"& \\multicolumn{{2}}{{r}}{{{tdccp['ll']}}} \\\\",
+        f"Time (seconds) & & {nfxp['time']} "
+        f"& \\multicolumn{{2}}{{r}}{{{tdccp['time']}}} \\\\",
+        r"\bottomrule",
+        r"\end{tabular}",
+    ]
+
+    outpath.write_text("\n".join(lines) + "\n")
+    print(f"  Wrote {outpath}")
+
+
 def generate_generic_table(data: dict, outpath: Path):
     """Generic fallback table generator for any estimator."""
     est = data.get("estimated_params", {})
@@ -80,6 +111,8 @@ def main():
 
         if "nfxp" in estimator or "nfxp" in jf.stem:
             generate_nfxp_table(data, tex_path)
+        elif "td_ccp" in estimator or "tdccp" in jf.stem:
+            generate_tdccp_table(data, tex_path)
         else:
             generate_generic_table(data, tex_path)
 
