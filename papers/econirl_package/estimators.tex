@@ -9,29 +9,29 @@ Table~\ref{tab:estimators} summarizes the capability of each method.
 
 \begin{table}[H]
 \centering
-\caption{Estimator summary. ``Direction'' indicates whether the estimator solves the forward problem (parameters to policy) or the inverse problem (demonstrations to reward). ``Needs $P$'' indicates whether known transition matrices are required. ``SEs'' indicates whether valid standard errors are available.}
+\caption{Estimator capabilities. All six classical and approximate estimators share the same parametric MLE objective and differ only in how they solve the Bellman constraint. The IRL estimators use fundamentally different identification strategies.}
 \label{tab:estimators}
-\small
-\begin{tabular}{lllcccc}
+\footnotesize
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l c c c c c}
 \toprule
-Estimator & Reference & Direction & Needs $P$ & SEs & Scales & Transfer \\
+Estimator & Reference & Dir. & $P$ req. & SEs & Scales & Transfer \\
 \midrule
-NFXP-NK    & \citet{rust1987, iskhakov2016}        & Forward & Yes & Analytical & No  & No \\
-CCP-NPL    & \citet{hotzMiller1993, aguirregabiriaMira2002} & Forward & Yes & Hessian    & No  & No \\
-MPEC       & \citet{suJudd2012}                     & Forward & Yes & Hessian    & No  & No \\
+NFXP-NK    & \citealt{rust1987}            & Fwd & \checkmark & Analytical & & \\
+CCP-NPL    & \citealt{hotzMiller1993}      & Fwd & \checkmark & Hessian    & & \\
+MPEC       & \citealt{suJudd2012}          & Fwd & \checkmark & Hessian    & & \\
 \midrule
-NNES       & \citet{nguyen2025}                     & Forward & Yes & Valid      & Yes & No \\
-TD-CCP     & \citet{adusumilliEckardt2025}          & Forward & No  & Robust     & Yes & No \\
-SEES       & \citet{luoSang2024}                    & Forward & Yes & Marginal   & Yes & No \\
+NNES       & \citealt{nguyen2025}          & Fwd & \checkmark & Valid      & \checkmark & \\
+TD-CCP     & \citealt{adusumilliEckardt2025} & Fwd &          & Robust     & \checkmark & \\
+SEES       & \citealt{luoSang2024}         & Fwd & \checkmark & Marginal   & \checkmark & \\
 \midrule
-MCE-IRL    & \citet{ziebart2010}                    & Inverse & Yes & Bootstrap  & No  & No \\
-AIRL       & \citet{fu2018}                         & Inverse & No  & No         & No  & Yes \\
-GLADIUS    & \citet{kang2025}                       & Inverse & Yes & Projected  & Yes & No \\
-f-IRL      & \citet{ni2022}                         & Inverse & Yes & No         & No  & No \\
-IQ-Learn   & \citet{garg2021}                       & Inverse & Yes & No         & No  & No \\
-BC         & \citet{pomerleau1991}                  & Imitation & No & No        & No  & No \\
+MCE-IRL    & \citealt{ziebart2010}         & Inv & \checkmark & Bootstrap  & & \\
+AIRL       & \citealt{fu2018}              & Inv &            &            & & \checkmark \\
+GLADIUS    & \citealt{kang2025}            & Inv & \checkmark & Projected  & \checkmark & \\
+f-IRL      & \citealt{ni2022}              & Inv & \checkmark &            & & \\
+IQ-Learn   & \citealt{garg2021}            & Inv & \checkmark &            & & \\
+BC         & \citealt{pomerleau1991}       & Imit &           &            & & \\
 \bottomrule
-\end{tabular}
+\end{tabular*}
 \end{table}
 
 
