@@ -504,17 +504,52 @@ class CCPEstimator(BaseEstimator):
 
             prev_params = jnp.array(current_params)
 
-            # Define combined value-and-grad function for this iteration's CCPs.
-            # The gradient is computed via finite differences because _compute_log_likelihood
-            # passes through Python loops that are not JAX-traceable end-to-end.
-            def neg_ll_and_grad(params_x):
-                def neg_ll(p):
+            # A&M (2002) algorithm: compute the valuation matrix ONCE per NPL step
+            # from the fixed CCPs. W_z and W_e depend only on CCPs (not theta), so
+            # they do not change during the logit optimization step. Caching them
+            # reduces per-call cost from O(S^3) to O(S*A*K) for the pseudo-LL.
+            W_z, W_e = self._compute_valuation_matrix(
+                ccps, transitions, utility, current_params, problem
+            )
+
+            # Pre-compute augmented features z_tilde and e_tilde from cached W_z, W_e.
+            # v(s,a; theta) = z_tilde(s,a)' * theta + e_tilde(s,a)
+            # This is a standard logit — no matrix inversion per gradient call.
+            beta = problem.discount_factor
+            num_states = problem.num_states
+            num_actions = problem.num_actions
+
+            if hasattr(utility, 'feature_matrix'):
+                features = jnp.array(utility.feature_matrix, dtype=W_z.dtype)
+                # E[W_z(x') | x, a]: shape (S, A, K)
+                E_W_z = jnp.stack([transitions[a] @ W_z for a in range(num_actions)], axis=1)
+                E_W_e = jnp.stack([transitions[a] @ W_e for a in range(num_actions)], axis=1)
+                z_tilde = features + beta * E_W_z          # (S, A, K)
+                e_tilde = beta * E_W_e                     # (S, A)
+            else:
+                z_tilde = None
+                e_tilde = None
+
+            all_states = panel.get_all_states()
+            all_actions = panel.get_all_actions()
+            sigma = problem.scale_parameter
+
+            def neg_ll_fast(params_x):
+                """Pseudo-LL using precomputed augmented features — no matrix inversion."""
+                if z_tilde is not None:
+                    theta = jnp.array(params_x, dtype=z_tilde.dtype)
+                    v = jnp.einsum('sak,k->sa', z_tilde, theta) + e_tilde
+                else:
+                    # Fallback for non-linear utility (rare)
                     return -self._compute_log_likelihood(
-                        jnp.array(p, dtype=jnp.float32),
+                        jnp.array(params_x, dtype=jnp.float32),
                         panel, utility, ccps, transitions, problem,
                     )
+                log_probs = jax.nn.log_softmax(v / sigma, axis=1)
+                return -float(log_probs[all_states, all_actions].sum())
 
-                val = neg_ll(params_x)
+            def neg_ll_and_grad(params_x):
+                val = neg_ll_fast(params_x)
                 n = len(params_x)
                 grad = jnp.zeros(n, dtype=jnp.float64)
                 for i in range(n):
@@ -522,11 +557,11 @@ class CCPEstimator(BaseEstimator):
                     p_plus = params_x.at[i].add(eps_i)
                     p_minus = params_x.at[i].add(-eps_i)
                     grad = grad.at[i].set(
-                        (neg_ll(p_plus) - neg_ll(p_minus)) / (2 * eps_i)
+                        (neg_ll_fast(p_plus) - neg_ll_fast(p_minus)) / (2 * eps_i)
                     )
                 return val, grad
 
-            # Maximize pseudo-likelihood
+            # Maximize pseudo-likelihood (standard logit with augmented features)
             lower, upper = utility.get_parameter_bounds()
 
             result = minimize_lbfgsb(
