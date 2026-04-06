@@ -1,22 +1,11 @@
 \documentclass[11pt]{article}
 \usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[round]{natbib}
-\usepackage{hyperref}
-\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
-\usepackage{float}
+\input{../common/notation}
 \usepackage[ruled,lined]{algorithm2e}
-\usepackage{microtype}
-\usepackage{placeins}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
 
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\calS}{\mathcal{S}}
-\newcommand{\calA}{\mathcal{A}}
 \newcommand{\calC}{\mathcal{C}}
 
 \title{Primer: Neural Network Efficient Estimator (NNES)}
@@ -40,6 +29,8 @@ Sieve methods like SEES \citep{luoSang2024} approximate the value function with 
 \section{Model and Notation}
 %% ============================================================
 
+\commonnotation
+
 The agent observes continuous state $x \in \calS \subset \R^d$ and chooses discrete action $a \in \calA = \{1, \ldots, J\}$ to maximize discounted expected utility with additive Type I extreme value shocks.
 
 \begin{table}[H]
@@ -48,10 +39,6 @@ The agent observes continuous state $x \in \calS \subset \R^d$ and chooses discr
 \toprule
 Symbol & Name & Definition \\
 \midrule
-$u_a(x;\theta)$ & Flow utility & Parametric in $\theta \in \Theta \subset \R^{d_\theta}$ \\
-$V(x)$ & Value function & $\sigma \log \sum_a \exp(Q_a(x)/\sigma)$ (Bellman fixed point) \\
-$Q_a(x)$ & Action value & $u_a(x;\theta) + \beta \E[V(x') \mid x, a]$ \\
-$P(a|x)$ & CCP & $\exp\bigl((Q_a(x) - V(x))/\sigma\bigr)$ \\
 $e(a,x)$ & Emax correction & $\gamma_{\mathrm{Euler}} - \log P(a|x)$ (Hotz-Miller) \\
 $\phi_\theta[P]$ & Evaluation operator & Value function implied by CCPs $P$ at parameter $\theta$ \\
 $\Lambda_\theta[V]$ & Improvement operator & CCPs implied by value function $V$ at parameter $\theta$ \\

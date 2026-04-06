@@ -1,17 +1,13 @@
 \documentclass[11pt]{article}
-\usepackage[left=1in,right=1in,top=1in,bottom=1in]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[round]{natbib}
-\usepackage{hyperref}
-\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
-\usepackage{float}
+\usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
+\input{../common/notation}
 \usepackage[ruled,lined]{algorithm2e}
-\usepackage{microtype}
+\usepackage{titling}
+\setlength{\droptitle}{-2em}
+\posttitle{\par\end{center}\vspace{-1em}}
 
 \DeclareMathOperator*{\argmin}{arg\,min}
 \DeclareMathOperator*{\argmax}{arg\,max}
-\newcommand{\E}{\mathbb{E}}
 
 \title{CCP Estimation Primer\\{\large Hotz-Miller Inversion and Nested Pseudo-Likelihood}}
 \author{EconIRL Technical Notes}
@@ -38,6 +34,8 @@ CCP estimation is the only method in the EconIRL package that extends naturally 
 \section{Model and Notation}
 %% ============================================================
 
+\commonnotation
+
 We work within the DDC framework of \citet{rust1987}. An agent in state $s \in \mathcal{S}$ chooses action $a \in \mathcal{A}$ to maximize discounted expected utility. Flow utility is $u(s,a;\theta) + \sigma\epsilon_a$ where $\epsilon_a$ is Type I extreme value with scale $\sigma > 0$. Transitions follow $P(s'|s,a)$ with discount factor $\beta \in [0,1)$.
 
 The key objects are as follows.
@@ -48,13 +46,8 @@ The key objects are as follows.
 \toprule
 Symbol & Name & Definition \\
 \midrule
-$Q(s,a)$ & Choice-specific value & $u(s,a;\theta) + \beta \sum_{s'} P(s'|s,a)\, V(s')$ \\
-$V(s)$ & Integrated value & $\sigma \log \sum_a \exp\bigl(Q(s,a)/\sigma\bigr)$ \\
-$\pi(a|s)$ & Choice probability (CCP) & $\exp\bigl(Q(s,a)/\sigma\bigr) / \sum_{a'} \exp\bigl(Q(s,a')/\sigma\bigr)$ \\
 $e(a,s)$ & Emax correction & $\gamma_{\text{Euler}} - \log \pi(a|s)$, where $\gamma_{\text{Euler}} \approx 0.5772$ \\
 $F_\pi$ & Policy-weighted transitions & $F_\pi[s,s'] = \sum_a \pi(a|s)\, P(s'|s,a)$ \\
-$\phi(s,a)$ & Feature vector & Known functions of $(s,a)$, dimension $K$ \\
-$\theta$ & Structural parameters & Unknown, dimension $K$; $u(s,a;\theta) = \theta^\top \phi(s,a)$ \\
 \bottomrule
 \end{tabular*}
 \end{table}

@@ -1,25 +1,10 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[round]{natbib}
-\usepackage{hyperref}
-\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
-\usepackage{float}
+\usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
+\input{../common/notation}
 \usepackage[ruled,lined]{algorithm2e}
-\usepackage{microtype}
-\usepackage{placeins}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
-\setlength{\parindent}{0em}
-
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\calA}{\mathcal{A}}
-\newcommand{\calS}{\mathcal{S}}
-\newcommand{\calH}{\mathcal{H}}
 
 \title{Primer: Maximum Entropy IRL (MaxEnt IRL)}
 \author{econirl package documentation}
@@ -44,7 +29,9 @@ The key limitation of MaxEnt IRL, which motivates Maximum Causal Entropy IRL \ci
 \section{Model and Notation}
 %% ============================================================
 
-The agent operates in a Markov decision process $(\calS, \calA, P, R, \gamma)$ with finite state space $\calS$, finite action space $\calA$, transition probabilities $P(s'|s,a)$, reward function $R(s;\theta) = \theta^\top \phi(s)$, and discount factor $\gamma \in [0,1)$. A trajectory is a sequence of state-action pairs $\tau = (s_0, a_0, s_1, a_1, \ldots)$. The initial state $s_0$ is drawn from $\rho_0$.
+\commonnotation
+
+The agent operates in a Markov decision process $(\calS, \calA, P, R, \beta)$ with finite state space $\calS$, finite action space $\calA$, transition probabilities $P(s'|s,a)$, reward function $R(s;\theta) = \theta^\top \phi(s)$, and discount factor $\beta \in [0,1)$. A trajectory is a sequence of state-action pairs $\tau = (s_0, a_0, s_1, a_1, \ldots)$. The initial state $s_0$ is drawn from $\rho_0$.
 
 \begin{table}[H]
 \centering\small
@@ -52,14 +39,10 @@ The agent operates in a Markov decision process $(\calS, \calA, P, R, \gamma)$ w
 \toprule
 Symbol & Name & Definition \\
 \midrule
-$\tau$ & Trajectory & $(s_0, a_0, s_1, a_1, \ldots)$ \\
-$P(\tau|\theta)$ & Trajectory probability & $\propto \exp\!\left(\sum_t \gamma^t R(s_t;\theta)\right)$ \\
-$Z(\theta)$ & Partition function & $\sum_\tau \exp\!\left(\sum_t \gamma^t R(s_t;\theta)\right)$ \\
+$P(\tau|\theta)$ & Trajectory probability & $\propto \exp\!\left(\sum_t \beta^t R(s_t;\theta)\right)$ \\
+$Z(\theta)$ & Partition function & $\sum_\tau \exp\!\left(\sum_t \beta^t R(s_t;\theta)\right)$ \\
 $D_t(s)$ & State visitation at $t$ & Forward message passing from $\rho_0$ \\
 $Z_a(s)$ & Backward message & $\sum_{s'} P(s'|s,a)\, Z(s')$ \\
-$\phi(s)$ & State features & Known, shape $(|\calS|, K)$ \\
-$\theta$ & Reward weights & Unknown, dimension $K$ \\
-$\rho_0$ & Initial distribution & Empirical start-state frequencies \\
 \bottomrule
 \end{tabular*}
 \end{table}
@@ -78,7 +61,7 @@ We seek the distribution over trajectories that is maximally noncommittal while 
 \label{eq:maxent_primal}
 \max_{P(\tau)} \; H(P) = -\sum_\tau P(\tau) \log P(\tau) \quad \text{s.t.} \quad \E_P[\phi] = \tilde\phi, \quad \sum_\tau P(\tau) = 1,
 \end{equation}
-where $\tilde\phi = \frac{1}{N}\sum_{i=1}^N \sum_t \gamma^t \phi(s_t^{(i)})$ is the empirical discounted feature expectation from the demonstrations and the entropy $H(P)$ is the Shannon entropy over the entire trajectory space. The constraint requires the model's expected features to match those observed in the data.
+where $\tilde\phi = \frac{1}{N}\sum_{i=1}^N \sum_t \beta^t \phi(s_t^{(i)})$ is the empirical discounted feature expectation from the demonstrations and the entropy $H(P)$ is the Shannon entropy over the entire trajectory space. The constraint requires the model's expected features to match those observed in the data.
 
 \paragraph{Lagrangian.}
 Introducing a multiplier $\theta \in \R^K$ for the feature constraint and $\lambda$ for the normalization constraint,
@@ -88,24 +71,24 @@ Introducing a multiplier $\theta \in \R^K$ for the feature constraint and $\lamb
 \end{equation}
 Expanding the expected features, the Lagrangian becomes
 \begin{equation}
-\mathcal{L} = -\sum_\tau P(\tau) \log P(\tau) + \theta^\top\!\left(\sum_\tau P(\tau) \sum_t \gamma^t \phi(s_t) - \tilde\phi\right) + \lambda\!\left(\sum_\tau P(\tau) - 1\right).
+\mathcal{L} = -\sum_\tau P(\tau) \log P(\tau) + \theta^\top\!\left(\sum_\tau P(\tau) \sum_t \beta^t \phi(s_t) - \tilde\phi\right) + \lambda\!\left(\sum_\tau P(\tau) - 1\right).
 \end{equation}
 
 \paragraph{First-order condition.}
 Taking the derivative with respect to $P(\tau)$ and setting it to zero,
 \begin{equation}
-\frac{\partial \mathcal{L}}{\partial P(\tau)} = -\log P(\tau) - 1 + \theta^\top \sum_t \gamma^t \phi(s_t) + \lambda = 0.
+\frac{\partial \mathcal{L}}{\partial P(\tau)} = -\log P(\tau) - 1 + \theta^\top \sum_t \beta^t \phi(s_t) + \lambda = 0.
 \end{equation}
 Solving for $P(\tau)$ gives
 \begin{equation}
-P^*(\tau) = \exp\!\left(\theta^\top \sum_t \gamma^t \phi(s_t) + \lambda - 1\right).
+P^*(\tau) = \exp\!\left(\theta^\top \sum_t \beta^t \phi(s_t) + \lambda - 1\right).
 \end{equation}
 Absorbing the constant $\exp(\lambda - 1)$ into the normalization,
 \begin{equation}
 \label{eq:boltzmann_traj}
-P^*(\tau|\theta) = \frac{1}{Z(\theta)} \exp\!\left(\sum_t \gamma^t \theta^\top \phi(s_t)\right),
+P^*(\tau|\theta) = \frac{1}{Z(\theta)} \exp\!\left(\sum_t \beta^t \theta^\top \phi(s_t)\right),
 \end{equation}
-where $Z(\theta) = \sum_\tau \exp\!\left(\sum_t \gamma^t \theta^\top \phi(s_t)\right)$ is the partition function. This is a Boltzmann distribution over trajectories, with energy equal to the negative cumulative reward.
+where $Z(\theta) = \sum_\tau \exp\!\left(\sum_t \beta^t \theta^\top \phi(s_t)\right)$ is the partition function. This is a Boltzmann distribution over trajectories, with energy equal to the negative cumulative reward.
 
 \paragraph{Partition function via backward recursion.}
 Direct computation of $Z(\theta)$ requires summing over all trajectories, which is intractable. However, the partition function factors through the MDP structure. Define backward messages
@@ -116,7 +99,7 @@ Z_a(s) &= \sum_{s'} P(s'|s,a)\, Z(s'). \label{eq:backward_za}
 Starting from $Z(s_{\text{terminal}}) = \exp(R(s_{\text{terminal}};\theta))$ for absorbing states and working backward, these messages compute the local contribution of each state to the global partition function. In the discounted infinite-horizon setting, the backward recursion becomes
 \begin{equation}
 \label{eq:backward_discount}
-Z(s) = \exp\!\bigl(R(s;\theta)\bigr) \sum_a \left[\sum_{s'} P(s'|s,a)\, Z(s')^{\gamma}\right].
+Z(s) = \exp\!\bigl(R(s;\theta)\bigr) \sum_a \left[\sum_{s'} P(s'|s,a)\, Z(s')^{\beta}\right].
 \end{equation}
 The policy implied by the MaxEnt distribution is
 \begin{equation}
@@ -128,7 +111,7 @@ which assigns probability to each action proportional to the total future reward
 \paragraph{Gradient.}
 The log-likelihood of the demonstrations under the MaxEnt model is
 \begin{equation}
-\log L(\theta) = \sum_{i=1}^N \log P(\tau^{(i)}|\theta) = \sum_{i=1}^N \sum_t \gamma^t \theta^\top \phi(s_t^{(i)}) - N \log Z(\theta).
+\log L(\theta) = \sum_{i=1}^N \log P(\tau^{(i)}|\theta) = \sum_{i=1}^N \sum_t \beta^t \theta^\top \phi(s_t^{(i)}) - N \log Z(\theta).
 \end{equation}
 Taking the gradient,
 \begin{equation}
@@ -137,7 +120,7 @@ Taking the gradient,
 \end{equation}
 where the expected features under the current policy are
 \begin{equation}
-\E_\pi[\phi] = \sum_s D(s)\, \phi(s), \qquad D(s) = \sum_t \gamma^t D_t(s),
+\E_\pi[\phi] = \sum_s D(s)\, \phi(s), \qquad D(s) = \sum_t \beta^t D_t(s),
 \end{equation}
 and $D_t(s)$ is the probability of being in state $s$ at time $t$ under the current policy. The gradient has the same form as in MCE-IRL, but the state visitation frequencies $D(s)$ are computed differently because the backward messages are non-causal.
 
@@ -148,7 +131,7 @@ The state visitation frequencies are computed by propagating the initial distrib
 \begin{align}
 D_0(s) &= \rho_0(s), \label{eq:forward_init} \\
 D_{t+1}(s') &= \sum_s D_t(s) \sum_a \pi(a|s)\, P(s'|s,a), \label{eq:forward_step} \\
-D(s) &= \sum_{t=0}^{T} \gamma^t D_t(s). \label{eq:forward_total}
+D(s) &= \sum_{t=0}^{T} \beta^t D_t(s). \label{eq:forward_total}
 \end{align}
 This forward pass is identical in form to MCE-IRL. The difference lies in the policy $\pi(a|s)$ that drives the propagation. In MaxEnt IRL, the policy comes from the non-causal backward messages in Equation~\eqref{eq:maxent_policy}, which incorporate future information. In MCE-IRL, the policy comes from the causal softmax Bellman equation, conditioning only on information available at decision time. When features depend on actions, the non-causal foresight produces systematically biased reward estimates.
 
@@ -168,7 +151,7 @@ The non-causal trajectory distribution does not factor correctly into per-step d
 \DontPrintSemicolon
 \caption{MaxEnt IRL \citep{ziebart2008}}
 \label{alg:maxent_irl}
-\KwIn{Panel $\{(s_i, a_i)\}_{i=1}^N$, features $\phi(s)$, transitions $P(s'|s,a)$, discount $\gamma$}
+\KwIn{Panel $\{(s_i, a_i)\}_{i=1}^N$, features $\phi(s)$, transitions $P(s'|s,a)$, discount $\beta$}
 \BlankLine
 
 \tcp{Step 1: Compute empirical feature expectations}
@@ -196,7 +179,7 @@ $\theta_0 \leftarrow \mathbf{0}$\;
     \For{$t = 0, \ldots, T-1$}{
         $D_{t+1}(s') = \sum_s D_t(s) \sum_a \pi(a|s)\, P(s'|s,a)$\;
     }
-    $D(s) = \sum_t \gamma^t D_t(s)$\;
+    $D(s) = \sum_t \beta^t D_t(s)$\;
     \BlankLine
     \tcp{3d. Expected features under current policy}
     $\bar\phi_\pi = \sum_s D(s)\, \phi(s)$\;

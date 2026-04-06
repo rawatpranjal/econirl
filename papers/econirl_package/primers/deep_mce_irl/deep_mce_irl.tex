@@ -1,25 +1,12 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[round]{natbib}
-\usepackage{hyperref}
-\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
-\usepackage{float}
+\usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
+\input{../common/notation}
 \usepackage[ruled,lined]{algorithm2e}
-\usepackage{microtype}
-\usepackage{placeins}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
-\setlength{\parindent}{0em}
 
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\calA}{\mathcal{A}}
-\newcommand{\calS}{\mathcal{S}}
-\newcommand{\calH}{\mathcal{H}}
+\DeclareMathOperator*{\argmin}{arg\,min}
 
 \title{Primer: Deep Maximum Causal Entropy IRL}
 \author{econirl package documentation}
@@ -44,10 +31,12 @@ The motivation is environments where the reward depends on complex spatial or re
 \section{Model and Notation}
 %% ============================================================
 
+\commonnotation
+
 The agent solves the same maximum causal entropy problem as in linear MCE-IRL
 \begin{equation}
 \label{eq:mce_objective}
-\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \gamma^t \bigl(R_\psi(s_t, a_t) + \sigma \calH(\pi(\cdot | s_t))\bigr)\right]
+\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \beta^t \bigl(R_\psi(s_t, a_t) + \sigma \calH(\pi(\cdot | s_t))\bigr)\right]
 \end{equation}
 subject to the feature matching constraint. The only difference is that $R_\psi(s,a)$ is a neural network rather than $\theta^\top\phi(s,a)$.
 

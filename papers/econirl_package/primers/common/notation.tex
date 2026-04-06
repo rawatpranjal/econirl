@@ -1,0 +1,63 @@
+%% ============================================================
+%% Common notation for all econirl primer documents.
+%%
+%% Usage: place \input{../common/notation} in your preamble
+%%        (before \begin{document}), then call \commonnotation
+%%        inside the Model and Notation section.
+%%
+%% This file provides:
+%%   1. Shared LaTeX macros (operators, calligraphic sets)
+%%   2. \commonnotation command — a DDC notation table
+%%   3. Standard package imports used by every primer
+%% ============================================================
+
+%% ---------- packages every primer needs ----------
+%% Algorithm packages are NOT loaded here because primers differ:
+%%   algorithm2e  → SEES, NNES, MCE-IRL, MaxEnt, Deep MCE-IRL, CCP
+%%   algorithm    → AIRL, AAIRL
+%% Each primer loads its own algorithm package after this \input.
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[round]{natbib}
+\usepackage{hyperref}
+\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
+\usepackage{float}
+\usepackage{microtype}
+\usepackage{placeins}
+
+%% ---------- shared macros ----------
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\calS}{\mathcal{S}}
+\newcommand{\calA}{\mathcal{A}}
+\newcommand{\calH}{\mathcal{H}}
+\newcommand{\calD}{\mathcal{D}}
+
+%% ---------- common DDC notation table ----------
+\newcommand{\commonnotation}{%
+\begin{table}[H]
+\centering\small
+\caption{Common DDC notation shared across all primers.}
+\label{tab:common_notation}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
+\toprule
+Symbol & Name & Definition \\
+\midrule
+$s \in \calS$ & State & Discrete or continuous \\
+$a \in \calA$ & Action & Finite: $|\calA| = J$ \\
+$s'$ & Next state & Drawn from $P(s' \mid s, a)$ \\
+$\beta \in [0,1)$ & Discount factor & \\
+$\sigma > 0$ & Scale parameter & Logit noise scale ($= 1$ by convention) \\
+$\theta \in \Theta \subset \R^{d_\theta}$ & Structural parameters & Unknown \\
+$\phi(s,a)$ & Feature vector & Known functions of $(s,a)$, dimension $K$ \\
+$u(s,a;\theta)$ & Flow utility & $\theta^\top \phi(s,a)$ (linear-in-parameters) \\
+$P(s' \mid s, a)$ & Transition kernel & Known or estimated from data \\
+$Q(s,a)$ & Choice-specific value & $u(s,a;\theta) + \beta \sum_{s'} P(s'|s,a)\, V(s')$ \\
+$V(s)$ & Integrated value & $\sigma \log \sum_a \exp(Q(s,a)/\sigma)$ \\
+$\pi(a \mid s)$ & Choice probability & $\exp\bigl((Q(s,a) - V(s))/\sigma\bigr)$ \\
+$\tau$ & Trajectory & $(s_0, a_0, s_1, a_1, \ldots)$ from one agent \\
+$\calD$ & Panel data & Collection of $N$ observed trajectories \\
+\bottomrule
+\end{tabular*}
+\end{table}%
+}

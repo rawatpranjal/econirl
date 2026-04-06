@@ -1,22 +1,10 @@
 \documentclass[11pt]{article}
 \usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[round]{natbib}
-\usepackage{hyperref}
-\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
-\usepackage{float}
+\input{../common/notation}
 \usepackage[ruled,lined]{algorithm2e}
-\usepackage{microtype}
-\usepackage{placeins}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\calS}{\mathcal{S}}
-\newcommand{\calA}{\mathcal{A}}
 
 \title{Primer: Sieve Estimation of Structural Models (SEES)}
 \author{econirl package documentation}
@@ -41,6 +29,8 @@ SEES is related to MPEC \citep{suJudd2012}, which treats $V(s)$ as explicit deci
 \section{Model and Notation}
 %% ============================================================
 
+\commonnotation
+
 The agent observes state $s \in \calS$ and chooses action $a \in \calA = \{0, 1, \ldots, J-1\}$ to maximize discounted expected utility with additive Type I extreme value shocks.
 
 \begin{table}[H]
@@ -49,17 +39,10 @@ The agent observes state $s \in \calS$ and chooses action $a \in \calA = \{0, 1,
 \toprule
 Symbol & Name & Definition \\
 \midrule
-$u(s,a;\theta)$ & Flow utility & $\theta^\top \phi(s,a)$, linear in features \\
-$V(s)$ & Value function & $\sigma \log \sum_a \exp(Q(s,a)/\sigma)$ \\
-$Q(s,a)$ & Action value & $u(s,a;\theta) + \beta \sum_{s'} P(s'|s,a)\, V(s')$ \\
-$\pi(a|s)$ & Choice probability & $\exp\bigl((Q(s,a) - V(s))/\sigma\bigr)$ \\
 $\Psi(s)$ & Sieve basis & Row vector of $K$ basis functions evaluated at $s$ \\
 $\alpha \in \R^K$ & Basis coefficients & Weights on the sieve basis \\
 $\omega > 0$ & Penalty weight & Controls strength of Bellman enforcement \\
 $K$ & Basis dimension & Number of sieve functions \\
-$P(s'|s,a)$ & Transitions & Known or estimated from data \\
-$\beta \in [0,1)$ & Discount factor & \\
-$\sigma > 0$ & Scale parameter & Logit noise scale ($=1$ by convention) \\
 \bottomrule
 \end{tabular*}
 \end{table}

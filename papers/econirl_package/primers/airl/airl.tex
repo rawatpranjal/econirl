@@ -1,24 +1,13 @@
 \documentclass[11pt]{article}
-\usepackage[right=1in,left=1in,top=0.85in,bottom=0.85in]{geometry}
-\usepackage{amsmath,amssymb,amsfonts}
-\usepackage{booktabs}
+\usepackage[right=1in,left=1in,top=0.9in,bottom=0.9in]{geometry}
+\input{../common/notation}
 \usepackage{algorithm}
 \usepackage{algorithmic}
-\usepackage{hyperref}
-\usepackage{placeins}
-\usepackage{natbib}
 \usepackage{titling}
-\setlength{\droptitle}{-2.5em}
-\posttitle{\par\end{center}\vspace{-1.2em}}
-\setlength{\parskip}{0.3em}
-\bibliographystyle{abbrvnat}
+\setlength{\droptitle}{-2em}
+\posttitle{\par\end{center}\vspace{-1em}}
 
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\calA}{\mathcal{A}}
-\newcommand{\calS}{\mathcal{S}}
-\newcommand{\calH}{\mathcal{H}}
-\newcommand{\calD}{\mathcal{D}}
+\newcommand{\calL}{\mathcal{L}}
 
 \title{Primer: Adversarial Inverse Reinforcement Learning (AIRL)\\[3pt]
 \large Fu, Luo, and Levine (2018)}
@@ -37,7 +26,7 @@ Maximum entropy IRL \citep{ziebart2010} recovers a reward function that rational
 For any bounded $h : \calS \to \R$, the shaped reward
 \begin{equation}
 \label{eq:shaping}
-r'(s,a) \;=\; r(s,a) \;+\; \gamma\, \E_{s' \sim P(\cdot|s,a)}[h(s')] \;-\; h(s)
+r'(s,a) \;=\; r(s,a) \;+\; \beta\, \E_{s' \sim P(\cdot|s,a)}[h(s')] \;-\; h(s)
 \end{equation}
 produces the same optimal policy under the original transitions $P$ \citep{ng1999}.
 If $P$ changes (new environment, counterfactual), the shaping term evaluates differently and the shaped reward no longer rationalizes the same behavior.
@@ -47,10 +36,12 @@ If $P$ changes (new environment, counterfactual), the shaping term evaluates dif
 \section{Model and Notation}
 %% ============================================================
 
+\commonnotation
+
 The agent maximizes entropy-regularized cumulative reward \citep{ziebart2010}:
 \begin{equation}
 \label{eq:objective}
-\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \gamma^t \big(r(s_t, a_t) + \calH(\pi(\cdot \mid s_t))\big)\right].
+\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \beta^t \big(r(s_t, a_t) + \calH(\pi(\cdot \mid s_t))\big)\right].
 \end{equation}
 The optimal policy satisfies $\pi^*(a \mid s) = \exp(A^*) / \sum_{a'} \exp(A^*_{a'})$ where $A^*(s,a) = Q^*(s,a) - V^*(s)$, giving $\log \pi^*(a \mid s) = A^*(s,a)$.
 
@@ -60,8 +51,6 @@ The optimal policy satisfies $\pi^*(a \mid s) = \exp(A^*) / \sum_{a'} \exp(A^*_{
 \toprule
 Symbol & Meaning \\
 \midrule
-$s \in \calS$, $a \in \calA$, $s'$ & State, action, next state \\
-$\gamma$, $P(s'|s,a)$ & Discount factor, transition kernel \\
 $r^*(s)$ & True reward (state-only; required for Theorem~1) \\
 $\pi^*(a|s)$, $V^*$, $Q^*$, $A^*$ & Expert policy, value, action-value, advantage \\
 \midrule
@@ -76,10 +65,10 @@ $f_{\theta,\phi}(s,a,s')$ & Discriminator logit \eqref{eq:f}; \quad $D_{\theta,\
 
 AIRL decomposes the discriminator into reward and shaping:
 \begin{align}
-f_{\theta,\phi}(s,a,s') &= g_\theta(s) + \gamma\, h_\phi(s') - h_\phi(s), \label{eq:f}\\[2pt]
+f_{\theta,\phi}(s,a,s') &= g_\theta(s) + \beta\, h_\phi(s') - h_\phi(s), \label{eq:f}\\[2pt]
 D_{\theta,\phi}(s,a,s') &= \frac{\exp(f_{\theta,\phi})}{\exp(f_{\theta,\phi}) + \pi_\omega(a \mid s)}. \label{eq:D}
 \end{align}
-The logit $f$ mirrors the Bellman relationship $Q = r + \gamma \E[V(s')]$, decomposed into $g_\theta \approx r$ and $h_\phi \approx V$.
+The logit $f$ mirrors the Bellman relationship $Q = r + \beta \E[V(s')]$, decomposed into $g_\theta \approx r$ and $h_\phi \approx V$.
 Note $g_\theta$ depends on $s$ only, not on $a$.
 
 %% ============================================================
@@ -99,7 +88,7 @@ If (a)~$g_\theta$ is state-only, (b)~the MDP is decomposable, and (c)~the advers
 
 \emph{Proof sketch.}
 At Nash equilibrium $D = 1/2$, so $f = \log \pi^* = A^*$.
-Substituting~\eqref{eq:f}: $g_\theta(s) + \gamma h_\phi(s') - h_\phi(s) = r^*(s) + \gamma V^*(s') - V^*(s)$.
+Substituting~\eqref{eq:f}: $g_\theta(s) + \beta h_\phi(s') - h_\phi(s) = r^*(s) + \beta V^*(s') - V^*(s)$.
 Since $g_\theta$ is state-only, taking the expectation over $s'$ yields $g_\theta(s) = r^*(s) + h_\phi(s) - V^*(s) + c_0$.
 Decomposability implies $h_\phi(s) - V^*(s)$ is constant, so $g_\theta(s) = r^*(s) + c$. \hfill $\square$
 
@@ -116,7 +105,7 @@ DDC models have action-dependent payoffs and exit options.
 \caption{AIRL (Fu et al.\ 2018, Algorithm 1)}
 \label{alg:airl}
 \begin{algorithmic}[1]
-\REQUIRE Expert demonstrations $\calD_E = \{\tau_1, \ldots, \tau_N\}$, discount $\gamma$
+\REQUIRE Expert demonstrations $\calD_E = \{\tau_1, \ldots, \tau_N\}$, discount $\beta$
 \ENSURE Disentangled reward $g_\theta(s)$
 
 \STATE Initialize $\theta_0, \phi_0, \omega_0$
@@ -126,14 +115,14 @@ DDC models have action-dependent payoffs and exit options.
 \STATE $\calD_\pi \leftarrow$ roll out $\pi_\omega$ to collect $M$ transitions \hfill \textit{// sample from policy}
 
 \FOR{$j = 1, \ldots, J$} \hfill \textit{// train discriminator}
-  \STATE $f_n \leftarrow g_\theta(s_n) + \gamma\, h_\phi(s'_n) - h_\phi(s_n)$ \hfill \textit{// Eq.~\eqref{eq:f}}
+  \STATE $f_n \leftarrow g_\theta(s_n) + \beta\, h_\phi(s'_n) - h_\phi(s_n)$ \hfill \textit{// Eq.~\eqref{eq:f}}
   \STATE $D_n \leftarrow \sigma(f_n - \log \pi_\omega(a_n \mid s_n))$ \hfill \textit{// Eq.~\eqref{eq:D}}
   \STATE $\calL \leftarrow -\E_{\calD_E}[\log D] - \E_{\calD_\pi}[\log(1-D)]$
   \STATE $\theta, \phi \leftarrow \theta, \phi - \alpha_D \nabla_{\theta,\phi} \calL$
 \ENDFOR
 
 \STATE $\tilde{r} \leftarrow \log D - \log(1-D) = f - \log \pi_\omega$ \hfill \textit{// reward signal}
-\STATE Update $\omega$ via PPO on $\max_{\pi_\omega} \E[\sum_t \gamma^t \tilde{r}]$ \hfill \textit{// policy update}
+\STATE Update $\omega$ via PPO on $\max_{\pi_\omega} \E[\sum_t \beta^t \tilde{r}]$ \hfill \textit{// policy update}
 
 \IF{$D \approx 1/2$ on held-out data}
   \STATE \textbf{break}

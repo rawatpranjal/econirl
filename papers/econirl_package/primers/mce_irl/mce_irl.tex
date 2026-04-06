@@ -1,25 +1,15 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
-\usepackage{amsmath,amssymb}
-\usepackage{booktabs}
-\usepackage[round]{natbib}
-\usepackage{hyperref}
-\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
-\usepackage{float}
+\usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
+\input{../common/notation}
 \usepackage[ruled,lined]{algorithm2e}
-\usepackage{microtype}
-\usepackage{placeins}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
-\setlength{\parindent}{0em}
 
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\calA}{\mathcal{A}}
-\newcommand{\calS}{\mathcal{S}}
-\newcommand{\calH}{\mathcal{H}}
+\newcommand{\calL}{\mathcal{L}}
+\newcommand{\calC}{\mathcal{C}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
 
 \title{Primer: Maximum Causal Entropy IRL (MCE-IRL)}
 \author{econirl package documentation}
@@ -40,6 +30,8 @@ Standard maximum entropy IRL \citep{ziebart2008} uses non-causal state visitatio
 \section{Model and Notation}
 %% ============================================================
 
+\commonnotation
+
 The agent solves the maximum causal entropy problem
 \begin{equation}
 \label{eq:mce_objective}
@@ -53,14 +45,9 @@ subject to the feature matching constraint $\E_\pi[\phi] = \E_{\text{data}}[\phi
 \toprule
 Symbol & Name & Definition \\
 \midrule
-$Q(s,a)$ & Soft Q-value & $r(s,a;\theta) + \beta \sum_{s'} P(s'|s,a)\, V(s')$ \\
-$V(s)$ & Soft value & $\sigma \log \sum_a \exp(Q(s,a)/\sigma)$ \\
-$\pi(a|s)$ & Policy (CCP) & $\exp\bigl((Q(s,a) - V(s))/\sigma\bigr)$ \\
 $D_\pi(s)$ & State visitation & Expected discounted visits to $s$ under $\pi$ \\
 $\rho_0$ & Initial distribution & Empirical start-state frequencies \\
 $F_\pi$ & Policy transitions & $F_\pi[s,s'] = \sum_a \pi(a|s)\, P(s'|s,a)$ \\
-$\phi(s,a)$ & Features & Known, shape $(|\calS|, |\calA|, K)$ \\
-$\theta$ & Reward weights & Unknown, dimension $K$ \\
 \bottomrule
 \end{tabular*}
 \end{table}

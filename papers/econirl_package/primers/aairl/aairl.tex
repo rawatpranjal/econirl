@@ -1,21 +1,13 @@
 \documentclass[11pt]{article}
 \usepackage[right=1in,left=1in,top=0.9in,bottom=0.9in]{geometry}
-\usepackage{amsmath,amssymb,amsfonts}
-\usepackage{booktabs}
+\input{../common/notation}
 \usepackage{algorithm}
 \usepackage{algorithmic}
-\usepackage{hyperref}
-\usepackage{placeins} % for \FloatBarrier
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
 
-\newcommand{\E}{\mathbb{E}}
-\newcommand{\R}{\mathbb{R}}
-\newcommand{\calA}{\mathcal{A}}
-\newcommand{\calS}{\mathcal{S}}
-\newcommand{\calH}{\mathcal{H}}
-\newcommand{\calD}{\mathcal{D}}
+\newcommand{\calL}{\mathcal{L}}
 
 \title{Primer: Anchored AIRL with Heterogeneity (AAIRL)}
 \author{econirl package documentation}
@@ -28,16 +20,18 @@
 \section{Problem and Motivation}
 %% ============================================================
 
-Standard IRL methods recover a reward function from observed behavior, but the recovered reward is not robust to changes in the environment. For any function $h : \calS \to \R$, the shaped reward $r'(s,a) = r(s,a) + \gamma h(s') - h(s)$ induces the same optimal policy under the original dynamics but a different policy under new dynamics. AIRL (Fu et al.\ 2018) solves this by decomposing the discriminator into a transferable reward $g_\theta(s,a)$ and a non-transferable shaping potential $h_\phi(s)$, learning them jointly so that $g_\theta$ converges to the true reward. Lee, Sudhir, and Wang (2026) extend AIRL with anchor constraints and latent heterogeneity for structural estimation of dynamic discrete choice models on serialized content platforms. We call this Anchored AIRL (AAIRL).
+Standard IRL methods recover a reward function from observed behavior, but the recovered reward is not robust to changes in the environment. For any function $h : \calS \to \R$, the shaped reward $r'(s,a) = r(s,a) + \beta h(s') - h(s)$ induces the same optimal policy under the original dynamics but a different policy under new dynamics. AIRL (Fu et al.\ 2018) solves this by decomposing the discriminator into a transferable reward $g_\theta(s,a)$ and a non-transferable shaping potential $h_\phi(s)$, learning them jointly so that $g_\theta$ converges to the true reward. Lee, Sudhir, and Wang (2026) extend AIRL with anchor constraints and latent heterogeneity for structural estimation of dynamic discrete choice models on serialized content platforms. We call this Anchored AIRL (AAIRL).
 
 %% ============================================================
 \section{Model and Notation}
 %% ============================================================
 
+\commonnotation
+
 The agent solves the maximum causal entropy problem
 \begin{equation}
 \label{eq:objective}
-\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \gamma^t \big(r(s_t, a_t) + \sigma \calH(\pi(\cdot \mid s_t))\big)\right]
+\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \beta^t \big(r(s_t, a_t) + \sigma \calH(\pi(\cdot \mid s_t))\big)\right]
 \end{equation}
 where $\calH$ is the Shannon entropy. The optimal policy satisfies
 \begin{equation}
@@ -51,12 +45,8 @@ where $\calH$ is the Shannon entropy. The optimal policy satisfies
 \toprule
 Symbol & Meaning \\
 \midrule
-$s \in \calS$, $a \in \calA$, $s'$ & State, action, next state \\
-$\gamma$, $\sigma$ & Discount factor, entropy scale ($\sigma = 1$ in IRL convention) \\
 $r^*(s,a)$, $\pi^*(a \mid s)$ & True reward, expert policy \\
-$P(s' \mid s,a)$ & Transition kernel (known for tabular, unknown for neural) \\
 $V^*(s)$, $Q^*(s,a)$, $A^*(s,a)$ & Value, action-value, advantage functions \\
-$\tau = (s_0, a_0, s_1, \ldots)$ & Trajectory \\
 \midrule
 $g_\theta(s,a)$ & Reward network (parameterized by $\theta$) \\
 $h_\phi(s)$ & Shaping potential $\approx V(s)$ (parameterized by $\phi$) \\
@@ -70,10 +60,10 @@ $D_{\theta,\phi}(s,a,s')$ & Discriminator output $\in [0,1]$ (Eq.~\ref{eq:D}) \\
 
 AIRL uses a structured discriminator that decomposes into reward and shaping:
 \begin{align}
-f_{\theta,\phi}(s,a,s') &= g_\theta(s,a) + \gamma\, h_\phi(s') - h_\phi(s), \label{eq:f}\\[3pt]
+f_{\theta,\phi}(s,a,s') &= g_\theta(s,a) + \beta\, h_\phi(s') - h_\phi(s), \label{eq:f}\\[3pt]
 D_{\theta,\phi}(s,a,s') &= \frac{\exp(f_{\theta,\phi})}{\exp(f_{\theta,\phi}) + \pi_\omega(a \mid s)}. \label{eq:D}
 \end{align}
-The key structural assumption is in~\eqref{eq:f}: the logit $f$ is a sum of a state-action reward term and a potential-based shaping term, mirroring the Bellman decomposition $Q = r + \gamma \E[V(s')] - V(s) + V(s)$.
+The key structural assumption is in~\eqref{eq:f}: the logit $f$ is a sum of a state-action reward term and a potential-based shaping term, mirroring the Bellman decomposition $Q = r + \beta \E[V(s')] - V(s) + V(s)$.
 
 %% ============================================================
 \section{Identification}
@@ -98,7 +88,7 @@ the decomposition~\eqref{eq:f} is unique at convergence: $g_\theta(s,a) = r^*(s,
 \caption{AIRL with Anchor Constraints}
 \label{alg:airl}
 \begin{algorithmic}[1]
-\REQUIRE Expert transitions $\calD_{\text{obs}} = \{(s, a, s')_n\}_{n=1}^N$, discount $\gamma$, learning rate $\alpha$, anchor action $a_{\text{exit}}$, absorbing state $s_{\text{abs}}$
+\REQUIRE Expert transitions $\calD_{\text{obs}} = \{(s, a, s')_n\}_{n=1}^N$, discount $\beta$, learning rate $\alpha$, anchor action $a_{\text{exit}}$, absorbing state $s_{\text{abs}}$
 \ENSURE Recovered reward $g_\theta$, value function $h_\phi$, policy $\pi_\omega$
 
 \STATE Initialize $\theta_0, \phi_0, \omega_0$; set $\pi_\omega \leftarrow$ uniform
@@ -119,7 +109,7 @@ the decomposition~\eqref{eq:f} is unique at convergence: $g_\theta(s,a) = r^*(s,
 \STATE \textbf{// Update policy}
 \STATE Reward signal: $\tilde{r} = f_{\theta,\phi}(s,a,s') - \log \pi_\omega(a \mid s)$
 \STATE \textbf{Tabular:} $\pi_\omega \leftarrow (1-\alpha_p)\,\pi_\omega^{\text{old}} + \alpha_p\,\pi^{\text{VI}}$ \quad (conservative mixing)
-\STATE \textbf{Neural:} update $\omega$ via PPO on $\max_{\pi_\omega} \E[\sum_t \gamma^t \tilde{r}]$
+\STATE \textbf{Neural:} update $\omega$ via PPO on $\max_{\pi_\omega} \E[\sum_t \beta^t \tilde{r}]$
 
 \IF{$\max_{s,a} |\pi^{\text{new}} - \pi^{\text{old}}| < \varepsilon$}
   \STATE \textbf{break}
