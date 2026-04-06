@@ -1,0 +1,154 @@
+\begin{thebibliography}{24}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Adusumilli and Eckardt(2025)]{adusumilliEckardt2025}
+Karun Adusumilli and Dita Eckardt.
+\newblock Temporal-difference estimation of dynamic discrete choice models.
+\newblock Working Paper, 2025.
+
+\bibitem[Aguirregabiria and Mira(2002)]{aguirregabiriaMira2002}
+Victor Aguirregabiria and Pedro Mira.
+\newblock Swapping the nested fixed point algorithm: A class of estimators for
+  discrete {Markov} decision models.
+\newblock \emph{Econometrica}, 70\penalty0 (4):\penalty0 1519--1543, 2002.
+
+\bibitem[Aguirregabiria and Mira(2010)]{aguirregabiriaMira2010}
+Victor Aguirregabiria and Pedro Mira.
+\newblock Dynamic discrete choice structural models: A survey.
+\newblock \emph{Journal of Econometrics}, 156\penalty0 (1):\penalty0 38--67,
+  2010.
+
+\bibitem[Bradbury et~al.(2018)Bradbury, Frostig, Hawkins, Johnson, Leary,
+  Maclaurin, Necula, Paszke, Vander{P}las, Wanderman-{M}ilne, and
+  Zhang]{jax2018}
+James Bradbury, Roy Frostig, Peter Hawkins, Matthew~James Johnson, Chris Leary,
+  Dougal Maclaurin, George Necula, Adam Paszke, Jake Vander{P}las, Skye
+  Wanderman-{M}ilne, and Qiao Zhang.
+\newblock {JAX}: Composable transformations of {Python+NumPy} programs, 2018.
+\newblock URL \url{http://github.com/google/jax}.
+
+\bibitem[Fu et~al.(2018)Fu, Luo, and Levine]{fu2018}
+Justin Fu, Katie Luo, and Sergey Levine.
+\newblock Learning robust rewards with adversarial inverse reinforcement
+  learning.
+\newblock In \emph{International Conference on Learning Representations}, 2018.
+
+\bibitem[Garg et~al.(2021)Garg, Chakraborty, Cundy, Song, and Ermon]{garg2021}
+Divyansh Garg, Shuvam Chakraborty, Chris Cundy, Jiaming Song, and Stefano
+  Ermon.
+\newblock {IQ-Learn}: Inverse soft-{Q} learning for imitation.
+\newblock In \emph{Advances in Neural Information Processing Systems},
+  volume~35, 2021.
+
+\bibitem[Gleave et~al.(2022)Gleave, Toyer, and {and others}]{gleave2022}
+Adam Gleave, Sam Toyer, and {and others}.
+\newblock imitation: Clean imitation learning implementations.
+\newblock \emph{arXiv preprint arXiv:2211.11972}, 2022.
+
+\bibitem[Hotz and Miller(1993)]{hotzMiller1993}
+V.~Joseph Hotz and Robert~A. Miller.
+\newblock Conditional choice probabilities and the estimation of dynamic
+  models.
+\newblock \emph{The Review of Economic Studies}, 60\penalty0 (3):\penalty0
+  497--529, 1993.
+
+\bibitem[Iskhakov et~al.(2016)Iskhakov, Jorgensen, Rust, and
+  Schjerning]{iskhakov2016}
+Fedor Iskhakov, Thomas~H. Jorgensen, John Rust, and Bertel Schjerning.
+\newblock Comment on ``{Constrained} optimization approaches to estimation of
+  structural models''.
+\newblock \emph{Econometrica}, 84\penalty0 (1):\penalty0 365--370, 2016.
+
+\bibitem[Kang et~al.(2025)Kang, Yoganarasimhan, and Jain]{kang2025}
+Enoch~H. Kang, Hema Yoganarasimhan, and Lalit Jain.
+\newblock An empirical risk minimization approach for offline inverse {RL} and
+  dynamic discrete choice model.
+\newblock \emph{arXiv preprint arXiv:2502.14131}, 2025.
+
+\bibitem[Kidger and Garcia(2021)]{kidger2021}
+Patrick Kidger and Cristian Garcia.
+\newblock Equinox: Neural networks in {JAX} via callable {PyTrees} and filtered
+  transformations.
+\newblock In \emph{Differentiable Programming Workshop at NeurIPS}, 2021.
+
+\bibitem[Kim et~al.(2021)Kim, Garg, Shiragur, and Ermon]{kim2021}
+Kuno Kim, Shivam Garg, Kirthevasan Shiragur, and Stefano Ermon.
+\newblock Reward identification in inverse reinforcement learning.
+\newblock \emph{Proceedings of the 38th International Conference on Machine
+  Learning}, 2021.
+
+\bibitem[Luo and Sang(2024)]{luoSang2024}
+Yao Luo and Yingying Sang.
+\newblock Sieve estimation of dynamic discrete choice models.
+\newblock Working Paper, 2024.
+
+\bibitem[Magnac and Thesmar(2002)]{magnacThesmar2002}
+Thierry Magnac and David Thesmar.
+\newblock Identifying dynamic discrete decision processes.
+\newblock \emph{Econometrica}, 70\penalty0 (2):\penalty0 801--816, 2002.
+
+\bibitem[Ng et~al.(1999)Ng, Harada, and Russell]{ng1999}
+Andrew~Y. Ng, Daishi Harada, and Stuart Russell.
+\newblock Policy invariance under reward transformations: Theory and
+  application to reward shaping.
+\newblock In \emph{Proceedings of the 16th International Conference on Machine
+  Learning}, pages 278--287, 1999.
+
+\bibitem[Nguyen(2025)]{nguyen2025}
+Hoang Nguyen.
+\newblock Neural network estimators for dynamic discrete choice models.
+\newblock Georgetown University Working Paper, 2025.
+
+\bibitem[Ni et~al.(2022)Ni, Sikchi, Wang, Gupta, Lee, and Eysenbach]{ni2022}
+Tianwei Ni, Harshit Sikchi, Yufei Wang, Tejus Gupta, Lisa Lee, and Ben
+  Eysenbach.
+\newblock f-{IRL}: Inverse reinforcement learning via state marginal matching.
+\newblock In \emph{Conference on Robot Learning}, 2022.
+
+\bibitem[Pomerleau(1991)]{pomerleau1991}
+Dean~A. Pomerleau.
+\newblock Efficient training of artificial neural networks for autonomous
+  navigation.
+\newblock \emph{Neural Computation}, 3\penalty0 (1):\penalty0 88--97, 1991.
+
+\bibitem[Rawat(2026)]{rawat2026}
+Pranjal Rawat.
+\newblock {IQ-Learn} as penalized conditional log-likelihood: A tabular
+  reinterpretation for the {DDC} setting.
+\newblock Georgetown University Working Paper, 2026.
+
+\bibitem[Ross et~al.(2011)Ross, Gordon, and Bagnell]{ross2011}
+St{\'e}phane Ross, Geoffrey Gordon, and J.~Andrew Bagnell.
+\newblock A reduction of imitation learning and structured prediction to
+  no-regret online learning.
+\newblock In \emph{Proceedings of the International Conference on Artificial
+  Intelligence and Statistics}, pages 627--635, 2011.
+
+\bibitem[Rust(1987)]{rust1987}
+John Rust.
+\newblock Optimal replacement of {GMC} bus engines: An empirical model of
+  {Harold Zurcher}.
+\newblock \emph{Econometrica}, 55\penalty0 (5):\penalty0 999--1033, 1987.
+
+\bibitem[Su and Judd(2012)]{suJudd2012}
+Che-Lin Su and Kenneth~L. Judd.
+\newblock Constrained optimization approaches to estimation of structural
+  models.
+\newblock \emph{Econometrica}, 80\penalty0 (5):\penalty0 2213--2230, 2012.
+
+\bibitem[Wulfmeier et~al.(2016)Wulfmeier, Ondruska, and Posner]{wulfmeier2016}
+Markus Wulfmeier, Peter Ondruska, and Ingmar Posner.
+\newblock Maximum entropy deep inverse reinforcement learning.
+\newblock \emph{arXiv preprint arXiv:1507.04888}, 2016.
+
+\bibitem[Ziebart(2010)]{ziebart2010}
+Brian~D. Ziebart.
+\newblock \emph{Modeling Purposeful Adaptive Behavior with the Principle of
+  Maximum Causal Entropy}.
+\newblock PhD thesis, Carnegie Mellon University, 2010.
+
+\end{thebibliography}

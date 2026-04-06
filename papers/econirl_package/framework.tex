@@ -1,0 +1,49 @@
+\section{Framework}
+\label{sec:framework}
+
+\paragraph{The DDC model.}
+An agent observes a discrete state $s_t \in \mathcal{S}$ at each period $t$, chooses an action $a_t \in \mathcal{A}$, and receives a flow payoff $u(s_t, a_t; \theta) + \sigma\,\epsilon_{t,a}$, where $\epsilon_{t,a}$ follows a Type~I extreme value distribution. The state evolves according to a known transition kernel $P(s' \mid s, a)$, and the agent discounts future payoffs at rate $\beta \in [0,1)$. This is the dynamic discrete choice framework introduced by \citet{rust1987}. The agent's choice-specific value function satisfies the Bellman equation
+\begin{equation}
+\label{eq:bellman}
+Q(s,a;\theta) \;=\; u(s,a;\theta) \;+\; \beta \sum_{s' \in \mathcal{S}} P(s' \mid s,a)\, V(s'),
+\end{equation}
+where the integrated value function takes the log-sum-exp form implied by the extreme value error
+\begin{equation}
+\label{eq:smoothed_max}
+V(s) \;=\; \sigma \log \sum_{a \in \mathcal{A}} \exp\!\bigl(Q(s,a;\theta)/\sigma\bigr).
+\end{equation}
+The optimal policy is the softmax over choice-specific values
+\begin{equation}
+\label{eq:softmax_policy}
+\pi(a \mid s;\theta) \;=\; \frac{\exp\!\bigl(Q(s,a;\theta)/\sigma\bigr)}{\sum_{a' \in \mathcal{A}} \exp\!\bigl(Q(s,a';\theta)/\sigma\bigr)}.
+\end{equation}
+This system is simultaneously the structural logit model of econometrics and the maximum causal entropy policy of \citet{ziebart2010}. The structural side views Equations~\eqref{eq:bellman}--\eqref{eq:softmax_policy} as a likelihood model and estimates $\theta$ by maximum likelihood. The IRL side views them as a forward model mapping reward weights to behavior and estimates $\theta$ by matching observed and predicted feature expectations. The mathematical content is the same.
+
+\paragraph{Identification.}
+Rewards in this model are identified only up to additive state-dependent constants and global scale. For any bounded function $h \colon \mathcal{S} \to \mathbb{R}$, the shaped reward
+\begin{equation}
+\label{eq:reward_shaping}
+r'(s,a) \;=\; r(s,a) \;+\; h(s) \;-\; \beta \sum_{s' \in \mathcal{S}} P(s' \mid s,a)\, h(s')
+\end{equation}
+yields the same optimal policy as the original reward $r(s,a)$ \citep{ng1999, magnacThesmar2002, kim2021}. This invariance means that raw reward magnitudes are not recoverable without further restrictions. The package resolves this ambiguity in three ways depending on the estimator family.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Identification strategies across estimator families.}
+\label{tab:identification}
+\begin{tabular}{lll}
+\toprule
+Strategy & Estimators & What is Recovered \\
+\midrule
+Parametric $u = \theta^\top \phi(s,a)$ & NFXP, CCP, MPEC, NNES, TD-CCP, SEES & $\theta$ (structural parameters) \\
+Feature matching + norm & MCE-IRL & $\theta$ (reward weights) \\
+Disentanglement & AIRL & $r(s)$ (state-only reward) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+First, structural estimators restrict the flow utility to a linear-in-parameters form $u(s,a;\theta) = \theta^\top \phi(s,a)$, where $\phi$ is a known feature map. The parametric structure pins down the reward up to $\theta$, and the likelihood identifies $\theta$ under standard rank conditions on the feature matrix. Second, MCE-IRL estimates reward weights $\theta$ by matching empirical and model-implied feature expectations, with a norm constraint or regularization penalty that resolves the scale ambiguity. Third, AIRL separates the discriminator into a state-only reward and a shaping potential, recovering $r(s)$ up to a constant by construction \citep{fu2018}. Table~\ref{tab:identification} summarizes these three strategies.
+
+\paragraph{Software abstractions.}
+The library encodes the primitives above through three core types. \texttt{DDCProblem} is a frozen dataclass that stores the number of states $|\mathcal{S}|$, the number of actions $|\mathcal{A}|$, the discount factor $\beta$, and the scale parameter $\sigma$. Every estimator receives this object and uses it to construct value iteration operators and policy mappings. \texttt{Panel} is a list of \texttt{Trajectory} objects, where each trajectory records a sequence of state-action pairs $(s_t, a_t)$ observed from a single agent. The panel structure preserves the serial dependence within trajectories while allowing estimators to treat agents as independent. The \texttt{Estimator} protocol requires every estimator to implement a single method, \texttt{.estimate(panel, utility, problem, transitions)}, and return an \texttt{EstimationSummary}. This API contract means that all twelve estimators are interchangeable parts. A user can swap NFXP for MCE-IRL or AIRL for CCP with one line of code and receive standard errors, identification diagnostics, and counterfactual predictions through the same post-estimation pipeline regardless of which estimator produced them.

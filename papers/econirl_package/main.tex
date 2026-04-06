@@ -1,0 +1,57 @@
+\documentclass[11pt]{article}
+\usepackage[left=1in,right=1in,top=1in,bottom=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[round]{natbib}
+\usepackage{hyperref}
+\hypersetup{colorlinks,citecolor=blue,filecolor=blue,linkcolor=blue,urlcolor=blue}
+\usepackage{graphicx}
+\usepackage[ruled,lined]{algorithm2e}
+\usepackage{xcolor}
+\usepackage{subcaption}
+\usepackage{url}
+\usepackage{microtype}
+
+% Custom commands
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\title{EconIRL: Structural Estimation and Inverse Reinforcement Learning\\ for Dynamic Discrete Choice Models}
+
+\author{
+  Pranjal Rawat\thanks{PhD Candidate, Georgetown University. \href{mailto:pp712@georgetown.edu}{pp712@georgetown.edu}}
+  \and
+  John Rust\thanks{Professor, Georgetown University. \href{mailto:jf693@georgetown.edu}{jf693@georgetown.edu}}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent
+EconIRL implements twelve estimators for dynamic discrete choice models spanning structural econometrics (NFXP, CCP, MPEC) and inverse reinforcement learning (MCE-IRL, AIRL, GLADIUS).
+All estimators share a common interface and feed into unified post-estimation infrastructure for standard errors, identification diagnostics, and counterfactual simulation.
+We show that the IQ-Learn chi-squared objective is algebraically equivalent to a penalized conditional log-likelihood in the tabular DDC setting, connecting occupancy-matching IRL to structural maximum likelihood estimation.
+Three simulation studies validate the package: a tabular benchmark where all structural and IRL estimators converge to the same solution, a high-dimensional state space where sieve and neural methods maintain accuracy at lower computational cost, and a nonlinear reward environment where deep IRL outperforms linear models.
+The library is built on JAX for automatic differentiation and GPU acceleration and is MIT-licensed.
+\end{abstract}
+
+\bigskip
+
+\input{introduction}
+\input{framework}
+\input{estimators}
+\input{iq_learn_equivalence}
+\input{post_estimation}
+\input{experiments}
+\input{conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

@@ -1,0 +1,203 @@
+\section{Estimators}
+\label{sec:estimators}
+
+EconIRL implements twelve estimators organized into three families.
+The classical structural estimators (NFXP, CCP, MPEC) solve the forward problem exactly on tabular state spaces.
+The neural structural estimators (NNES, TD-CCP, SEES) approximate the value function to scale beyond tabular.
+The inverse reinforcement learning estimators (MCE-IRL, AIRL, GLADIUS, f-IRL, IQ-Learn) recover rewards from demonstrations, with behavioral cloning as a non-structural baseline.
+Table~\ref{tab:estimators} summarizes the capability of each method.
+
+\begin{table}[t]
+\centering
+\caption{Estimator summary. ``Direction'' indicates whether the estimator solves the forward problem (parameters to policy) or the inverse problem (demonstrations to reward). ``Needs $P$'' indicates whether known transition matrices are required. ``SEs'' indicates whether valid standard errors are available.}
+\label{tab:estimators}
+\small
+\begin{tabular}{lllcccc}
+\toprule
+Estimator & Reference & Direction & Needs $P$ & SEs & Scales & Transfer \\
+\midrule
+NFXP-NK    & \citet{rust1987, iskhakov2016}        & Forward & Yes & Analytical & No  & No \\
+CCP-NPL    & \citet{hotzMiller1993, aguirregabiriaMira2002} & Forward & Yes & Hessian    & No  & No \\
+MPEC       & \citet{suJudd2012}                     & Forward & Yes & Hessian    & No  & No \\
+\midrule
+NNES       & \citet{nguyen2025}                     & Forward & Yes & Valid      & Yes & No \\
+TD-CCP     & \citet{adusumilliEckardt2025}          & Forward & No  & Robust     & Yes & No \\
+SEES       & \citet{luoSang2024}                    & Forward & Yes & Marginal   & Yes & No \\
+\midrule
+MCE-IRL    & \citet{ziebart2010}                    & Inverse & Yes & Bootstrap  & No  & No \\
+AIRL       & \citet{fu2018}                         & Inverse & No  & No         & No  & Yes \\
+GLADIUS    & \citet{kang2025}                       & Inverse & Yes & Projected  & Yes & No \\
+f-IRL      & \citet{ni2022}                         & Inverse & Yes & No         & No  & No \\
+IQ-Learn   & \citet{garg2021}                       & Inverse & Yes & No         & No  & No \\
+BC         & \citet{pomerleau1991}                  & Imitation & No & No        & No  & No \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\subsection{Classical Structural Estimators}
+
+\paragraph{NFXP-NK.}
+The nested fixed point algorithm maximizes the exact log-likelihood $\ell(\theta) = \sum_i \log \pi(a_i | s_i; \theta)$ where choice probabilities come from solving the Bellman equation to machine precision at each outer step.
+The inner loop uses the SA-then-NK polyalgorithm of \citet{iskhakov2016}, which starts with successive approximation for global convergence and switches to Newton-Kantorovich near the fixed point for quadratic convergence.
+Gradients of the log-likelihood with respect to $\theta$ are computed analytically via the implicit function theorem, differentiating through the Bellman fixed point without backpropagation or finite differences.
+The outer loop uses BHHH optimization, which guarantees a positive-definite Hessian approximation from the outer product of per-observation score vectors.
+Algorithm~\ref{alg:nfxp} shows the main loop.
+
+\begin{algorithm}[t]
+\DontPrintSemicolon
+\caption{NFXP-NK \citep{rust1987, iskhakov2016}}
+\label{alg:nfxp}
+\KwIn{Panel $\mathcal{D}$, features $\phi$, transitions $P$, discount $\beta$}
+Initialize $\theta_0$\;
+\For{$k = 0, 1, 2, \ldots$}{
+  \textbf{Inner loop:} Solve $V = T(V; \theta_k)$ via SA then NK\;
+  Compute $Q(s,a) = u(s,a;\theta_k) + \beta \sum_{s'} P(s'|s,a)\, V(s')$\;
+  Compute $\pi(a|s) = \mathrm{softmax}(Q/\sigma)$\;
+  Compute $\nabla_\theta \ell$ via implicit differentiation\;
+  Update $\theta_{k+1}$ via BHHH or L-BFGS-B\;
+  \lIf{$\|\nabla \ell\| < \varepsilon$}{\textbf{break}}
+}
+\KwOut{$\hat\theta$, $V^*$, $\pi^*$, $(-H)^{-1}$ for analytical SEs}
+\end{algorithm}
+
+\paragraph{CCP-NPL.}
+The Hotz-Miller inversion lemma \citep{hotzMiller1993} shows that under additive separability and IID extreme value shocks, observed choice probabilities $\hat P(a|s)$ uniquely invert to value differences via the emax correction $e(s,a) = \gamma_{\text{Euler}} - \log \hat P(a|s)$.
+This eliminates the inner Bellman loop entirely.
+Value recovery reduces to a single matrix inversion $(I - \beta F_\pi)^{-1}$, which costs $O(|\mathcal{S}|^3)$ once compared to thousands of value iterations in NFXP.
+\citet{aguirregabiriaMira2002} show that iterating the Hotz-Miller inversion in CCP space (nested pseudo-likelihood, or NPL) converges to the MLE when the equilibrium is Lyapunov stable.
+Setting $K=1$ gives a consistent but inefficient estimator.
+Setting $K=5$ to $10$ recovers full MLE efficiency.
+CCP-NPL is the only method in this package that extends naturally to dynamic games where computing Nash equilibria is infeasible.
+
+\paragraph{MPEC.}
+The mathematical programming with equilibrium constraints approach of \citet{suJudd2012} treats the value function $V(s)$ as explicit decision variables alongside the structural parameters $\theta$.
+The Bellman equation $V = T(V;\theta)$ becomes a set of equality constraints enforced via an augmented Lagrangian.
+This eliminates the inner loop entirely and jointly optimizes $(\theta, V)$ in a single L-BFGS-B call with increasing penalty on constraint violation.
+On the Rust bus benchmark at $\beta = 0.95$, MPEC achieves identical parameter estimates to NFXP while running six to nine times faster.
+
+
+\subsection{Neural Structural Estimators}
+
+\paragraph{NNES.}
+The neural network estimation of structural models approach of \citet{nguyen2025} uses a two-phase procedure.
+In Phase 1 a neural network $V_\phi$ is trained to approximate the NPL Bellman target using data CCPs and the Hotz-Miller emax correction.
+In Phase 2 the learned $V_\phi$ is plugged into the CCP log-likelihood and the structural parameters $\theta$ are optimized via L-BFGS-B.
+The key theoretical contribution is the zero Jacobian property (Proposition 1): at the true CCP, $\partial \phi_{\theta_0}(P^*, V^*)/\partial P = 0$, so neural network errors in $V$ have only second-order effects on the likelihood.
+This Neyman orthogonality guarantees that $\hat\theta$ is $\sqrt{n}$-consistent even when $V_\phi$ converges at the slower rate $o_p(n^{-1/4})$, and the estimator achieves the semiparametric efficiency bound without bias correction or cross-fitting.
+
+\paragraph{TD-CCP.}
+The temporal-difference CCP estimator of \citet{adusumilliEckardt2025} is the only method in this package that does not require known or estimated transition densities.
+The key insight is that the CCP value function components $h(a,x)$ and $g(a,x)$ can be characterized via temporal-difference fixed-point equations that depend only on sample expectations over observed transitions $(s, a, s')$, not on the density $p(s'|s,a)$.
+Algorithm~\ref{alg:tdccp} shows the linear semi-gradient variant, which solves for $h$ via a single matrix inversion.
+
+\begin{algorithm}[t]
+\DontPrintSemicolon
+\caption{TD-CCP, linear semi-gradient \citep{adusumilliEckardt2025}}
+\label{alg:tdccp}
+\KwIn{Panel $\mathcal{D}$ with transitions $(s_t, a_t, s_{t+1})$, features $\phi$, basis $\Psi$}
+Estimate CCPs $\hat P(a|s)$ from data frequencies\;
+\For{each action $a$ and feature $k$}{
+  Solve $(I - \beta \hat F_\pi)\, h_{a,k} = \phi_{a,k}$ via matrix inversion\;
+}
+Construct pseudo-outcome $Y_i = \sum_k \theta_k\, h_k(a_i, x_i)$\;
+Minimize pseudo-likelihood over $\theta$ via GMM\;
+Compute robust SEs via locally debiased moment condition\;
+\KwOut{$\hat\theta$, robust SEs valid at $\sqrt{n}$-rate}
+\end{algorithm}
+
+The locally robust moment condition (Theorem 5 of \citealt{adusumilliEckardt2025}) uses a backward value function $\lambda$ and debiased moment $\zeta$ to correct for first-stage estimation error, producing standard errors valid at parametric rates despite nonparametric first stages.
+The per-feature $h(a,x)$ decomposition also provides interpretable diagnostics showing how each feature contributes to the value function.
+
+\paragraph{SEES.}
+The sieve estimator of \citet{luoSang2024} approximates $V(s) \approx \Psi(s)\,\alpha$ where $\Psi$ is a deterministic sieve basis of Fourier or polynomial functions.
+Joint L-BFGS-B optimization over $(\theta, \alpha)$ with an $\ell^2$ penalty on $\alpha$ enforces Bellman consistency without ever solving a fixed point.
+The basis matrix is deterministic and continuation values reduce to a single matrix multiply $P_a \Psi$, making the computational cost $O(\text{basis\_dim})$ independent of $|\mathcal{S}|$.
+On the Rust bus benchmark, SEES achieves parameter estimates within one percent of NFXP while running fifteen to thirty-four times faster.
+No neural network training is involved.
+
+
+\subsection{Inverse Reinforcement Learning Estimators}
+
+\paragraph{MCE-IRL.}
+Maximum causal entropy IRL \citep{ziebart2010} is the bridge estimator connecting the econometrics and machine learning traditions.
+The backward pass runs soft value iteration to compute $V$, $Q$, and $\pi$ from the current reward weights $\theta$.
+The forward pass computes state visitation frequencies $D_\pi$ via the occupancy measure fixed point $(I - \beta P_\pi^\top)^{-1}\rho_0$.
+The gradient is the feature matching residual $\nabla_\theta \mathcal{L} = \E_{\text{data}}[\phi] - \E_\pi[\phi]$.
+Algorithm~\ref{alg:mceirl} shows the main loop.
+
+\begin{algorithm}[t]
+\DontPrintSemicolon
+\caption{MCE-IRL \citep{ziebart2010}}
+\label{alg:mceirl}
+\KwIn{Panel $\mathcal{D}$, features $\phi$, transitions $P$, discount $\beta$}
+Compute empirical features $\bar f = \frac{1}{N}\sum_i \phi(s_i, a_i)$\;
+Initialize $\theta_0$\;
+\For{$k = 0, 1, 2, \ldots$}{
+  \textbf{Backward:} Soft VI $\to$ $V$, $Q$, $\pi$ from $\theta_k$\;
+  \textbf{Forward:} $D_\pi = (I - \beta P_\pi^\top)^{-1}\,\rho_0$\;
+  $\bar f_\pi = \sum_s D_\pi(s) \sum_a \pi(a|s)\,\phi(s,a)$\;
+  $g = \bar f - \bar f_\pi$ \tcp*{feature matching residual}
+  $\theta_{k+1} = \theta_k + \alpha\, g$\;
+  \lIf{$\|g\| < \varepsilon$ \textbf{and} $\|D_\pi - D_{\text{data}}\|_\infty < \tau$}{\textbf{break}}
+}
+\KwOut{$\hat\theta$ (reward weights), bootstrap SEs}
+\end{algorithm}
+
+This gradient is simultaneously the MCE gradient of \citet{ziebart2010} and the score of the DDC conditional logit likelihood.
+An economist sees structural logit with feature matching.
+A machine learning researcher sees maximum entropy IRL.
+They solve the same optimization problem.
+The deep variant replaces $\theta^\top\phi(s,a)$ with a neural network $r_\psi(s,a)$ following \citet{wulfmeier2016}, gaining flexibility at the cost of interpretability and standard errors.
+
+\paragraph{AIRL.}
+Adversarial inverse reinforcement learning \citep{fu2018} is the only IRL method in this package with a proven transfer guarantee.
+The discriminator takes the form $D(s,a,s') = \exp(f)/(\exp(f) + \pi(a|s))$ where $f(s,a,s') = g_\psi(s) + \beta\, h_\psi(s') - h_\psi(s)$.
+This structure disentangles the state-only reward $g(s)$ from the shaping potential $h(s)$.
+Algorithm~\ref{alg:airl} shows the adversarial training loop.
+
+\begin{algorithm}[t]
+\DontPrintSemicolon
+\caption{AIRL \citep{fu2018}}
+\label{alg:airl}
+\KwIn{Expert demonstrations $\mathcal{D}_E$, transitions $P$, discount $\beta$}
+Initialize reward $g_\psi$, shaping $h_\psi$, policy $\pi_\omega$\;
+\For{$k = 0, 1, 2, \ldots$}{
+  $f(s,a,s') = g_\psi(s) + \beta\, h_\psi(s') - h_\psi(s)$\;
+  $D(s,a,s') = \exp(f) \,/\, \bigl(\exp(f) + \pi_\omega(a|s)\bigr)$\;
+  Update $\psi$: $\max_\psi\; \E_{\mathcal{D}_E}[\log D] + \E_\pi[\log(1-D)]$\;
+  Update $\omega$: policy improvement against $f$\;
+  \lIf{converged}{\textbf{break}}
+}
+\KwOut{$g_\psi(s)$ (disentangled reward, transfers across environments)}
+\end{algorithm}
+
+Theorem 5.1 of \citet{fu2018} proves that the state-only reward recovered by AIRL is disentangled with respect to all dynamics, meaning it transfers across environments with different transition functions.
+This is the method to use when rewards learned in simulation must be deployed under different real-world dynamics.
+
+\paragraph{GLADIUS.}
+The ERM-IRL estimator of \citet{kang2025} parameterizes $Q(s,a)$ and $\zeta(s,a) = \E[V(s')|s,a]$ with neural networks and trains them with alternating mini-batch SGD.
+Even-numbered batches update $\zeta$ via MSE against $\log\sum\exp(Q)$.
+Odd-numbered batches update $Q$ via the negative log-likelihood.
+After convergence, structural parameters are recovered via action-difference projection $\hat\theta = (\Delta\Phi^\top\Delta\Phi)^{-1}\Delta\Phi^\top\Delta Q$ where $\Delta$ denotes differences from a reference action, eliminating the unidentified additive constant.
+A known limitation is that $Q$ is identified only up to a state-dependent constant $c(s)$ that leaks through asymmetric transitions, producing systematic bias in the operating cost parameter on the Rust bus benchmark.
+
+\paragraph{f-IRL.}
+The f-IRL estimator of \citet{ni2022} minimizes the $f$-divergence $D_f(\rho_E \| \rho_\pi)$ between expert and policy state-action occupancy measures over a tabular reward function.
+The choice of $f$ provides a menu of robustness properties.
+KL divergence gives maximum likelihood equivalence.
+Chi-squared divergence gives variance sensitivity.
+Total variation gives robustness to outlier demonstrations.
+No features need to be specified.
+
+\paragraph{IQ-Learn.}
+The IQ-Learn estimator of \citet{garg2021} collapses the min-max IRL problem to a concave maximization over $Q$ alone, since the optimal policy is deterministically the softmax of $Q$.
+Reward is recovered via the inverse Bellman operator $r(s,a) = Q(s,a) - \beta\sum_{s'} V(s')\,p(s'|s,a)$.
+Section~\ref{sec:iq_learn} shows that in the tabular DDC setting this objective is algebraically equivalent to a penalized conditional log-likelihood.
+
+\paragraph{BC (baseline).}
+Behavioral cloning \citep{pomerleau1991} estimates the policy directly via frequency counting $\hat P(a|s) = N(s,a)/N(s)$.
+No transitions, no Bellman equation, no reward function, and no value function are involved.
+\citet{ross2011} show that BC error compounds quadratically under distribution shift at rate $O(T^2\varepsilon)$.
+Any IRL method that cannot outperform BC has not learned from MDP structure.
+BC establishes the floor for every benchmark in this paper.
