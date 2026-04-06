@@ -1,0 +1,288 @@
+\documentclass[11pt]{article}
+\usepackage[right=1in,left=1in,top=0.9in,bottom=0.9in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage{titling}
+\setlength{\droptitle}{-2em}
+\posttitle{\par\end{center}\vspace{-1em}}
+
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\calA}{\mathcal{A}}
+\newcommand{\calS}{\mathcal{S}}
+\newcommand{\calH}{\mathcal{H}}
+\newcommand{\calD}{\mathcal{D}}
+
+\title{Primer: Adversarial Inverse Reinforcement Learning (AIRL)}
+\author{econirl package documentation}
+\date{}
+
+\begin{document}
+\maketitle
+
+%% ============================================================
+\section{Problem and Motivation}
+%% ============================================================
+
+Standard IRL methods recover a reward function from observed behavior, but the recovered reward is not robust. If the transition dynamics change (new environment, counterfactual policy), a reward estimated under the original dynamics may produce incorrect predictions. The problem is that IRL rewards are identified only up to a potential-based shaping term. For any function $h : \calS \to \R$, the shaped reward
+\[
+r'(s,a) = r(s,a) + \gamma h(s') - h(s)
+\]
+induces the same optimal policy as $r(s,a)$ under the original dynamics. But under different dynamics, the shaping term $\gamma h(s') - h(s)$ evaluates differently, and the shaped reward no longer rationalizes the same behavior.
+
+\citet{fu2018} propose AIRL to solve this. The key idea is to decompose the discriminator into a reward term $g_\theta(s,a)$ and a shaping potential $h_\phi(s)$, then learn them jointly so that $g_\theta$ converges to the true reward (not a shaped version). \citet{lee2026} extend AIRL with anchor constraints and latent heterogeneity for structural estimation of dynamic discrete choice models. We call this extension Anchored AIRL (AAIRL).
+
+The core contribution relative to other IRL methods is \emph{disentanglement}: AIRL separates the transferable reward from the non-transferable value function within the adversarial training loop, rather than recovering an entangled quantity and hoping it transfers.
+
+%% ============================================================
+\section{Model}
+%% ============================================================
+
+\subsection{Notation}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{ll}
+\toprule
+Symbol & Meaning \\
+\midrule
+$s \in \calS$ & State (finite or continuous) \\
+$a \in \calA$ & Action (finite: $|\calA| = k$) \\
+$s'$ & Next state after taking action $a$ in state $s$ \\
+$\gamma \in [0,1)$ & Discount factor \\
+$\sigma > 0$ & Scale parameter (entropy regularization; $=1$ in IRL convention) \\
+$r^*(s,a)$ & True (unknown) reward function \\
+$\pi^*(a \mid s)$ & Expert policy (observed through demonstrations) \\
+$\tau = (s_0, a_0, s_1, a_1, \ldots)$ & Trajectory \\
+$P(s' \mid s, a)$ & Transition kernel (may be known or unknown) \\
+$V^*(s)$ & True optimal value function \\
+$Q^*(s,a)$ & True optimal action-value function \\
+$A^*(s,a) = Q^*(s,a) - V^*(s)$ & Advantage function \\
+\midrule
+$g_\theta(s,a)$ & Learned reward approximator (parameterized by $\theta$) \\
+$h_\phi(s)$ & Learned shaping potential $\approx V(s)$ (parameterized by $\phi$) \\
+$\pi_\omega(a \mid s)$ & Learned policy (parameterized by $\omega$) \\
+$f_{\theta,\phi}(s,a,s')$ & Discriminator logit \\
+$D_{\theta,\phi}(s,a,s')$ & Discriminator output $\in [0,1]$ \\
+\bottomrule
+\end{tabular}
+\caption{Notation for AIRL.}
+\label{tab:notation}
+\end{table}
+
+\subsection{Objective}
+
+The agent solves the maximum causal entropy problem
+\begin{equation}
+\label{eq:objective}
+\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \gamma^t \big(r(s_t, a_t) + \sigma \calH(\pi(\cdot \mid s_t))\big)\right]
+\end{equation}
+where $\calH(\pi(\cdot \mid s)) = -\sum_a \pi(a \mid s) \log \pi(a \mid s)$ is the Shannon entropy. The optimal policy satisfies the softmax relationship
+\begin{equation}
+\label{eq:softmax}
+\pi^*(a \mid s) = \frac{\exp(Q^*(s,a)/\sigma)}{\sum_{a'} \exp(Q^*(s,a')/\sigma)} = \frac{\exp(A^*(s,a)/\sigma)}{\sum_{a'} \exp(A^*(s,a')/\sigma)}.
+\end{equation}
+Taking the log of both sides gives
+\begin{equation}
+\label{eq:log_policy}
+\log \pi^*(a \mid s) = \frac{1}{\sigma}\big(Q^*(s,a) - V^*(s)\big) = \frac{1}{\sigma} A^*(s,a).
+\end{equation}
+
+\subsection{Discriminator Structure}
+
+AIRL uses a structured discriminator that decomposes into reward and shaping components:
+\begin{align}
+f_{\theta,\phi}(s,a,s') &= g_\theta(s,a) + \gamma\, h_\phi(s') - h_\phi(s), \label{eq:f}\\[4pt]
+D_{\theta,\phi}(s,a,s') &= \frac{\exp\!\big(f_{\theta,\phi}(s,a,s')\big)}{\exp\!\big(f_{\theta,\phi}(s,a,s')\big) + \pi_\omega(a \mid s)}. \label{eq:D}
+\end{align}
+
+The discriminator classifies transitions as ``expert'' (from data) or ``generated'' (from the current policy). The key structural assumption is in Equation~\eqref{eq:f}: the logit $f$ is a sum of a state-action reward term $g_\theta$ and a potential-based shaping term $\gamma h_\phi(s') - h_\phi(s)$. This mirrors the Bellman decomposition $Q(s,a) = r(s,a) + \gamma \E[V(s')] - V(s) + V(s)$.
+
+%% ============================================================
+\section{Identification}
+%% ============================================================
+
+\subsection{The Reward Shaping Ambiguity}
+
+IRL rewards are identified only up to potential-based shaping (\citealt{ng1999}). For a single agent in a single environment, the observed policy constrains $|\calS| \cdot (|\calA| - 1)$ equations but the reward has $|\calS| \cdot |\calA|$ unknowns, leaving $|\calS|$ free variables that correspond to the value function (\citealt{cao2021}).
+
+\subsection{AIRL Disentanglement (Fu et al. 2018, Theorem 1)}
+
+\citet{fu2018} show that at the optimum of the adversarial objective, if: (a) the state-action space is finite, (b) the reward is state-only ($g_\theta$ depends on $s$ but not $a$), and (c) the MDP satisfies a ``decomposability'' condition (all states are linked), then the recovered reward $g_\theta$ equals $r^*(s) + c$ for some constant $c$.
+
+The decomposability condition (Definition B.1 in \citealt{fu2018}) requires that all states are reachable from all other states, which rules out absorbing states. This limits the applicability to DDC models where exit leads to an absorbing state.
+
+\subsection{Anchor Identification (Lee, Sudhir, Wang 2026)}
+
+\citet{lee2026} extend the result to \emph{action-dependent} rewards using anchor constraints. If one action (exit) has known zero reward and one state (absorbing) has known zero value:
+\begin{equation}
+\label{eq:anchors}
+g_\theta(s, a_{\text{exit}}, z) = 0 \;\; \forall s, z, \qquad h_\phi(s_{\text{abs}}, z) = 0 \;\; \forall z,
+\end{equation}
+then the decomposition $f = g_\theta + \gamma h_\phi(s') - h_\phi(s)$ is unique at convergence. The anchors pin down the $|\calS|$ free variables: the zero-value anchor eliminates the constant, and the zero-reward anchor on the exit action provides the reference utility normalization standard in discrete choice models (cf.\ \citealt{magnacThesmar2002}).
+
+This means $g_\theta(s, a, z) = r^*(s, a, z)$ and $h_\phi(s, z) = V^*(s, z)$ at the optimum, enabling welfare-valid counterfactual analysis.
+
+%% ============================================================
+\section{Estimation Algorithm}
+%% ============================================================
+
+\begin{algorithm}[H]
+\caption{AIRL with Anchor Constraints}
+\label{alg:airl}
+\begin{algorithmic}[1]
+\REQUIRE Expert transitions $\calD_{\text{obs}} = \{(s, a, s')_n\}_{n=1}^N$, discount $\gamma$, learning rate $\alpha$, anchor action $a_{\text{exit}}$, absorbing state $s_{\text{abs}}$
+\ENSURE Reward parameters $\theta$, shaping parameters $\phi$, policy parameters $\omega$
+
+\STATE Initialize $\theta_0, \phi_0, \omega_0$; set $\pi_\omega \leftarrow$ uniform
+
+\FOR{round $= 1, 2, \ldots$ until convergence}
+
+\STATE \textbf{// Step 1: Generate policy transitions}
+\STATE Sample $M$ transitions $\calD_{\text{sim}} = \{(s, a, s')_m\}$ by rolling out $\pi_\omega$
+
+\STATE \textbf{// Step 2: Update discriminator (reward + shaping)}
+\FOR{$j = 1, \ldots, J$ (discriminator steps)}
+  \STATE Compute logits: $f_n = g_\theta(s_n, a_n) + \gamma\, h_\phi(s'_n) - h_\phi(s_n)$
+  \STATE Compute discriminator: $D_n = \exp(f_n) / (\exp(f_n) + \pi_\omega(a_n \mid s_n))$
+  \STATE $\calL_{\text{disc}} = -\frac{1}{N}\sum_{\calD_{\text{obs}}} \log D_n - \frac{1}{M}\sum_{\calD_{\text{sim}}} \log(1 - D_m)$
+  \STATE $\theta, \phi \leftarrow \theta, \phi - \alpha\,\nabla_{\theta,\phi}\,\calL_{\text{disc}}$
+  \STATE \textbf{Enforce anchors:} project $g_\theta(s, a_{\text{exit}}) = 0$ $\forall s$; $h_\phi(s_{\text{abs}}) = 0$
+\ENDFOR
+
+\STATE \textbf{// Step 3: Update policy}
+\STATE Compute reward signal: $\tilde{r}(s,a,s') = f_{\theta,\phi}(s,a,s') - \log \pi_\omega(a \mid s)$
+\STATE Update $\omega$ via policy optimization on $\max_{\pi_\omega} \E[\sum_t \gamma^t \tilde{r}]$
+
+\STATE \textbf{// Step 4: Check convergence}
+\IF{$\max_{s,a} |\pi_\omega^{\text{new}}(a \mid s) - \pi_\omega^{\text{old}}(a \mid s)| < \varepsilon$}
+  \STATE \textbf{break}
+\ENDIF
+
+\ENDFOR
+
+\RETURN $g_\theta$ (recovered reward), $h_\phi$ (recovered value function), $\pi_\omega$ (recovered policy)
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Generator options.} Step 3 admits two implementations depending on the state space.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lll}
+\toprule
+Setting & Generator & Implementation \\
+\midrule
+Tabular (finite $\calS$, known $P$) & Soft value iteration & Exact Bellman solve with conservative mixing ($\alpha_{\text{policy}} < 1$) \\
+High-dimensional (continuous $\calS$) & PPO / policy gradient & Neural policy network, clipped surrogate objective \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In the tabular case, exact value iteration finds the optimal policy in one step, which causes the discriminator to overreact and rewards to diverge. Conservative policy iteration mixes old and new policies: $\pi^{\text{new}} = (1 - \alpha_{\text{policy}})\,\pi^{\text{old}} + \alpha_{\text{policy}}\,\pi^{\text{VI}}$. This dampens the update and allows the discriminator to converge to $D = 1/2$ gradually.
+
+\paragraph{At convergence.} When $D = 1/2$ everywhere, the discriminator cannot distinguish expert from generated transitions. The logit satisfies $f_{\theta,\phi}(s,a,s') = \log \pi^*(a \mid s) = A^*(s,a)$. With the anchor constraints enforced, the decomposition is unique:
+\[
+g_\theta(s,a) = r^*(s,a), \qquad h_\phi(s) = V^*(s).
+\]
+
+%% ============================================================
+\section{Counterfactual Analysis}
+%% ============================================================
+
+The structural reward recovered by AIRL enables counterfactual policy evaluation under modified environments. \citet{lee2026} define three types.
+
+\paragraph{Type A: Within-environment extrapolation.} Change a policy parameter (e.g., introduce wait-for-free access) while keeping the transition dynamics fixed. Re-solve the Bellman equation with the recovered reward under the new action set. This is the simplest counterfactual because only the choice set changes, not the dynamics.
+
+\paragraph{Type B: Segment-specific policies.} Apply different policy parameters to different latent segments (e.g., longer wait-times for price-insensitive users, shorter for patient users). Requires heterogeneous estimation to distinguish segments, then per-segment policy evaluation.
+
+\paragraph{Type C: Content-dependent policies.} Exploit variation in state features (e.g., episode quality) to set different pricing rules for different states. This requires the reward to depend on content features, which AIRL can recover through the discriminator's dependence on state.
+
+All three types use the same procedure: take the recovered $g_\theta$, modify the transitions or feature matrix to encode the counterfactual scenario, re-solve for the optimal policy using value iteration or PPO, and simulate behavior under the new policy.
+
+%% ============================================================
+\section{Connection to econirl Code}
+%% ============================================================
+
+The AIRL estimator in econirl lives at \texttt{src/econirl/estimation/adversarial/airl.py}. The heterogeneous extension with EM over latent segments is at \texttt{airl\_het.py}.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lll}
+\toprule
+Paper concept & Code class / function & Config parameter \\
+\midrule
+$g_\theta(s,a)$ (reward) & \texttt{reward\_params} (linear) or \texttt{reward\_matrix} (tabular) & \texttt{reward\_type="linear"} \\
+$h_\phi(s)$ (shaping) & \texttt{V} (value function from VI) & \texttt{use\_shaping=True} \\
+$\pi_\omega(a \mid s)$ (policy) & \texttt{policy} from \texttt{SoftBellmanOperator} & \texttt{generator\_solver="hybrid"} \\
+Anchor constraints & Enforced after each discriminator step & \texttt{exit\_action}, \texttt{absorbing\_state} \\
+Conservative VI & Old/new policy mixing & \texttt{policy\_step\_size=0.1} \\
+Weight decay on $\theta$ & AdamW optimizer & \texttt{reward\_weight\_decay=0.01} \\
+\bottomrule
+\end{tabular}
+\caption{Mapping from paper to code.}
+\end{table}
+
+\paragraph{Example usage.}
+\begin{verbatim}
+from econirl.estimation.adversarial.airl import AIRLEstimator, AIRLConfig
+
+config = AIRLConfig(
+    reward_type="linear",
+    max_rounds=500,
+    reward_lr=0.01,
+    policy_step_size=0.1,
+    use_shaping=True,
+    verbose=True,
+)
+result = AIRLEstimator(config).estimate(panel, utility, problem, transitions)
+\end{verbatim}
+
+The serialized content example at \texttt{examples/serialized-content/lsw\_replication.py} demonstrates AIRL on a 51-state, 3-action wait-for-free platform with known ground truth.
+
+%% ============================================================
+\section{Comparison to Other Estimators}
+%% ============================================================
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+ & NFXP & MCE-IRL & AIRL & GLADIUS \\
+\midrule
+Requires known $P(s' \mid s, a)$ & Yes & Yes & No (PPO) / Yes (VI) & Yes \\
+Reward parameterization & Linear & Linear & Neural or linear & Neural \\
+Handles continuous states & No & No & Yes (PPO) & Yes \\
+Action-dependent rewards & Yes & Yes & With anchors & Yes \\
+Identification strategy & Parametric MLE & Feature matching & Disentanglement + anchors & Bellman decomposition \\
+Inference (standard errors) & Yes & Yes & Bootstrap & Bootstrap \\
+\bottomrule
+\end{tabular}
+\caption{AIRL in context.}
+\end{table}
+
+AIRL's advantage over NFXP and MCE-IRL is that it can handle continuous state spaces when using PPO as the generator. Its advantage over GLADIUS is the disentanglement guarantee (Theorem 1 in \citealt{fu2018}): the recovered reward is structurally meaningful, not just a sufficient statistic for the policy. GLADIUS recovers Q-values that are identified only up to a state-dependent constant in the IRL setting.
+
+AIRL's disadvantage on tabular problems is computational: the adversarial training loop is slower and less stable than direct MLE (NFXP) or feature matching (MCE-IRL). On a 51-state serialized content environment, NFXP recovers all 6 reward parameters within 15 percent of the true values in 13 seconds. AIRL with conservative policy iteration requires 500 rounds and careful tuning of the learning rate, weight decay, and policy step size.
+
+%% ============================================================
+\paragraph{References.}
+%% ============================================================
+
+\begin{description}
+\item[Fu et al.\ (2018)] ``Learning Robust Rewards with Adversarial Inverse Reinforcement Learning.'' ICLR.
+\item[Lee, Sudhir, Wang (2026)] ``Modeling Serialized Content Consumption: Adversarial IRL for Dynamic Discrete Choice.''
+\item[Ng et al.\ (1999)] ``Policy Invariance Under Reward Transformations.'' ICML.
+\item[Cao, Cohen (2021)] ``Identifiability in Inverse Reinforcement Learning.'' NeurIPS.
+\item[Kim et al.\ (2021)] ``Reward Identification in Inverse Reinforcement Learning.'' ICML.
+\item[Magnac, Thesmar (2002)] ``Identifying Dynamic Discrete Decision Processes.'' Econometrica.
+\item[Kang, Yoganarasimhan, Jain (2025)] ``GLADIUS: ERM for Offline IRL.''
+\end{description}
+
+\end{document}
