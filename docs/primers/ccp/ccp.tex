@@ -184,39 +184,12 @@ The \texttt{num\_policy\_iterations} parameter controls $K$: set $K\!=\!1$ for H
 \section{Results and Comparison}
 %% ============================================================
 
-\subsection{Parameter Recovery on Rust Bus}
+% Auto-generated results from ccp_results.py
+\input{ccp_results}
 
-The benchmark uses the \citet{rust1987} bus engine model with 200 mileage bins, $\beta = 0.9999$, and true parameters $\theta_c = 0.001$ (operating cost) and $RC = 3.0$ (replacement cost). Data consists of 200 buses observed for 100 periods (20,000 observations).
+CCP-NPL and NFXP converge to identical parameter estimates and log-likelihood, confirming that NPL reaches the MLE fixed point. The Hotz-Miller one-step estimator ($K\!=\!1$) is consistent but uses the noisy empirical CCPs directly, producing slightly different estimates. For rapid specification search, $K\!=\!1$ is sufficient. For publication-grade estimates, $K\!=\!5{-}10$ is recommended.
 
-\begin{table}[H]
-\centering
-\caption{CCP-NPL ($K\!=\!5$) versus NFXP on Rust bus. Both converge to the same MLE.}
-\label{tab:ccp_vs_nfxp}
-\small
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r}
-\toprule
-Metric & NFXP & CCP-NPL \\
-\midrule
-$\hat\theta_c$ & 0.001468 & 0.001467 \\
-$\hat{RC}$ & 3.0731 & 3.0731 \\
-Log-likelihood & $-4193.14$ & $-4193.14$ \\
-Wall time (s) & 160.3 & 20.5 \\
-Speedup & --- & $7.8\times$ \\
-\bottomrule
-\end{tabular*}
-\end{table}
-
-CCP-NPL and NFXP converge to identical parameter estimates and identical log-likelihood, confirming that NPL with $K\!=\!5$ iterations reaches the MLE fixed point. CCP is 7.8 times faster because it replaces the inner Bellman solve (which requires many contraction iterations at $\beta = 0.9999$) with a single $(I - \beta F_\pi)^{-1}$ matrix inversion.
-
-\subsection{Hotz-Miller ($K\!=\!1$) versus NPL ($K\!=\!10$)}
-
-The Hotz-Miller one-step estimator is consistent but uses the noisy empirical CCPs directly, without iterating. On the same benchmark, Hotz-Miller produces $\hat\theta_c = 0.001470$ and $\hat{RC} = 3.075$, slightly less precise than the NPL estimates but computationally instantaneous (under 5 seconds). For rapid specification search across many utility specifications, $K\!=\!1$ is sufficient. For final publication-grade estimates, $K\!=\!5{-}10$ is recommended.
-
-\subsection{When CCP Dominates and When It Fails}
-
-CCP is the method of choice when inner-loop cost is the bottleneck, which occurs at high discount factors ($\beta > 0.99$) or moderate state spaces (100 to 500 states). At $\beta = 0.9999$ with 200 states, NFXP takes 147 seconds while CCP takes 20 seconds.
-
-CCP requires the full transition matrix, which limits its applicability to settings where transitions are known or can be estimated from data. For continuous state spaces where transition densities are hard to estimate, TD-CCP is the appropriate alternative.
+CCP is the method of choice when inner-loop cost is the bottleneck, which occurs at high discount factors ($\beta > 0.99$) or moderate state spaces (100 to 500 states). CCP requires the full transition matrix, which limits its applicability to settings where transitions are known or can be estimated from data. For continuous state spaces where transition densities are hard to estimate, TD-CCP is the appropriate alternative.
 
 A known limitation is that CCP-NPL can produce unreliable counterfactual predictions at high discount factors. On the Rust bus with $\beta = 0.9999$, a Type 3 counterfactual (doubling the replacement cost) produces a welfare change of $-6737$ from CCP compared to $-381$ from NFXP. The amplification arises because small parameter errors compound through the matrix inversion $(I-\beta F_\pi)^{-1}$ when $\beta$ is near 1. For counterfactual analysis at high discount factors, NFXP is more reliable.
 
@@ -225,9 +198,7 @@ A known limitation is that CCP-NPL can produce unreliable counterfactual predict
 \section{EconIRL Implementation}
 %% ============================================================
 
-\subsection{Code Mapping}
-
-The CCP estimator is implemented in \texttt{src/econirl/estimation/ccp.py} as the \texttt{CCPEstimator} class, which inherits from \texttt{BaseEstimator}.
+The CCP estimator is implemented in \texttt{src/econirl/estimation/ccp.py} as the \texttt{CCPEstimator} class. The companion script \texttt{ccp\_results.py} in this folder generates Table~\ref{tab:ccp_vs_nfxp} and all numerical macros used in this document. To regenerate results, run \texttt{python docs/primers/ccp/ccp\_results.py}.
 
 \begin{table}[H]
 \centering\small
@@ -236,21 +207,18 @@ The CCP estimator is implemented in \texttt{src/econirl/estimation/ccp.py} as th
 \toprule
 Algorithm Step & Method & Key Operation \\
 \midrule
-Step 1 (estimate CCPs) & \texttt{\_estimate\_ccps\_from\_data()} & Frequency counting with smoothing \\
+Step 1 (CCPs) & \texttt{\_estimate\_ccps\_from\_data()} & $N(s,a)/N(s)$ with smoothing \\
 Step 2a (emax) & \texttt{\_compute\_emax\_correction()} & $\gamma - \log\hat\pi$ \\
-Step 2b--c (matrix inverse) & \texttt{\_compute\_valuation\_matrix()} & $(I - \beta F_\pi)^{-1}$ via \texttt{jnp.linalg.inv} \\
-Step 2d (augmented features) & \texttt{\_compute\_choice\_specific\_values()} & $\tilde\phi = \phi + \beta P W_\phi$ \\
-Step 2e (optimize $\theta$) & \texttt{minimize\_lbfgsb()} & L-BFGS-B with numerical gradient \\
-Step 2f (update CCPs) & \texttt{\_update\_ccps\_from\_values()} & softmax$(v/\sigma)$ \\
-Step 3 (Hessian) & \texttt{compute\_numerical\_hessian()} & Full Bellman-constrained LL \\
+Step 2b--c (inversion) & \texttt{\_compute\_valuation\_matrix()} & $(I - \beta F_\pi)^{-1}$ \\
+Step 2d (augment) & \texttt{\_compute\_choice\_specific\_values()} & $\tilde\phi = \phi + \beta P W_\phi$ \\
+Step 2e (optimize) & \texttt{minimize\_lbfgsb()} & L-BFGS-B \\
+Step 2f (update) & \texttt{\_update\_ccps\_from\_values()} & softmax$(v/\sigma)$ \\
+Step 3 (Hessian) & \texttt{compute\_numerical\_hessian()} & Full Bellman LL \\
 \bottomrule
 \end{tabular*}
 \end{table}
 
-\subsection{Usage Example}
-
-The following code replicates the benchmark in Table~\ref{tab:ccp_vs_nfxp}. The full script is at \texttt{examples/rust-bus-engine/tdccp\_vs\_nfxp.py}.
-
+\paragraph{Usage.}
 \begin{verbatim}
 from econirl.environments.rust_bus import RustBusEnvironment
 from econirl.estimation.ccp import CCPEstimator
@@ -258,11 +226,11 @@ from econirl.preferences.linear import LinearUtility
 
 env = RustBusEnvironment(
     operating_cost=0.001, replacement_cost=3.0,
-    num_mileage_bins=200, discount_factor=0.9999,
+    num_mileage_bins=90, discount_factor=0.9999,
 )
 panel = env.generate_panel(n_individuals=200, n_periods=100, seed=42)
 
-ccp = CCPEstimator(num_policy_iterations=5, se_method="robust")
+ccp = CCPEstimator(num_policy_iterations=10, se_method="robust")
 result = ccp.estimate(
     panel=panel,
     utility=LinearUtility.from_environment(env),
@@ -272,7 +240,7 @@ result = ccp.estimate(
 print(result.summary())
 \end{verbatim}
 
-Setting \texttt{num\_policy\_iterations=1} gives the Hotz-Miller one-step estimator. Setting it to $-1$ iterates until parameter convergence.
+Setting \texttt{num\_policy\_iterations=1} gives the Hotz-Miller one-step estimator. Setting it to $-1$ iterates until convergence.
 
 
 \bibliographystyle{plainnat}

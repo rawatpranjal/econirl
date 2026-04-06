@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""CCP Primer — auto-generate results for the LaTeX document.
+
+Runs CCP-NPL and NFXP on the Rust bus engine (small MDP) and writes
+results to ccp_results.tex, which the primer \input's directly.
+
+Usage:
+    python docs/primers/ccp_results.py
+
+Output:
+    docs/primers/ccp_results.tex  (LaTeX snippet with tables and numbers)
+"""
+
+import json
+import time
+from pathlib import Path
+
+import jax.numpy as jnp
+import numpy as np
+
+# ── Setup ──────────────────────────────────────────────────────
+N_BINS = 90
+BETA = 0.9999
+TRUE_OC = 0.001
+TRUE_RC = 3.0
+N_INDIVIDUALS = 200
+N_PERIODS = 100
+SEED = 42
+NPL_K = 10
+
+OUT = Path(__file__).resolve().parent / "ccp_results.tex"
+
+
+def cosine_sim(a, b):
+    a, b = jnp.asarray(a).flatten(), jnp.asarray(b).flatten()
+    return float(jnp.dot(a, b) / (jnp.linalg.norm(a) * jnp.linalg.norm(b)))
+
+
+def main():
+    from econirl.environments.rust_bus import RustBusEnvironment
+    from econirl.estimation.nfxp import NFXPEstimator
+    from econirl.estimation.ccp import CCPEstimator
+    from econirl.preferences.linear import LinearUtility
+
+    print(f"CCP Primer — generating results")
+    print(f"  Environment: Rust bus, {N_BINS} bins, beta={BETA}")
+    print(f"  Data: {N_INDIVIDUALS} x {N_PERIODS} = {N_INDIVIDUALS * N_PERIODS:,} obs")
+
+    # Environment and data
+    env = RustBusEnvironment(
+        operating_cost=TRUE_OC, replacement_cost=TRUE_RC,
+        num_mileage_bins=N_BINS, discount_factor=BETA,
+    )
+    panel = env.generate_panel(n_individuals=N_INDIVIDUALS, n_periods=N_PERIODS, seed=SEED)
+    utility = LinearUtility.from_environment(env)
+    problem = env.problem_spec
+    transitions = env.transition_matrices
+    true_params = jnp.array([TRUE_OC, TRUE_RC])
+
+    results = {}
+
+    # ── NFXP ───────────────────────────────────────────────────
+    print("\n  Running NFXP...")
+    t0 = time.time()
+    nfxp = NFXPEstimator(
+        optimizer="BHHH", inner_solver="policy",
+        inner_tol=1e-12, inner_max_iter=200,
+        se_method="robust", verbose=False,
+    )
+    nfxp_result = nfxp.estimate(
+        panel=panel, utility=utility, problem=problem, transitions=transitions,
+    )
+    nfxp_time = time.time() - t0
+    results["nfxp"] = {
+        "oc": float(nfxp_result.parameters[0]),
+        "rc": float(nfxp_result.parameters[1]),
+        "ll": float(nfxp_result.log_likelihood),
+        "time": nfxp_time,
+        "cosine": cosine_sim(nfxp_result.parameters, true_params),
+        "se_oc": float(nfxp_result.standard_errors[0]) if nfxp_result.standard_errors is not None else None,
+        "se_rc": float(nfxp_result.standard_errors[1]) if nfxp_result.standard_errors is not None else None,
+    }
+    print(f"    theta_c={results['nfxp']['oc']:.6f}, RC={results['nfxp']['rc']:.4f}, "
+          f"LL={results['nfxp']['ll']:.2f}, time={nfxp_time:.1f}s")
+
+    # ── CCP-NPL ────────────────────────────────────────────────
+    print(f"\n  Running CCP-NPL (K={NPL_K})...")
+    t0 = time.time()
+    ccp = CCPEstimator(
+        num_policy_iterations=NPL_K,
+        se_method="robust", verbose=False,
+    )
+    ccp_result = ccp.estimate(
+        panel=panel, utility=utility, problem=problem, transitions=transitions,
+    )
+    ccp_time = time.time() - t0
+    results["ccp"] = {
+        "oc": float(ccp_result.parameters[0]),
+        "rc": float(ccp_result.parameters[1]),
+        "ll": float(ccp_result.log_likelihood),
+        "time": ccp_time,
+        "cosine": cosine_sim(ccp_result.parameters, true_params),
+        "se_oc": float(ccp_result.standard_errors[0]) if ccp_result.standard_errors is not None else None,
+        "se_rc": float(ccp_result.standard_errors[1]) if ccp_result.standard_errors is not None else None,
+    }
+    print(f"    theta_c={results['ccp']['oc']:.6f}, RC={results['ccp']['rc']:.4f}, "
+          f"LL={results['ccp']['ll']:.2f}, time={ccp_time:.1f}s")
+
+    # ── Hotz-Miller (K=1) ─────────────────────────────────────
+    print(f"\n  Running Hotz-Miller (K=1)...")
+    t0 = time.time()
+    hm = CCPEstimator(
+        num_policy_iterations=1,
+        se_method="robust", verbose=False,
+    )
+    hm_result = hm.estimate(
+        panel=panel, utility=utility, problem=problem, transitions=transitions,
+    )
+    hm_time = time.time() - t0
+    results["hm"] = {
+        "oc": float(hm_result.parameters[0]),
+        "rc": float(hm_result.parameters[1]),
+        "ll": float(hm_result.log_likelihood),
+        "time": hm_time,
+        "cosine": cosine_sim(hm_result.parameters, true_params),
+    }
+    print(f"    theta_c={results['hm']['oc']:.6f}, RC={results['hm']['rc']:.4f}, "
+          f"LL={results['hm']['ll']:.2f}, time={hm_time:.1f}s")
+
+    # ── Write LaTeX snippet ────────────────────────────────────
+    speedup = nfxp_time / ccp_time if ccp_time > 0 else 0
+
+    # Format SEs
+    def fmt_se(v):
+        if v is None:
+            return "---"
+        return f"{v:.6f}"
+
+    tex = []
+    tex.append("% Auto-generated by ccp_results.py — do not edit by hand")
+    tex.append(f"% Generated with: {N_BINS} bins, beta={BETA}, "
+               f"{N_INDIVIDUALS}x{N_PERIODS} obs, seed={SEED}")
+    tex.append("")
+
+    # Macros for inline use
+    tex.append(f"\\newcommand{{\\ccpNbins}}{{{N_BINS}}}")
+    tex.append(f"\\newcommand{{\\ccpBeta}}{{{BETA}}}")
+    tex.append(f"\\newcommand{{\\ccpNobs}}{{{N_INDIVIDUALS * N_PERIODS:,}}}")
+    tex.append(f"\\newcommand{{\\ccpTrueOC}}{{{TRUE_OC}}}")
+    tex.append(f"\\newcommand{{\\ccpTrueRC}}{{{TRUE_RC}}}")
+    tex.append("")
+
+    # NFXP macros
+    tex.append(f"\\newcommand{{\\nfxpOC}}{{{results['nfxp']['oc']:.6f}}}")
+    tex.append(f"\\newcommand{{\\nfxpRC}}{{{results['nfxp']['rc']:.4f}}}")
+    tex.append(f"\\newcommand{{\\nfxpLL}}{{{results['nfxp']['ll']:.2f}}}")
+    tex.append(f"\\newcommand{{\\nfxpTime}}{{{results['nfxp']['time']:.1f}}}")
+    tex.append(f"\\newcommand{{\\nfxpCosine}}{{{results['nfxp']['cosine']:.4f}}}")
+    tex.append(f"\\newcommand{{\\nfxpSEoc}}{{{fmt_se(results['nfxp']['se_oc'])}}}")
+    tex.append(f"\\newcommand{{\\nfxpSErc}}{{{fmt_se(results['nfxp']['se_rc'])}}}")
+    tex.append("")
+
+    # CCP macros
+    tex.append(f"\\newcommand{{\\ccpOC}}{{{results['ccp']['oc']:.6f}}}")
+    tex.append(f"\\newcommand{{\\ccpRC}}{{{results['ccp']['rc']:.4f}}}")
+    tex.append(f"\\newcommand{{\\ccpLL}}{{{results['ccp']['ll']:.2f}}}")
+    tex.append(f"\\newcommand{{\\ccpTime}}{{{results['ccp']['time']:.1f}}}")
+    tex.append(f"\\newcommand{{\\ccpCosine}}{{{results['ccp']['cosine']:.4f}}}")
+    tex.append(f"\\newcommand{{\\ccpSpeedup}}{{{speedup:.1f}}}")
+    tex.append(f"\\newcommand{{\\ccpSEoc}}{{{fmt_se(results['ccp']['se_oc'])}}}")
+    tex.append(f"\\newcommand{{\\ccpSErc}}{{{fmt_se(results['ccp']['se_rc'])}}}")
+    tex.append("")
+
+    # Hotz-Miller macros
+    tex.append(f"\\newcommand{{\\hmOC}}{{{results['hm']['oc']:.6f}}}")
+    tex.append(f"\\newcommand{{\\hmRC}}{{{results['hm']['rc']:.4f}}}")
+    tex.append(f"\\newcommand{{\\hmLL}}{{{results['hm']['ll']:.2f}}}")
+    tex.append(f"\\newcommand{{\\hmTime}}{{{results['hm']['time']:.1f}}}")
+    tex.append(f"\\newcommand{{\\hmCosine}}{{{results['hm']['cosine']:.4f}}}")
+    tex.append("")
+
+    # Main comparison table
+    tex.append("% ── Table: CCP vs NFXP ──")
+    tex.append("\\begin{table}[H]")
+    tex.append("\\centering")
+    tex.append(f"\\caption{{CCP-NPL ($K\\!=\\!{NPL_K}$) and Hotz-Miller ($K\\!=\\!1$) versus NFXP on Rust bus "
+               f"(\\ccpNbins\\ states, $\\beta = \\ccpBeta$, \\ccpNobs\\ observations). "
+               f"True parameters: $\\theta_c = \\ccpTrueOC$, $RC = \\ccpTrueRC$.}}")
+    tex.append("\\label{tab:ccp_vs_nfxp}")
+    tex.append("\\small")
+    tex.append("\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}} l r r r}")
+    tex.append("\\toprule")
+    tex.append("Metric & NFXP & CCP-NPL & Hotz-Miller \\\\")
+    tex.append("\\midrule")
+    tex.append(f"$\\hat\\theta_c$ & \\nfxpOC & \\ccpOC & \\hmOC \\\\")
+    tex.append(f"$\\hat{{RC}}$ & \\nfxpRC & \\ccpRC & \\hmRC \\\\")
+    tex.append(f"SE($\\theta_c$) & \\nfxpSEoc & \\ccpSEoc & --- \\\\")
+    tex.append(f"SE($RC$) & \\nfxpSErc & \\ccpSErc & --- \\\\")
+    tex.append(f"Log-likelihood & $\\nfxpLL$ & $\\ccpLL$ & $\\hmLL$ \\\\")
+    tex.append(f"Cosine similarity & \\nfxpCosine & \\ccpCosine & \\hmCosine \\\\")
+    tex.append(f"Wall time (s) & \\nfxpTime & \\ccpTime & \\hmTime \\\\")
+    tex.append(f"Speedup vs NFXP & --- & $\\ccpSpeedup\\times$ & --- \\\\")
+    tex.append("\\bottomrule")
+    tex.append("\\end{tabular*}")
+    tex.append("\\end{table}")
+
+    OUT.write_text("\n".join(tex) + "\n")
+    print(f"\n  Wrote {OUT}")
+
+    # Also save raw JSON for reference
+    json_out = OUT.with_suffix(".json")
+    json_out.write_text(json.dumps(results, indent=2))
+    print(f"  Wrote {json_out}")
+
+
+if __name__ == "__main__":
+    main()
