@@ -1,9 +1,29 @@
 {
-  "cosine_similarity": 0.1649171287633772,
-  "correlation": -0.3621204917444152,
-  "policy_match": 0.6,
-  "goal_reward_true": 1.0,
-  "goal_reward_airl": 43.61054066743888,
-  "mean_nongol_airl": 53.01853579963133,
-  "airl_time": 301.00928807258606
+  "true": {
+    "buy_cost": -0.3,
+    "quality_buy": 2.0,
+    "cliffhanger_buy": 1.5,
+    "wait_cost": -0.8,
+    "quality_wait": 0.5,
+    "progress_buy": 0.8
+  },
+  "nfxp": {
+    "buy_cost": -0.058143058305631795,
+    "quality_buy": 1.7196397158806869,
+    "cliffhanger_buy": 1.5431685985739003,
+    "wait_cost": -0.7904923912823137,
+    "quality_wait": 0.49059265959027515,
+    "progress_buy": 0.717591667231945
+  },
+  "airl": {
+    "buy_cost": 4.896529809143184,
+    "quality_buy": 4.901393395671303,
+    "cliffhanger_buy": 4.918610813793211,
+    "wait_cost": 1.7914159310690292,
+    "quality_wait": 2.4146853176887064,
+    "progress_buy": 4.863360871037046
+  },
+  "airl_time": 311.267315864563,
+  "n_trajectories": 5997,
+  "n_observations": 67391
 }

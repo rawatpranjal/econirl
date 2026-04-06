@@ -4,60 +4,31 @@
 |----------|----------|--------|-------------|-----|--------|
 | Structural | Rust (1987), Iskhakov et al. (2016) | Linear | Yes | Analytical (MLE) | No |
 
-## Background
+## What this estimator does
 
-To evaluate how well any candidate $\theta$ fits the data, we need the choice probabilities $\pi_\theta$. But computing $\pi_\theta$ requires solving the Bellman equation, which is itself an expensive fixed-point problem. Rust (1987) handled this by nesting the Bellman solve inside the optimizer. For every trial $\theta$, the inner loop solves for $Q_\theta$, the outer loop checks how well the resulting $\pi_\theta$ fits the data, and then tries a better $\theta$. This is expensive but gives exact maximum likelihood with proper standard errors. Iskhakov et al. (2016) sped up the inner loop with a two-phase approach: start with simple iteration (safe but slow), then switch to Newton's method (fast but needs a good starting point) once you are close to the answer.
+NFXP is the foundational structural estimator for dynamic discrete choice models. Rust (1987) proposed nesting the Bellman fixed point inside maximum likelihood. For every candidate parameter vector $\theta$, the inner loop solves the Bellman equation to machine precision, producing the softmax choice probabilities that enter the log-likelihood. The outer loop searches over $\theta$ to maximize fit. Because the inner loop is exact, the likelihood surface is smooth and the estimator achieves full statistical efficiency.
 
-## Key Equations
+The bottleneck is the inner loop. Value iteration converges at rate $\beta$ per step, so patient agents with $\beta$ near 1 require thousands of contractions per likelihood evaluation. Iskhakov, Rust and Schjerning (2016) solved this with the SA-then-NK polyalgorithm. The algorithm starts with successive approximation for safe global convergence and switches to Newton-Kantorovich near the fixed point for quadratic convergence. The total iteration count becomes insensitive to $\beta$.
+
+Identification requires that the feature matrix have full column rank, which means features must vary across actions. State-only features that are identical for all actions collapse the likelihood surface. The discount factor $\beta$ is not identified without a priori restrictions and must be fixed by the researcher. The scale parameter $\sigma$ is normalized to 1.
+
+## How it works
+
+The estimator maximizes
 
 $$
-\hat\theta_{\mathrm{NFXP}} = \arg\max_\theta \sum_{(s,a) \in \mathcal{D}} \log \pi^*_\theta(a \mid s),
+\hat\theta_{\mathrm{NFXP}} = \arg\max_\theta \sum_{i=1}^{N} \log \pi(a_i \mid s_i; \theta),
 $$
 
-where $\pi^*_\theta$ comes from solving $Q_\theta = \Lambda_\sigma(Q_\theta)$ for each candidate $\theta$. Gradients are computed analytically through the fixed point using the implicit function theorem.
+where $\pi(a \mid s; \theta)$ is the softmax policy from solving $V = TV$ at each $\theta$. Gradients are computed analytically through the fixed point using the implicit function theorem. The per-observation score solves a linear system $(I - \beta P_\pi) \frac{\partial V}{\partial \theta} = \sum_a \pi(a|s) \phi(s,a)$ and enters the BHHH outer product to form the Hessian approximation. Standard errors come directly from the inverse of this outer product, with no bootstrap required.
 
-## Pseudocode
+## When to use it
 
-```
-NFXP(D, r_theta, p, beta, sigma):
-  1. Initialize theta
-  2. Repeat until convergence:
-     a. Inner loop — solve for Q_theta:
-        Q <- 0
-        Repeat (simple iteration):
-          Q <- Lambda_sigma(Q; theta)
-        Until close enough, then switch to Newton:
-          Q <- Q - (I - beta*P_pi)^{-1} (Q - Lambda_sigma(Q))
-        Until converged
-     b. Compute policy: pi(a|s) = softmax(Q(s,.)/sigma)
-     c. Compute log-likelihood: L = sum log pi(a|s) over data
-     d. Compute gradient analytically
-     e. Update theta (BHHH step)
-  3. Standard errors from inverse Hessian
-  4. Return theta, SEs
-```
-
-## Strengths and Limitations
-
-NFXP delivers statistically efficient maximum likelihood estimates with precise analytical standard errors. It guarantees a globally convergent, machine-precision solution. The inner loop converges to the exact fixed point, so no approximation error contaminates the parameter estimates.
-
-The downside is cost. Solving the Bellman equation takes $O(|\mathcal{S}|^2)$ per outer optimization step, which becomes impractical when the state space exceeds about 10,000. Highly forward-looking settings with $\beta > 0.995$ also slow convergence because the contraction rate approaches one. For large or continuous state spaces, consider NNES or SEES instead.
-
-NFXP is the right choice when you need publication-grade structural estimates with confidence intervals, likelihood ratio tests, and hypothesis tests on a manageable state space.
+NFXP is the right choice when you need publication-grade structural estimates with analytical standard errors, likelihood ratio tests, and hypothesis tests on a manageable state space. The inner loop costs $O(|\mathcal{S}|^2)$ per contraction and the NK step costs $O(|\mathcal{S}|^3)$, so state spaces above a few thousand become slow. For large or continuous state spaces, consider NNES, SEES, or TD-CCP instead. Every other estimator in this package defines itself relative to NFXP.
 
 ## References
 
 - Rust, J. (1987). Optimal Replacement of GMC Bus Engines: An Empirical Model of Harold Zurcher. *Econometrica*, 55(5), 999-1033.
 - Iskhakov, F., Lee, J., Rust, J., Schjerning, B., & Seo, K. (2016). Comment on "Constrained Optimization Approaches to Estimation of Structural Models." *Econometrica*, 84(1), 365-370.
 
-## Diagnostics and Guarantees
-
-Parameters are identified under standard regularity conditions for maximum likelihood in discrete choice models. The utility features must vary across actions for the likelihood surface to be well-defined. State-only features that are identical across all choices collapse the choice probabilities to a constant, making the likelihood flat and causing parameter blowup. The transition matrix must have full support on the reachable state space.
-
-The estimator uses dual convergence criteria. The inner loop solves the Bellman equation to a tolerance of 1e-12 by default, using the SA-then-NK polyalgorithm from Iskhakov et al. (2016) that starts with successive approximation and switches to Newton-Kantorovich once the error drops below 1e-3. The outer loop terminates when the maximum absolute gradient falls below 1e-6 or when the log-likelihood change is less than 1e-10 for more than ten iterations. The default outer optimizer is BHHH with a maximum of 1000 iterations.
-
-Standard errors come from the observed information matrix. In BHHH mode, the estimator computes per-observation scores via the implicit function theorem and forms the outer product of gradients. In L-BFGS-B or BFGS mode, the Hessian is computed numerically at the optimum. Both approaches produce valid asymptotic standard errors because NFXP is a full maximum likelihood estimator with an exact inner loop.
-
-The main practical limitation is computational cost. Solving the Bellman equation costs O(S squared) per outer iteration, so state spaces above roughly 10,000 become slow. Discount factors above 0.995 also hurt because the contraction rate approaches one. The inner solver warns when the discount factor exceeds 0.99 and the maximum iteration count is below 50,000. Feature normalization matters for conditioning. The Rust bus parameters of 0.001 and 3.0 span three orders of magnitude, so rescaling features to a common range improves optimizer behavior.
-
-The default configuration uses the hybrid inner solver with a switch tolerance of 1e-3, inner tolerance of 1e-12, and a maximum of 100,000 inner iterations. The outer loop uses BHHH with a gradient tolerance of 1e-6 and a maximum of 1000 iterations. These defaults are designed for problems with moderate discount factors and state spaces up to a few thousand states.
+The full derivation, algorithm, and simulation results are in the [NFXP primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/nfxp.pdf).

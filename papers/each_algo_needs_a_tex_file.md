@@ -1,0 +1,20 @@
+- each algo we work on needs a tex file
+- read the paper and distill a 5 pager
+- the core context and problem they are trynig to solve
+- the model / functional forms, notation (each object, term, symbol), etc. 
+- the core theorems and derivaitons (focusing on identification, counterfactuals )
+- the estimation or training loop, give one full page pseudo code algo look
+- the results and experiments and comparsision to other estimators, the benchmark numbers. 
+- further, we want our own sim exmaple where we test the estimator (connect this to the code in the repo, tight mapping between this primer tex and the RTD example and the code), and get results on a small mdp / neural case. 
+- tables are forced to fit into theri ubsectino. try not to repeat yourself, refer back to the equations needed. 
+- each tex must be linked to a .py in the same folder where we run the estimator on a toy exmampel. the results are autoupdated in the primer pdf
+- please no loose files, the folders shoul dbe neat and orgnized. 
+- proper citations
+- we are to work in /Users/pranjal/Code/econirl/papers/econirl_package/primers. within folders: ccp, nxfp, etc. so on. all your files must be in that folder. self contained. 
+- and do not link to "examples" (example --> concrete applications to real data, tutorials --> make some important point to learn, 1:1; this primer_example is different, its a quick check on a simulated case to show flawless recovery / acpplication. the primer_exmaple is chosen based on the paper itself. we need to at least replication one small thing from the paper that proves a) the algo works and b) teh algo solves the main problem it is designed to solve -- just 1 primer_exmaple will do, but it has to be the right one, and we have to go all the way in running it (inclding its key competitior and showing exactly the conditions whern this estimator wins). remeber dont show the case where the estimator loses (standard bus engine or soem random mdp or gridworld), show na exampl where it wins and improves on its clearest benchmark. remember WINS, not draw or lose. WINS --> where its advantages are showcased in the way the authors intended. a steelman. 
+- when you run the primer_example, i want you to ensure the tqdm in the actual API is rich enough to track the key obejcts and know the progress (time, close-ness to convergence, etc.). each estimator may need a different one.
+- Comparisons with other estimators need to breif, and no drawing up tables. 
+- we have a common notation set, pleas euse that its in the folder. 
+- hardlimit is 5 pages
+- these primers will go up on RTD as clickable links to the github page where they lie in the estimators page (we have a nice table and these clickable links)
+- also always include a BC baseline 

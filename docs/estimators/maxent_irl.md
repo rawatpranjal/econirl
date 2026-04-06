@@ -4,49 +4,30 @@
 |----------|----------|--------|-------------|-----|--------|
 | Inverse | Ziebart et al. (2008) | Linear (state-only) | Yes | Bootstrap | No |
 
-## Background
+## What this estimator does
 
-Maximum Entropy IRL was the first principled probabilistic formulation of inverse reinforcement learning. Ziebart et al. (2008) showed that among all policies consistent with the observed feature expectations, the maximum entropy policy is the least committed and therefore the most robust. The algorithm finds reward weights that match the empirical feature expectations of the demonstrations while maximizing the entropy of the induced trajectory distribution.
+Maximum Entropy IRL recovers a reward function from demonstrations by applying the maximum entropy principle to the space of trajectories. Among all policies that reproduce the observed feature statistics, the algorithm selects the one with maximum entropy over trajectory distributions, yielding the least committed explanation consistent with the data. The solution is a Boltzmann distribution over trajectories weighted by cumulative reward, and the partition function factors via backward recursion through the MDP.
 
-The key insight is that the gradient of the log-likelihood takes a clean form. It is simply the difference between the empirical feature expectations from the demonstrations and the expected features under the current policy. This allows efficient optimization via L-BFGS. The reward is linear in state features, so the recovered reward function is fully interpretable. However, the state visitation computation does not account for causal structure in the way that MCE-IRL does. In stochastic environments, MCE-IRL (Ziebart 2010) is strictly better because it correctly handles the causal entropy over action sequences rather than trajectory distributions. MaxEnt IRL remains useful as a baseline and for understanding the historical development of the field.
+The key limitation is that MaxEnt IRL uses non-causal Shannon entropy over entire trajectories rather than conditioning each action on the agent's available information at decision time. The backward messages propagate future information into current decisions, giving the agent effective foresight. With action-dependent features, this foresight produces systematically biased reward estimates. On a 5 by 5 gridworld with direction-dependent step costs, MaxEnt IRL recovers a reward with cosine similarity of approximately negative 0.72 to the truth, while MCE-IRL achieves 0.9999. This is a structural bias, not a tuning problem. The only fix is the causal entropy objective of Ziebart (2010), implemented as MCE-IRL.
 
-## Key Equations
+Rewards are restricted to be state-only, meaning $R(s;\theta) = \theta^\top \phi(s)$. Action-dependent features cannot be handled correctly because the non-causal backward messages do not factor into per-step decisions that respect the sequential timing of information arrival.
 
-$$
-\hat\theta_{\mathrm{MaxEnt}} = \arg\max_\theta \; \mathbb{E}_{\mathcal{D}}[R(s; \theta)] - \log Z(\theta),
-$$
+## How it works
 
-with gradient
+The gradient of the log-likelihood is the difference between empirical and expected feature averages under the current policy:
 
 $$
-\nabla_\theta \mathcal{L} = \bar\phi_{\mathrm{expert}} - \mathbb{E}_{\pi_\theta}[\phi(s)],
+\nabla_\theta \log L = N(\tilde\phi - \mathbb{E}_\pi[\phi]).
 $$
 
-where $\bar\phi_{\mathrm{expert}}$ is the empirical feature mean over demonstrations and $\mathbb{E}_{\pi_\theta}[\phi(s)]$ is the expected feature under the current policy.
+The expected features are computed by a forward pass that propagates the initial state distribution through the policy-weighted transitions. The policy itself comes from non-causal backward messages that compute a local partition function at each state. The optimizer updates $\theta$ via L-BFGS-B until the gradient vanishes, meaning the model's feature expectations match the data. Standard errors are available via bootstrap by resampling trajectories.
 
-## Pseudocode
+## When to use it
 
-```
-MaxEntIRL(D, phi, p, beta, sigma):
-  1. Compute empirical feature expectations: phi_bar = mean(phi(s)) over D
-  2. Initialize theta
-  3. Repeat until convergence:
-     a. Compute reward: R(s) = theta . phi(s)
-     b. Solve soft Bellman for V and pi
-     c. Compute expected features under pi
-     d. Gradient: g = phi_bar - E_pi[phi(s)]
-     e. Update theta via L-BFGS
-  4. Standard errors via bootstrap
-  5. Return theta, SEs
-```
-
-## Strengths and Limitations
-
-MaxEnt IRL produces interpretable linear reward weights with a clear probabilistic interpretation. The gradient has a simple closed form, making optimization straightforward. The algorithm is well understood theoretically and has been the workhorse of applied IRL for over a decade.
-
-The main limitation is that MaxEnt IRL does not account for causal structure in the state visitation computation. It treats the trajectory distribution as if actions at each timestep do not causally affect future states, which leads to incorrect state visitation frequencies in stochastic environments. MCE-IRL fixes this by using causal entropy, which correctly marginalizes over the randomness in transitions. MaxEnt IRL also restricts rewards to be state-only, meaning the cost of an action cannot depend on which action is chosen. For action-dependent rewards, use MCE-IRL with action-dependent features instead.
+MaxEnt IRL should generally be replaced by MCE-IRL, which fixes the non-causal bias while keeping the same computational structure. MaxEnt IRL is useful as a historical reference and as a baseline to demonstrate the importance of causal entropy. When features are state-only and do not depend on actions, MaxEnt and MCE-IRL produce the same result because the non-causal bias only manifests with action-dependent features.
 
 ## References
 
-- Ziebart, B. D., Maas, A. L., Bagnell, J. A., and Dey, A. K. (2008). Maximum Entropy Inverse Reinforcement Learning. *AAAI Conference on Artificial Intelligence*.
-- Ziebart, B. D. (2010). Modeling Purposeful Adaptive Behavior with the Principle of Maximum Causal Entropy. PhD thesis, Carnegie Mellon University.
+- Ziebart, B. D., Maas, A., Bagnell, J. A., and Dey, A. K. (2008). Maximum Entropy Inverse Reinforcement Learning. *AAAI 2008*.
+
+The full derivation, algorithm, and simulation results are in the [MaxEnt IRL primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/maxent_irl.pdf).

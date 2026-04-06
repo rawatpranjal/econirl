@@ -1,0 +1,156 @@
+\documentclass[10pt]{article}
+\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
+\input{../notation}
+\usepackage[ruled,lined]{algorithm2e}
+\usepackage{titling}
+\setlength{\droptitle}{-2em}
+\posttitle{\par\end{center}\vspace{-1em}}
+\setlength{\parskip}{0.3em}
+\setlength{\parindent}{0em}
+
+\title{Primer: GLADIUS (ERM-IRL)}
+\author{econirl package documentation}
+\date{}
+
+\begin{document}
+\maketitle
+
+%% ============================================================
+\section{Problem and Motivation}
+%% ============================================================
+
+Structural estimators (NFXP, CCP) require enumerating the full state space and storing transition matrices of size $(|\calA|, |\calS|, |\calS|)$. This is infeasible for continuous or high-dimensional states. IRL estimators (MCE-IRL, AIRL) avoid this by learning from demonstrations, but either require transitions (MCE-IRL) or lack interpretable structural parameters (AIRL).
+
+\citet{kang2025} introduce GLADIUS (ERM-IRL), which parameterizes the Q-function and expected continuation value $\zeta(s,a) = \E[V(s')|s,a]$ with neural networks, trains them via alternating SGD, and then projects the learned neural Q-values onto linear features to recover interpretable structural parameters. This combines the flexibility of neural IRL with the interpretability of structural estimation.
+
+The key theoretical result is a Polyak-\L{}ojasiewicz (PL) condition on the composite objective (NLL plus Bellman MSE) that guarantees global convergence at rate $O(T^{-1/4})$ under alternating gradient descent-ascent.
+
+
+%% ============================================================
+\section{Model and Notation}
+%% ============================================================
+
+\commonnotation
+
+GLADIUS adds the following objects to the common DDC notation.
+
+\begin{table}[H]
+\centering\small
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
+\toprule
+Symbol & Name & Definition \\
+\midrule
+$Q_{\phi_1}(s,a)$ & Neural Q-network & MLP mapping $(s,a) \to \R$ \\
+$\zeta_{\phi_2}(s,a)$ & Neural EV-network & Approximates $\E[V(s')|s,a]$ \\
+$V(s)$ & Soft value from $Q$ & $\sigma \log \sum_a \exp(Q(s,a)/\sigma)$ \\
+$\rho_{BE}(Q)$ & Bellman error & $\E[(Q(s,a) - r(s,a) - \beta\,\E[V(s')|s,a])^2]$ \\
+$\rho_{TD}(Q)$ & TD error & $\rho_{BE}(Q) + \beta^2\,\text{Var}(V(s')|s,a)$ \\
+\bottomrule
+\end{tabular*}
+\end{table}
+
+
+%% ============================================================
+\section{Derivations}
+%% ============================================================
+
+\subsection{The ERM-IRL Objective}
+
+The estimator jointly maximizes the log-likelihood of observed actions and minimizes the Bellman consistency error. The objective is
+\begin{equation}
+\label{eq:gladius_obj}
+\max_{\phi_1} \; \underbrace{\ell^p(\phi_1)}_{\text{NLL}} - \lambda\,\underbrace{\rho_{BE}(Q_{\phi_1})}_{\text{Bellman penalty}},
+\end{equation}
+where $\ell^p(\phi_1) = \frac{1}{N}\sum_i \log \pi_{\phi_1}(a_i|s_i)$ is the conditional log-likelihood under the softmax policy induced by $Q_{\phi_1}$, and $\rho_{BE}$ is the mean squared Bellman error.
+
+\subsection{Bi-Conjugate Decomposition}
+
+The mean squared TD error decomposes as
+\begin{equation}
+\label{eq:biconj}
+\rho_{TD}(Q) = \rho_{BE}(Q) + \beta^2\,\E_P\!\bigl[(V(s') - \E[V(s')|s,a])^2\bigr].
+\end{equation}
+The second term is the irreducible transition variance. In the original paper with observed rewards, the Bellman error $\rho_{BE}$ anchors Q-value levels. \citet{kang2025} introduce a dual variable $\zeta_{\phi_2}(s,a) \approx \E[V(s')|s,a]$ to separate this variance from the Bellman constraint, yielding the bi-conjugate formulation
+\begin{equation}
+\label{eq:biconj_dual}
+\rho_{BE}(Q) = \max_{\zeta}\; 2\,\E\bigl[(Q - r - \beta\zeta)\,\zeta\bigr] - \E\bigl[\zeta^2\bigr] + \E\bigl[V(s')^2\bigr].
+\end{equation}
+The inner maximization over $\zeta$ recovers $\zeta^* = \E[V(s')|s,a]$, eliminating double-sampling bias.
+
+\subsection{Action-Difference Projection}
+
+After convergence, the implied reward is $\hat r(s,a) = Q_{\phi_1}(s,a) - \beta\,\zeta_{\phi_2}(s,a)$. However, Q-values are identified only up to a state-dependent constant $c(s)$ \citep{ng1999, magnacThesmar2002}. The constant cancels in action differences:
+\begin{equation}
+\label{eq:projection}
+\Delta r(s) = \hat r(s,a) - \hat r(s,0) = \theta^\top\bigl(\phi(s,a) - \phi(s,0)\bigr).
+\end{equation}
+Structural parameters are recovered via least squares:
+$\hat\theta = (\Delta\Phi^\top\Delta\Phi)^{-1}\Delta\Phi^\top\Delta \hat r$
+where $\Delta\Phi$ stacks the feature differences across states and $\Delta \hat r$ stacks the reward differences.
+
+\subsection{Identification and the IRL Bias}
+
+Without observed rewards, Q is trained via NLL only (behavioral cloning with neural networks). The Bellman penalty is computed for monitoring but does not flow gradients through Q, because doing so causes Q-value explosion (from $[-1.5, 1.5]$ to $[4548, 6782]$) without reward anchoring. This means the implied reward $\hat r = Q - \beta\zeta$ inherits a state-dependent bias from the unidentified constant $c(s)$. On the Rust bus, where maintaining stays near $s$ but replacing jumps to $s=0$, the constant propagates asymmetrically through transitions. The replacement cost is recovered within 8\% but the operating cost is overestimated by roughly 40\%. This is a structural limitation, not a tuning problem. Use NFXP or CCP when transitions are known.
+
+
+%% ============================================================
+\section{Estimation Algorithm}
+%% ============================================================
+
+\begin{algorithm}[H]
+\DontPrintSemicolon
+\caption{GLADIUS (ERM-IRL) \citep{kang2025}}
+\label{alg:gladius}
+\KwIn{Panel $\{(s_i, a_i, s_i')\}_{i=1}^N$, features $\phi(s,a)$, discount $\beta$, scale $\sigma$}
+\BlankLine
+
+\tcp{Step 1: Initialize networks}
+$Q_{\phi_1}$: MLP$(s, a) \to \R$, output scaled by $1/(1-\beta)$\;
+$\zeta_{\phi_2}$: MLP$(s, a) \to \R$, same architecture\;
+\BlankLine
+
+\tcp{Step 2: Alternating SGD (Algorithm 1 of Kang et al.)}
+\For{epoch $= 1, \ldots, T$}{
+    \For{each mini-batch $\{(s_i, a_i, s_i')\}$}{
+        \BlankLine
+        \tcp{Even batches: update $\zeta$ (freeze $Q$)}
+        $V(s') = \sigma \log \sum_a \exp(Q_{\phi_1}(s',a)/\sigma)$ \tcp*{stop-gradient on $Q$}
+        $\zeta_{\phi_2} \leftarrow \zeta_{\phi_2} - \alpha\,\nabla_{\phi_2}\; \frac{1}{|\text{batch}|}\sum_i \bigl(\zeta_{\phi_2}(s_i,a_i) - V(s_i')\bigr)^2$\;
+        \BlankLine
+        \tcp{Odd batches: update $Q$ (freeze $\zeta$)}
+        $\ell = -\frac{1}{|\text{batch}|}\sum_i \log\,\text{softmax}(Q_{\phi_1}(s_i, \cdot)/\sigma)_{a_i}$ \tcp*{NLL}
+        $Q_{\phi_1} \leftarrow Q_{\phi_1} - \alpha\,\nabla_{\phi_1}\;\ell$ \tcp*{no Bellman gradient in IRL}
+    }
+    \lIf{no improvement for 50 epochs}{\textbf{break}}
+}
+\BlankLine
+
+\tcp{Step 3: Extract reward and project}
+$\hat r(s,a) = Q_{\phi_1}(s,a) - \beta\,\zeta_{\phi_2}(s,a)$\;
+$\Delta r(s) = \hat r(s,a) - \hat r(s,0)$, \quad $\Delta\phi(s) = \phi(s,a) - \phi(s,0)$\;
+$\hat\theta = (\Delta\Phi^\top\Delta\Phi)^{-1}\,\Delta\Phi^\top\,\Delta \hat r$ \tcp*{OLS projection}
+\BlankLine
+
+\KwOut{$\hat\theta$ (projected structural parameters), $Q_{\phi_1}$, $\hat r$, projection $R^2$}
+\end{algorithm}
+
+
+%% ============================================================
+\section{Results}
+%% ============================================================
+
+\input{gladius_results}
+
+GLADIUS recovers the replacement cost within \gladRCerr\% of the true value via the action-difference projection. The operating cost is overestimated due to the state-dependent identification constant discussed in Section 3.4. The projection $R^2$ indicates how well the neural reward surface is explained by linear features. NFXP recovers both parameters within 5\% but requires the full transition matrix and is limited to tabular state spaces. GLADIUS is the appropriate choice when the state space is too large for tabular methods or when the analyst wants to check whether linear features are sufficient via the $R^2$ diagnostic.
+
+\paragraph{Code.}
+\texttt{gladius\_results.py} generates Table~\ref{tab:gladius_results}. Estimator: \texttt{src/econirl/estimation/gladius.py}.
+\begin{verbatim}
+.venv/bin/python papers/econirl_package/primers/gladius/gladius_results.py
+\end{verbatim}
+
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

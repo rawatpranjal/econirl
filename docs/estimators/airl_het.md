@@ -2,62 +2,31 @@
 
 | Category | Citation | Reward | Transitions | SEs | Scales |
 |----------|----------|--------|-------------|-----|--------|
-| Inverse (Neural, Heterogeneous) | Lee, Sudhir, and Wang (2026) | Neural (per-segment) | No (adversarial) | No | Yes |
+| Inverse | Lee, Sudhir, and Wang (2026) | Linear | No (adversarial) | No | No |
 
-## Background
+## What this estimator does
 
-Standard AIRL assumes all individuals in the data share the same reward function. In many applications this is unrealistic. Consumers have different tastes, drivers have different risk tolerances, and patients have different treatment preferences. Lee, Sudhir, and Wang (2026) extended AIRL with an EM algorithm that discovers latent consumer segments, each with its own reward function and policy. The E-step computes posterior segment membership probabilities from trajectory likelihoods under each segment's policy. The M-step runs a weighted AIRL for each segment, where expert transitions are weighted by the posterior probability that the trajectory belongs to that segment.
+Standard AIRL recovers a transferable reward by decomposing the discriminator into reward and shaping components, but the disentanglement theorem requires state-only rewards and rules out absorbing states. Dynamic discrete choice models have action-dependent payoffs and exit options, violating both assumptions. Lee, Sudhir, and Wang (2026) extend AIRL with anchor constraints that resolve these limitations.
 
-The second innovation is anchor identification. Standard AIRL recovers rewards only up to potential-based shaping, which means the recovered reward could be a shaped perturbation of the true structural reward rather than the true reward itself. Lee, Sudhir, and Wang resolve this by designating an exit action with zero reward and an absorbing state with zero continuation value. These anchor constraints pin down the reward and shaping functions uniquely, so that the recovered g equals the true structural reward r and the recovered h equals the true value function V. This is critical for counterfactual analysis, where the level of the reward matters and not just its ordinal ranking.
+Anchor identification works by fixing the reward of one action (exit) to zero everywhere and the value of one state (absorbing) to zero. These two constraints pin down the reward uniquely at convergence. Without anchors, IRL rewards are identified only up to $|\mathcal{S}|$ free variables corresponding to the value function. With anchors, the decomposition $g_\theta(s,a) = r^*(s,a)$ and $h_\phi(s) = V^*(s)$ holds exactly. The estimator also supports latent heterogeneity via an EM algorithm that discovers consumer segments, each with its own reward and policy.
 
-## Key Equations
+## How it works
 
-The E-step computes posterior segment probabilities for each trajectory $i$ and segment $k$,
-
-$$
-\gamma_{ik} \propto \pi_k \prod_{t} \pi_{\theta_k}(a_t \mid s_t),
-$$
-
-where $\pi_k$ is the segment prior and $\pi_{\theta_k}$ is the segment-specific policy.
-
-The M-step updates segment $k$'s reward by running weighted AIRL with the discriminator loss
+The algorithm follows the same adversarial structure as AIRL. The discriminator logit is
 
 $$
-\mathcal{L}_k = \sum_i \gamma_{ik} \sum_t \log D_k(s_t, a_t, s_{t+1}) + \sum_j \sum_t \log(1 - D_k(\tilde{s}_t, \tilde{a}_t, \tilde{s}_{t+1})),
+f_{\theta,\phi}(s,a,s') = g_\theta(s,a) + \beta h_\phi(s') - h_\phi(s),
 $$
 
-subject to anchor constraints $r(s, a_{\mathrm{exit}}) = 0$ for all $s$ and $r(s_{\mathrm{absorb}}, a) = 0$ for all $a$.
+with the anchor constraints $g_\theta(s, a_{\text{exit}}) = 0$ for all states and $h_\phi(s_{\text{abs}}) = 0$ enforced after each discriminator update. The policy generator can be tabular (soft value iteration with conservative mixing) or neural (PPO). At convergence the reward network $g_\theta$ captures the true action-dependent reward. Standard errors are not available analytically due to the adversarial training loop.
 
-## Pseudocode
+## When to use it
 
-```
-AIRL_Het(D, transitions, beta, K, exit_action, absorbing_state):
-  1. Initialize K segment-specific rewards, policies, and priors
-  2. For each EM iteration:
-     --- E-step ---
-     a. For each trajectory i and segment k:
-        Compute trajectory log-likelihood under pi_k
-     b. Compute posteriors gamma[i,k] via Bayes rule with log-sum-exp
-     c. Apply within-individual consistency smoothing
-     d. Update segment priors
-     --- M-step ---
-     e. For each segment k:
-        Run weighted AIRL with expert weights gamma[.,k]
-        Enforce anchor constraints on reward
-        Re-solve soft Bellman for updated policy and value
-     --- Convergence ---
-     f. Compute mixture log-likelihood
-     g. If relative LL change < tol, stop
-  3. Return segment rewards, policies, posteriors, priors
-```
-
-## Strengths and Limitations
-
-AIRL-Het is the only estimator in the package that jointly handles unobserved heterogeneity and reward recovery without a parametric utility specification. The EM framework is flexible and can accommodate any number of segments. The anchor identification guarantees that the recovered rewards are the true structural rewards rather than shaped equivalents, enabling meaningful counterfactual welfare analysis across segments. The within-individual consistency constraint encourages the same person to be assigned to the same segment across multiple choice episodes, which regularizes the posterior and reduces label switching.
-
-The main limitation is computational cost. Each EM iteration runs K separate AIRL inner loops, and each AIRL loop involves multiple rounds of discriminator and policy updates. Convergence can be slow when the number of segments is large or the segments are poorly separated. The method does not produce standard errors for the segment-specific reward parameters. Anchor identification requires that the exit action and absorbing state exist in the data and are correctly specified by the researcher. Misspecification of the anchors will bias the recovered rewards.
+AAIRL is designed for structural estimation on platforms with serialized content or subscription decisions, where exit actions and absorbing states are natural features of the environment. It is the only estimator in the package that handles action-dependent rewards with transfer guarantees. On tabular problems with known transitions, NFXP remains more accurate and faster. A known issue is adversarial reward scale inflation, where the discriminator loss is invariant to uniform scaling of the reward and the optimizer drifts upward. The relative ordering of feature weights is preserved but absolute values may be inflated.
 
 ## References
 
-- Lee, P. S., Sudhir, K., and Wang, T. (2026). Modeling Serialized Content Consumption: Adversarial IRL for Dynamic Discrete Choice. Yale School of Management Working Paper.
+- Lee, S., Sudhir, K., and Wang, Y. (2026). Modeling Serialized Content Consumption: Adversarial IRL for DDC. Working paper.
 - Fu, J., Luo, K., and Levine, S. (2018). Learning Robust Rewards with Adversarial Inverse Reinforcement Learning. *ICLR 2018*.
+
+The full derivation, algorithm, and simulation results are in the [AAIRL primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/aairl.pdf).

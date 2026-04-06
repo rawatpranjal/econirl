@@ -2,50 +2,32 @@
 
 | Category | Citation | Reward | Transitions | SEs | Scales |
 |----------|----------|--------|-------------|-----|--------|
-| Structural | Nguyen (2025) | Linear | Yes | Valid (orthogonality) | Yes (neural V) |
+| Structural | Nguyen (2025) | Linear | Yes | Valid (orthogonality) | Yes |
 
-## Background
+## What this estimator does
 
-Basis functions work when the value function is smooth, but can struggle with sharp nonlinearities. Nguyen (2025) replaced the basis with a neural network, which can approximate any shape. The challenge is that neural networks make standard error computation very hard. The breakthrough was proving that the DDC likelihood has a special structure: errors in the neural value function have only a second-order effect on the parameter estimates (Neyman orthogonality). This means the standard errors from the likelihood Hessian are valid even though the neural network is imperfect.
+Sieve methods like SEES approximate the value function with deterministic basis functions, but the number of terms needed grows exponentially in the state dimension. Neural networks are universal approximators that avoid this curse of dimensionality, but plugging a neural network into a structural estimation framework creates a problem. The approximation error in the value function contaminates the parameter estimates and invalidates the standard errors.
 
-## Key Equations
+Nguyen (2025) solves this by embedding the neural value function inside the Nested Pseudo-Likelihood (NPL) framework. The critical insight is the zero Jacobian property. At the true conditional choice probabilities, the derivative of the NPL policy-iteration operator with respect to the value function vanishes. First-order approximation errors in the neural V-network drop out of the likelihood score, producing Neyman orthogonality. The estimator is $\sqrt{n}$-consistent and achieves the semiparametric efficiency bound without bias correction.
+
+The information matrix is block-diagonal between $\theta$ and the V-network parameters. This means standard errors from the pseudo-likelihood Hessian are valid without the Schur complement marginalization that SEES requires. Only the NPL variant has this property. The NFXP Bellman variant, which trains $V$ to minimize the Bellman residual directly, lacks Neyman orthogonality and produces unreliable standard errors.
+
+## How it works
+
+The estimator alternates between two phases. Phase 1 trains the V-network via supervised regression on the NPL target, which is the continuation value implied by the current CCPs through the Hotz-Miller inversion. An auxiliary Bellman penalty encourages the network to satisfy the Bellman equation. Phase 2 maximizes the pseudo-log-likelihood
 
 $$
-(\hat\theta, \hat{w}) = \arg\max_{\theta, w} \; \ell^p(\theta) - \lambda \sum_{(s,a,s') \in \mathcal{D}} \big(V_w(s) - r_\theta(s,a) - \beta V_w(s')\big)^2.
+\hat\theta = \arg\max_\theta \sum_{i=1}^N \log \pi(a_i \mid x_i; \theta, V_\gamma)
 $$
 
-## Pseudocode
+over $\theta$ alone, treating the V-network as fixed. CCPs are updated from the new parameter estimate, and the outer loop repeats. One iteration suffices for $\sqrt{n}$-consistency, but finite-sample performance improves with additional iterations. Standard errors come from the Hessian of the pseudo-log-likelihood at the final $\hat\theta$.
 
-```
-NNES(D, features, p, beta, sigma, hidden_dims, lambda):
-  1. Initialize theta, neural network V_w
-  2. Alternate:
-     a. Train V_w to minimize Bellman residual (mini-batch SGD)
-     b. Estimate theta by maximizing partial likelihood with V_w held fixed
-  3. Standard errors from partial likelihood Hessian (valid by orthogonality)
-  4. Return theta, SEs
-```
+## When to use it
 
-## Strengths and Limitations
-
-NNES is the only neural method with theoretically valid standard errors. Neyman orthogonality insulates the structural parameter estimates from neural network approximation noise, so the Hessian-based confidence intervals are reliable even when the value function approximation is imperfect.
-
-The limitation is sensitivity to initialization. Achieving an exact zero Bellman residual in a deep learning context is rare, and poor starting values for $\theta$ or the network weights can lead to slow convergence or local optima. The alternating optimization between the neural network and the structural parameters also requires careful tuning of learning rates and the penalty weight $\lambda$.
-
-NNES is the right choice for high-dimensional or continuous state spaces when you need publication-grade inference with valid standard errors.
+NNES is the right choice for continuous or high-dimensional state spaces where NFXP and CCP cannot scale and the value function is too complex for a sieve basis. It inherits the statistical elegance of NPL while using neural networks to overcome the curse of dimensionality. The main practical limitation relative to NFXP is sensitivity to initialization and the number of outer iterations. For settings where transition densities are also unavailable, TD-CCP achieves similar properties without requiring them.
 
 ## References
 
-- Nguyen, H. (2025). Neural Network Estimation of Structural Models.
+- Nguyen, H. (2025). Neural Network Estimation of Structural Models. Working paper.
 
-## Diagnostics and Guarantees
-
-Identification requires the same conditions as NFXP and CCP. The utility features must vary across actions, and the transition matrix must be known. The additional requirement is that the neural value function approximation must be flexible enough to represent the true value function. Underfitting in Phase 1 produces biased structural parameters, though the Neyman orthogonality property (described below) makes the estimates robust to small approximation errors.
-
-The estimator alternates between two phases across a fixed number of outer iterations (default 3). Phase 1 trains the V-network via supervised regression on the NPL target computed from the current CCPs, running for 500 epochs of mini-batch SGD with a batch size of 512. Phase 2 maximizes the CCP pseudo-likelihood over structural parameters using L-BFGS-B with a gradient tolerance of 1e-6 and a maximum of 200 iterations. After Phase 2, the CCPs are updated from the estimated parameters for the next outer iteration. There is no explicit convergence criterion across outer iterations.
-
-Standard errors from the pseudo-likelihood Hessian are valid by the Neyman orthogonality property (Nguyen 2025, Propositions 3 and 4). The zero Jacobian property of the NPL mapping ensures that first-order errors in the neural V approximation drop out of the Phase 2 score, so the Hessian-based confidence intervals are reliable even when the value function fit is imperfect. This guarantee applies only to the NPL-based variant (NNESEstimator). The legacy NFXP-based variant (NNESNFXPEstimator) does not have this orthogonality property, and its standard errors may be unreliable.
-
-The main practical limitation is sensitivity to initialization. Poor starting values for theta or the network weights can lead to slow convergence or local optima. The estimator bootstraps initial parameters from a Hotz-Miller inversion when possible, and uses gradient clipping of 1.0 to stabilize V-network training. The alternating optimization between the neural network and the structural parameters requires careful tuning of learning rates and the number of training epochs.
-
-The default configuration uses a V-network with 2 hidden layers of 32 units each, a learning rate of 1e-3 for Adam, 500 training epochs per outer iteration, and 3 outer iterations. The L-BFGS-B optimizer for Phase 2 uses a gradient tolerance of 1e-6 with a maximum of 200 iterations. These defaults are tuned for tabular problems with moderate state spaces.
+The full derivation, algorithm, and simulation results are in the [NNES primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/nnes.pdf).
