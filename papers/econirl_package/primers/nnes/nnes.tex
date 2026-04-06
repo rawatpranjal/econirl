@@ -1,6 +1,6 @@
 \documentclass[11pt]{article}
 \usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
-\input{notation}
+\input{../notation}
 \usepackage[ruled,lined]{algorithm2e}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
@@ -82,7 +82,7 @@ The G\^ateaux derivative of the expected score with respect to $V$ in any direct
 \[
 \frac{d}{dt}\, \E[\psi(W;\theta_0, V^* + t(V - V^*))]\bigg|_{t=0} = 0.
 \]
-This means the NNES score function is automatically orthogonal to V-network estimation error, without requiring an explicit bias correction term \citep{chernozhukov2022}.
+This means the NNES score function is automatically orthogonal to V-network estimation error, without requiring an explicit bias correction term \citep{chernozhukov2018}.
 
 \paragraph{Theorem 4.3 (Asymptotic Normality and Efficiency).}
 If $\|V_\gamma - V^*\|_2 = o_p(n^{-1/4})$, the NNES estimator satisfies

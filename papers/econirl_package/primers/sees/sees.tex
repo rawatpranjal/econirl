@@ -1,6 +1,6 @@
 \documentclass[11pt]{article}
 \usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
-\input{notation}
+\input{../notation}
 \usepackage[ruled,lined]{algorithm2e}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
@@ -61,6 +61,9 @@ The penalized criterion jointly maximizes the log-likelihood and penalizes Bellm
 \section{Core Results}
 %% ============================================================
 
+\paragraph{Theorem 1 (Sieve Consistency).}
+Under regularity conditions P1--P7 of \citet{luoSang2024}, as $\omega = \omega_n \to \infty$ with $n$, the sieve approximation converges uniformly to the exact equilibrium mapping: $\sup_{\theta \in \Theta} \|\hat p(\theta) - p^*(\theta)\|_2 = o_P(1)$. The penalty forces the approximate value function toward the Bellman fixed point. Once the penalty is strong enough, the data likelihood drives the structural parameter estimates. The critical rate condition is $\omega_n / n^2 \to \infty$: the penalty must grow faster than the statistical error, but not so fast that the sieve coefficients $\alpha$ are over-constrained before the data has shaped them.
+
 \paragraph{Theorem 3 (Asymptotic Normality and Efficiency).}
 If $\omega_n / n^2 \to \infty$ and regularity conditions P1--P9 hold, the SEES estimator satisfies
 \[
@@ -76,8 +79,11 @@ The joint Hessian over $(\theta, \alpha)$ has a block structure. The marginal He
 \end{equation}
 Standard errors from $(-\tilde H_\theta)^{-1}$ marginalize out the basis coefficients and give the correct Fisher information for the structural parameters. Unlike NNES, which achieves a block-diagonal information matrix via the zero Jacobian property, SEES requires the full Schur complement because the off-diagonal blocks $H_{\theta\alpha}$ are generally nonzero.
 
+\paragraph{Relationship to MPEC.}
+When $K = |\calS|$ and $\omega \to \infty$, the sieve expansion becomes exact and the penalty enforces $V = T_\sigma(V;\theta)$ as a hard constraint. In this limit, SEES is the MPEC estimator of \citet{suJudd2012}, which jointly optimizes $(\theta, V)$ subject to the Bellman equation. SEES generalizes MPEC by allowing $K \ll |\calS|$, reducing the optimization from $d_\theta + |\calS|$ unknowns to $d_\theta + K$ unknowns at the cost of a controlled approximation error.
+
 \paragraph{Projection bias.}
-If the value function has sharp discontinuities that the basis cannot represent, the projection bias contaminates $\hat\theta$. The paper recommends increasing $K$ until parameter estimates stabilize. Smooth value functions are well-approximated by Fourier or polynomial bases at moderate $K$.
+If the value function has sharp discontinuities that the basis cannot represent, the resulting projection bias contaminates $\hat\theta$. The paper recommends increasing $K$ until parameter estimates stabilize. Smooth value functions are well-approximated by Fourier or polynomial bases at moderate $K$. In the multi-component bus engine, the value function is a smooth function of summed mileage, so a Fourier basis with $K = 8$ terms captures it well.
 
 
 %% ============================================================
@@ -122,7 +128,10 @@ $\text{SE}(\hat\theta) \leftarrow \sqrt{\text{diag}(-\tilde H_\theta^{-1})}$\;
 \end{algorithm}
 
 \paragraph{Implementation.}
-The entire estimation is a single L-BFGS-B call over the $(d_\theta + K)$-dimensional vector. JAX autodiff computes the gradient. The precomputed $P_a \Psi$ matrices make continuation value evaluation a matrix-vector multiply, avoiding any inner loop.
+The entire estimation is a single L-BFGS-B call over the $(d_\theta + K)$-dimensional vector. JAX autodiff computes the gradient through the penalized log-likelihood, including the softmax policy and the soft Bellman operator. The precomputed $\E_a[\Psi] = P_a \Psi$ matrices make continuation value evaluation a matrix-vector multiply, avoiding any inner loop or fixed-point iteration. Bounds on $\alpha$ (default $[-50, 50]$) prevent the basis coefficients from diverging during optimization.
+
+\paragraph{Smoothing parameter selection.}
+\citet{luoSang2024} recommend starting with a moderate $\omega$ and multiplying by a factor $L$ until the confidence intervals from successive values of $\omega$ overlap by more than a threshold. In practice, values between 1 and 100 work well. At low $\omega$ the data shapes the value function freely, producing a good starting point. At high $\omega$ the Bellman constraint dominates, pushing the estimator toward MLE. The paper proves that any $\omega$ satisfying $\omega_n / n^2 \to \infty$ yields an asymptotically efficient estimator.
 
 
 %% ============================================================
@@ -135,10 +144,15 @@ We run SEES and NFXP on a \seesKcomp-component bus engine with \seesNstates\ tot
 
 SEES achieves a log-likelihood within \seesLLgap\ nats of NFXP while running \seesSpeedup$\times$ faster (\seesTime s vs \seesNfxpTime s). The speedup comes entirely from eliminating the inner fixed-point iteration: at $\beta = \seesBeta$, the Bellman contraction rate is $(1 - \beta)$, requiring tens of thousands of value iteration steps per NFXP inner call. SEES bypasses this entirely.
 
-SEES occupies a middle ground between MPEC (exact $V$, $O(|\calS|)$ unknowns) and NNES (neural $V$, valid SEs via Neyman orthogonality). The basis functions are deterministic and require no training, making the optimization smooth and well-conditioned. The trade-off is projection bias when $V$ is not well-represented by the basis. NNES avoids this with a universal approximator, at the cost of alternating optimization and sensitivity to initialization.
+Both estimators agree closely on the replacement cost parameter. The operating and quadratic cost parameters show larger discrepancies because their effects on the likelihood surface are small relative to replacement cost, making them harder to identify precisely. The key observation is that the log-likelihoods are nearly identical: SEES finds the same statistical optimum as NFXP despite optimizing over only 11 unknowns ($d_\theta + K = 3 + 8$) instead of solving a $\seesNstates \times \seesNstates$ fixed point.
+
+SEES occupies a middle ground between MPEC and NNES. The basis functions are deterministic and require no training, making the optimization smooth and well-conditioned. The trade-off is projection bias when $V$ is not well-represented by the basis. NNES \citep{nguyen2025} avoids this with a universal approximator and achieves valid SEs via Neyman orthogonality, at the cost of alternating optimization and sensitivity to initialization.
 
 \paragraph{Code.}
-The companion script \texttt{sees\_run.py} generates Table~\ref{tab:sees_results}. To regenerate: \texttt{python papers/econirl\_package/primers/sees\_run.py}.
+The SEES estimator is implemented in \texttt{src/econirl/estimation/sees.py}. The companion script \texttt{sees\_run.py} generates Table~\ref{tab:sees_results}. The key implementation details map directly to Algorithm~\ref{alg:sees}: \texttt{\_build\_basis()} constructs $\Psi$ (Step 1), the \texttt{penalized\_ll()} closure implements Equation~\ref{eq:criterion} (Step 3), and the Schur complement in Equation~\ref{eq:schur} is computed from the numerical Hessian (Step 5). To regenerate:
+\begin{verbatim}
+python papers/econirl_package/primers/sees_run.py
+\end{verbatim}
 
 
 \bibliographystyle{plainnat}

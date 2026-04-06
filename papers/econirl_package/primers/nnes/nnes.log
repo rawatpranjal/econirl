@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.3.8)  6 APR 2026 18:32
+This is pdfTeX, Version 3.141592653-2.6-1.40.27 (TeX Live 2025) (preloaded format=pdflatex 2025.3.8)  6 APR 2026 18:46
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -49,7 +49,7 @@ Package: iftex 2024/12/12 v1.0g TeX engine tests
 \Gm@layoutvoffset=\dimen149
 \Gm@dimlist=\toks18
 )
-(./notation.tex
+(../notation.tex
 (/usr/local/texlive/2025/texmf-dist/tex/latex/amsmath/amsmath.sty
 Package: amsmath 2024/11/05 v2.17t AMS math features
 \@mathmargin=\skip51
@@ -399,7 +399,7 @@ File: l3backend-pdftex.def 2024-05-08 L3 backend support: PDF output (pdfTeX)
 \l__color_backend_stack_int=\count310
 \l__pdf_internal_box=\box65
 )
-No file nnes.aux.
+(./nnes.aux)
 \openout1 = `nnes.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 15.
@@ -420,6 +420,7 @@ LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 15.
 LaTeX Font Info:    ... okay on input line 15.
 LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 15.
 LaTeX Font Info:    ... okay on input line 15.
+
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
 *geometry* verbose mode - [ preamble ] result:
@@ -480,6 +481,8 @@ File: pdftex.def 2024/04/13 v1.2c Graphics/color driver for pdftex
 \everyMPtoPDFconversion=\toks29
 )) (/usr/local/texlive/2025/texmf-dist/tex/latex/graphics/mathcolor.ltx))
 Package hyperref Info: Link coloring ON on input line 15.
+
+(./nnes.out) (./nnes.out)
 \@outlinefile=\write3
 \openout3 = `nnes.out'.
 
@@ -524,19 +527,6 @@ File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 File: mt-msb.cfg 2005/06/01 v1.0 microtype config. file: AMS symbols (b) (RS)
 )
 
-Package natbib Warning: Citation `luoSang2024' on page 1 undefined on input lin
-e 23.
-
-
-Package natbib Warning: Citation `nguyen2025' on page 1 undefined on input line
- 25.
-
-
-Package natbib Warning: Citation `aguirregabiriaMira2002' on page 1 undefined o
-n input line 25.
-
-
-
 [1
 
 {/usr/local/texlive/2025/texmf-var/fonts/map/pdftex/updmap/pdftex.map}
@@ -547,24 +537,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{table.1}) has
 l.51 
      ]
 
-Package natbib Warning: Citation `aguirregabiriaMira2002' on page 2 undefined o
-n input line 71.
-
-
-Package natbib Warning: Citation `chernozhukov2022' on page 2 undefined on inpu
-t line 85.
-
-
-
 [2]
-
-Package natbib Warning: Citation `luoSang2024' on page 3 undefined on input lin
-e 95.
-
-
-Package natbib Warning: Citation `nguyen2025' on page 3 undefined on input line
- 104.
-
 Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `cmtt' (encoding: OT1).
 (microtype)             For optimal results, create family-specific settings.
@@ -577,14 +550,24 @@ s been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
 l.148 
-      ]
+      ] (./nnes_results.tex)
+! Undefined control sequence.
+l.159 ...bservations (true $\theta_c = \nnesTrueOC
+                                                  $, $RC = \nnesTrueRC$). NN...
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
 
-LaTeX Warning: Reference `alg:nnes' on page 4 undefined on input line 150.
-
-(./nnes_results.tex)
-
-LaTeX Warning: Reference `tab:nnes_results' on page 4 undefined on input line 1
-64.
+! Undefined control sequence.
+l.159 ...theta_c = \nnesTrueOC$, $RC = \nnesTrueRC
+                                                  $). NNES uses a 2-layer Re...
+The control sequence at the end of the top line
+of your error message was never \def'ed. If you have
+misspelled it (e.g., `\hobx'), type `I' and the correct
+spelling (e.g., `I\hbox'). Otherwise just continue,
+and I'll forget about whatever was undefined.
 
 
 
@@ -594,16 +577,7 @@ pdfTeX warning (ext4): destination with the same identifier (name{table.2}) has
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
 l.191 
-      ]
-
-Package natbib Warning: Citation `adusumilliEckardt2025' on page 5 undefined on
- input line 192.
-
-No file nnes.bbl.
-
-Package natbib Warning: There were undefined citations.
-
-
+      ] (./nnes.bbl)
 
 [5
 pdfTeX warning (ext4): destination with the same identifier (name{table.3}) has
@@ -616,28 +590,15 @@ l.200 \end{document}
 LaTeX2e <2024-11-01> patch level 2
 L3 programming layer <2025-01-18>
  ***********
-
-
-LaTeX Warning: There were undefined references.
-
-
-LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
-
-
-Package rerunfilecheck Warning: File `nnes.out' has changed.
-(rerunfilecheck)                Rerun to get outlines right
-(rerunfilecheck)                or use package `bookmark'.
-
-Package rerunfilecheck Info: Checksums for `nnes.out':
-(rerunfilecheck)             Before: <no file>
-(rerunfilecheck)             After:  C4C86CCB35D5271333C52D21DB6D84E7;830.
+Package rerunfilecheck Info: File `nnes.out' has not changed.
+(rerunfilecheck)             Checksum: C4C86CCB35D5271333C52D21DB6D84E7;830.
  ) 
 Here is how much of TeX's memory you used:
- 13640 strings out of 473190
- 211433 string characters out of 5715801
- 669472 words of memory out of 5000000
- 36612 multiletter control sequences out of 15000+600000
- 571405 words of font info for 124 fonts, out of 8000000 for 9000
+ 13670 strings out of 473190
+ 212082 string characters out of 5715801
+ 671152 words of memory out of 5000000
+ 36628 multiletter control sequences out of 15000+600000
+ 571222 words of font info for 123 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  80i,14n,82p,1001b,468s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2025/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb
@@ -662,10 +623,10 @@ st/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/local/texlive/2025/texmf-dist
 /fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/local/texlive/2025/texmf-dist/
 fonts/type1/public/amsfonts/cm/cmtt10.pfb></usr/local/texlive/2025/texmf-dist/f
 onts/type1/public/amsfonts/symbols/msbm10.pfb>
-Output written on nnes.pdf (5 pages, 267529 bytes).
+Output written on nnes.pdf (5 pages, 270433 bytes).
 PDF statistics:
- 165 PDF objects out of 1000 (max. 8388607)
- 112 compressed objects within 2 object streams
- 26 named destinations out of 1000 (max. 500000)
- 25089 words of extra memory for PDF output out of 29859 (max. 10000000)
+ 209 PDF objects out of 1000 (max. 8388607)
+ 156 compressed objects within 2 object streams
+ 32 named destinations out of 1000 (max. 500000)
+ 25137 words of extra memory for PDF output out of 29859 (max. 10000000)
 

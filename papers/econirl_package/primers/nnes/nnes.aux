@@ -11,7 +11,7 @@
 \@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Common DDC notation shared across all primers.}}{1}{table.1}\protected@file@percent }
 \newlabel{tab:common_notation}{{1}{1}{Common DDC notation shared across all primers}{table.1}{}}
 \citation{aguirregabiriaMira2002}
-\citation{chernozhukov2022}
+\citation{chernozhukov2018}
 \newlabel{eq:evaluation}{{1}{2}{Model and Notation}{equation.1}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {3}Core Results}{2}{section.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{Proposition 1 (Zero Jacobian).}{2}{section*.1}\protected@file@percent }
@@ -27,12 +27,17 @@
 \@writefile{toc}{\contentsline {paragraph}{Implementation notes.}{3}{section*.6}\protected@file@percent }
 \@writefile{toc}{\contentsline {paragraph}{NPL vs NFXP Bellman.}{4}{section*.7}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {5}Results}{4}{section.5}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Rust bus engine (90\ bins, $\beta =0.9999$, 20,000\ obs). NNES uses a 2-layer ReLU network with 32 hidden units.}}{4}{table.2}\protected@file@percent }
-\newlabel{tab:nnes_results}{{2}{4}{Rust bus engine (\nnesNstates \ bins, $\beta =\nnesBeta $, \nnesNobs \ obs). NNES uses a 2-layer ReLU network with 32 hidden units}{table.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Rust bus engine (90\ bins, $\beta =0.99$, 20,000\ obs). NNES uses a 2-layer ReLU network (32 hidden), 10 outer iterations.}}{4}{table.2}\protected@file@percent }
+\newlabel{tab:nnes_results}{{2}{4}{Rust bus engine (\nnesNstates \ bins, $\beta =\nnesBeta $, \nnesNobs \ obs). NNES uses a 2-layer ReLU network (32 hidden), 10 outer iterations}{table.2}{}}
 \@writefile{toc}{\contentsline {paragraph}{Code.}{4}{section*.8}\protected@file@percent }
 \citation{adusumilliEckardt2025}
 \bibstyle{plainnat}
 \bibdata{references}
+\bibcite{adusumilliEckardt2025}{{1}{2025}{{Adusumilli and Eckardt}}{{}}}
+\bibcite{aguirregabiriaMira2002}{{2}{2002}{{Aguirregabiria and Mira}}{{}}}
+\bibcite{chernozhukov2018}{{3}{2018}{{Chernozhukov et~al.}}{{Chernozhukov, Chetverikov, Demirer, Duflo, Hansen, Newey, and Robins}}}
+\bibcite{luoSang2024}{{4}{2024}{{Luo and Sang}}{{}}}
+\bibcite{nguyen2025}{{5}{2025}{{Nguyen}}{{}}}
 \@writefile{toc}{\contentsline {section}{\numberline {6}Comparison to Other Estimators}{5}{section.6}\protected@file@percent }
 \@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces NNES in context. Only NPL-based methods (CCP, NNES, TD-CCP) have Neyman orthogonality.}}{5}{table.3}\protected@file@percent }
 \newlabel{tab:nnes_comparison}{{3}{5}{NNES in context. Only NPL-based methods (CCP, NNES, TD-CCP) have Neyman orthogonality}{table.3}{}}

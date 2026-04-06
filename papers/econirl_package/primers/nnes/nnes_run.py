@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """NNES Primer — auto-generate results for the LaTeX document.
 
-Demonstrates NNES's core advantage: on a multi-component bus engine
-(K=2, 400 states), the neural V-network discovers the additive
-separability V(s) = V_1(m_1) + V_2(m_2) without being told. NNES
-achieves comparable log-likelihood to NFXP with valid standard errors
-from the block-diagonal information matrix (Neyman orthogonality).
+Demonstrates NNES's core advantage: valid standard errors from the
+block-diagonal information matrix (Neyman orthogonality), despite
+using a neural network to approximate the value function. On the
+Rust (1987) bus engine, NNES matches NFXP's log-likelihood and
+produces comparable standard errors without bias correction.
 
-This replicates the 2D bus engine experiment from Nguyen (2025,
-Section 6): NNES is not told the separable structure, yet matches
-the oracle that exploits it.
+This replicates the Monte Carlo experiment from Nguyen (2025,
+Section 6): NNES achieves the same precision as oracle NFXP.
 
 Usage:
-    python papers/econirl_package/primers/nnes_run.py
+    python papers/econirl_package/primers/nnes/nnes_run.py
 """
 
 import json
@@ -23,42 +22,51 @@ import numpy as np
 
 OUT = Path(__file__).resolve().parent / "nnes_results.tex"
 
-# ---------- DGP: Multi-component bus (hidden separability) ----------
-K_COMPONENTS = 2         # two independent components
-M_BINS = 20             # mileage bins per component -> 400 total states
+# ---------- DGP: Rust bus (standard benchmark) ----------
+N_STATES = 90
 DISCOUNT = 0.99
 SEED = 42
-N_BUSES = 100
+N_BUSES = 200
 N_PERIODS = 100
 
 
 def main():
     import jax.numpy as jnp
-    import pandas as pd
-    from econirl.environments.multi_component_bus import MultiComponentBusEnvironment
+    from econirl.environments.rust_bus import RustBusEnvironment
     from econirl.estimation.nfxp import NFXPEstimator
-    from econirl.estimators.nnes import NNES
+    from econirl.estimation.nnes import NNESConfig, NNESEstimator
     from econirl.preferences.linear import LinearUtility
     from econirl.simulation.synthetic import simulate_panel
+    from econirl.core.types import DDCProblem
 
-    env = MultiComponentBusEnvironment(
-        K=K_COMPONENTS, M=M_BINS, discount_factor=DISCOUNT,
+    env = RustBusEnvironment(
+        num_mileage_bins=N_STATES, discount_factor=DISCOUNT, seed=SEED,
     )
-    n_states = env.num_states
     n_obs = N_BUSES * N_PERIODS
     true_params = env.get_true_parameter_vector()
     problem = env.problem_spec
     transitions = env.transition_matrices
     utility = LinearUtility.from_environment(env)
 
+    # NNES needs a state encoder
+    problem_nnes = DDCProblem(
+        num_states=N_STATES,
+        num_actions=problem.num_actions,
+        discount_factor=DISCOUNT,
+        scale_parameter=1.0,
+        state_dim=1,
+        state_encoder=lambda s: jnp.expand_dims(
+            jnp.asarray(s, dtype=jnp.float32) / max(N_STATES - 1, 1),
+            axis=-1,
+        ),
+    )
+
     print("NNES Primer — generating results")
-    print(f"  Environment: {K_COMPONENTS}-component bus, {M_BINS} bins/component, "
-          f"{n_states} total states, beta={DISCOUNT}")
+    print(f"  Environment: Rust bus, {N_STATES} bins, beta={DISCOUNT}")
     print(f"  Data: {N_BUSES} x {N_PERIODS} = {n_obs:,} obs")
-    print(f"  True params: {dict(zip(env.parameter_names, np.asarray(true_params)))}")
 
     panel = simulate_panel(
-        env, n_individuals=N_BUSES, n_periods=N_PERIODS, seed=SEED,
+        env, n_individuals=N_BUSES, n_periods=N_PERIODS, seed=SEED + 1000,
     )
 
     results = {}
@@ -66,7 +74,7 @@ def main():
     # -- NFXP oracle --
     print("\n  Running NFXP...")
     nfxp = NFXPEstimator(
-        inner_solver="hybrid", inner_tol=1e-10, inner_max_iter=100000,
+        inner_solver="hybrid", inner_tol=1e-12, inner_max_iter=100000,
         switch_tol=1e-3, outer_max_iter=200,
         compute_hessian=True, verbose=False,
     )
@@ -81,69 +89,47 @@ def main():
         "ll": float(nfxp_res.log_likelihood),
         "time": nfxp_time,
     }
-    print(f"    params={[f'{x:.4f}' for x in nfxp_p]}, "
+    print(f"    theta_c={nfxp_p[0]:.6f} (SE {nfxp_se[0]:.6f}), "
+          f"RC={nfxp_p[1]:.4f} (SE {nfxp_se[1]:.4f}), "
           f"LL={nfxp_res.log_likelihood:.1f}, time={nfxp_time:.1f}s")
 
-    # -- NNES (NPL Bellman) --
-    print("\n  Running NNES (NPL, hidden_dim=64, 10 outer iters)...")
-    rows = []
-    for traj in panel.trajectories:
-        bus_id = traj.individual_id
-        for s, a in zip(traj.states, traj.actions):
-            rows.append({"bus_id": int(bus_id), "state": int(s), "action": int(a)})
-    df = pd.DataFrame(rows)
-
-    # Build RewardSpec from the environment's feature matrix
-    from econirl.core.reward_spec import RewardSpec
-    reward_spec = RewardSpec(
-        jnp.asarray(utility.feature_matrix),
-        utility.parameter_names,
-    )
-
-    nnes_model = NNES(
-        n_states=n_states,
-        n_actions=2,
-        discount=DISCOUNT,
-        utility=reward_spec,
-        bellman="npl",
-        hidden_dim=64,
-        num_layers=2,
-        v_lr=1e-3,
-        v_epochs=500,
-        n_outer_iterations=10,
+    # -- NNES (NPL Bellman, low-level API) --
+    print("\n  Running NNES (NPL, 10 outer iterations)...")
+    nnes_cfg = NNESConfig(
+        hidden_dim=32, num_layers=2,
+        v_lr=1e-3, v_epochs=500,
+        n_outer_iterations=20,
+        compute_se=True, se_method="asymptotic",
         verbose=False,
     )
+    nnes_est = NNESEstimator(config=nnes_cfg)
     t0 = time.time()
-    nnes_model.fit(df, state="state", action="action", id="bus_id")
+    nnes_res = nnes_est.estimate(panel, utility, problem_nnes, transitions)
     nnes_time = time.time() - t0
-
-    nnes_p = np.array([nnes_model.params_[n] for n in env.parameter_names])
-    nnes_se = np.array([nnes_model.se_.get(n, float("nan")) for n in env.parameter_names])
-    nnes_ll = float(nnes_model.log_likelihood_)
+    nnes_p = np.asarray(nnes_res.parameters)
+    nnes_se = np.asarray(nnes_res.standard_errors)
     results["nnes"] = {
         "params": [float(x) for x in nnes_p],
         "se": [float(x) for x in nnes_se],
-        "ll": nnes_ll,
+        "ll": float(nnes_res.log_likelihood),
         "time": nnes_time,
     }
-    print(f"    params={[f'{x:.4f}' for x in nnes_p]}, "
-          f"LL={nnes_ll:.1f}, time={nnes_time:.1f}s")
+    print(f"    theta_c={nnes_p[0]:.6f} (SE {nnes_se[0]:.6f}), "
+          f"RC={nnes_p[1]:.4f} (SE {nnes_se[1]:.4f}), "
+          f"LL={nnes_res.log_likelihood:.1f}, time={nnes_time:.1f}s")
 
-    ll_gap = abs(nnes_ll - float(nfxp_res.log_likelihood))
+    ll_gap = abs(float(nnes_res.log_likelihood) - float(nfxp_res.log_likelihood))
     print(f"\n  LL gap: {ll_gap:.2f}")
 
     # -- Write LaTeX macros + table --
-    pnames = env.parameter_names
+    pnames = ["\\theta_c", "RC"]
     tex = []
     tex.append("% Auto-generated by nnes_run.py — do not edit by hand")
-    tex.append(f"% {K_COMPONENTS}-component bus, {M_BINS} bins/comp, "
-               f"{n_states} states, {n_obs} obs, seed={SEED}")
+    tex.append(f"% Rust bus {N_STATES} bins, beta={DISCOUNT}, {n_obs} obs, seed={SEED}")
     tex.append("")
-    tex.append(f"\\newcommand{{\\nnesNstates}}{{{n_states}}}")
+    tex.append(f"\\newcommand{{\\nnesNstates}}{{{N_STATES}}}")
     tex.append(f"\\newcommand{{\\nnesBeta}}{{{DISCOUNT}}}")
     tex.append(f"\\newcommand{{\\nnesNobs}}{{{n_obs:,}}}")
-    tex.append(f"\\newcommand{{\\nnesKcomp}}{{{K_COMPONENTS}}}")
-    tex.append(f"\\newcommand{{\\nnesMbins}}{{{M_BINS}}}")
     tex.append(f"\\newcommand{{\\nnesLLgap}}{{{ll_gap:.2f}}}")
     tex.append(f"\\newcommand{{\\nnesNfxpTime}}{{{nfxp_time:.1f}}}")
     tex.append(f"\\newcommand{{\\nnesTime}}{{{nnes_time:.1f}}}")
@@ -151,26 +137,26 @@ def main():
 
     tex.append("\\begin{table}[h!]")
     tex.append("\\centering\\small")
-    tex.append(f"\\caption{{\\nnesKcomp-component bus engine "
-               f"(\\nnesNstates\\ states, $\\beta=\\nnesBeta$, \\nnesNobs\\ obs). "
-               f"NNES uses a 2-layer ReLU network (64 hidden).}}")
+    tex.append(f"\\caption{{Rust bus engine (\\nnesNstates\\ bins, "
+               f"$\\beta=\\nnesBeta$, \\nnesNobs\\ obs). "
+               f"NNES uses a 2-layer ReLU network (32 hidden), 10 outer iterations.}}")
     tex.append("\\label{tab:nnes_results}")
     tex.append("\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}} l r r r}")
     tex.append("\\toprule")
     tex.append("& True & NFXP & NNES \\\\")
     tex.append("\\midrule")
-    for i, name in enumerate(pnames):
-        true_val = float(true_params[i])
+    true_vals = [0.001, 3.0]
+    for i, (name, true_val) in enumerate(zip(pnames, true_vals)):
         nfxp_val = float(nfxp_p[i])
         nnes_val = float(nnes_p[i])
         nfxp_se_val = float(nfxp_se[i])
         nnes_se_val = float(nnes_se[i])
-        tex.append(f"${name}$ & {true_val:.4f} & {nfxp_val:.4f} & {nnes_val:.4f} \\\\")
-        se_nfxp = f"{nfxp_se_val:.4f}" if not np.isnan(nfxp_se_val) else "---"
-        se_nnes = f"{nnes_se_val:.4f}" if not np.isnan(nnes_se_val) else "---"
+        tex.append(f"${name}$ & {true_val:.4f} & {nfxp_val:.6f} & {nnes_val:.6f} \\\\")
+        se_nfxp = f"{nfxp_se_val:.6f}" if not np.isnan(nfxp_se_val) else "---"
+        se_nnes = f"{nnes_se_val:.6f}" if not np.isnan(nnes_se_val) else "---"
         tex.append(f"\\quad SE & --- & {se_nfxp} & {se_nnes} \\\\")
     tex.append(f"Log-lik & --- & ${float(nfxp_res.log_likelihood):.1f}$ "
-               f"& ${nnes_ll:.1f}$ \\\\")
+               f"& ${float(nnes_res.log_likelihood):.1f}$ \\\\")
     tex.append(f"Time (s) & --- & {nfxp_time:.1f} & {nnes_time:.1f} \\\\")
     tex.append("\\bottomrule")
     tex.append("\\end{tabular*}")

@@ -1,0 +1,39 @@
+\begin{thebibliography}{5}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Adusumilli and Eckardt(2025)]{adusumilliEckardt2025}
+Karun Adusumilli and Moritz Eckardt.
+\newblock Temporal difference estimation of dynamic discrete choice models.
+\newblock Working Paper, 2025.
+
+\bibitem[Aguirregabiria and Mira(2002)]{aguirregabiriaMira2002}
+Victor Aguirregabiria and Pedro Mira.
+\newblock Swapping the nested fixed point algorithm: A class of estimators for
+  discrete {Markov} decision models.
+\newblock \emph{Econometrica}, 70\penalty0 (4):\penalty0 1519--1543, 2002.
+
+\bibitem[Chernozhukov et~al.(2018)Chernozhukov, Chetverikov, Demirer, Duflo,
+  Hansen, Newey, and Robins]{chernozhukov2018}
+Victor Chernozhukov, Denis Chetverikov, Mert Demirer, Esther Duflo, Christian
+  Hansen, Whitney Newey, and James Robins.
+\newblock Double/debiased machine learning for treatment and structural
+  parameters.
+\newblock \emph{The Econometrics Journal}, 21\penalty0 (1):\penalty0 C1--C68,
+  2018.
+
+\bibitem[Luo and Sang(2024)]{luoSang2024}
+Yao Luo and Peijun Sang.
+\newblock Efficient estimation of structural models via sieves.
+\newblock Working Paper, University of Toronto, 2024.
+
+\bibitem[Nguyen(2025)]{nguyen2025}
+Hoang Nguyen.
+\newblock Neural networks for efficient estimation of high-dimensional dynamic
+  discrete choice models.
+\newblock Working Paper, Georgetown University, 2025.
+
+\end{thebibliography}
