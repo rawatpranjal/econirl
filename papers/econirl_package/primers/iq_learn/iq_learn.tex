@@ -25,11 +25,9 @@
 \section{Problem and Motivation}
 %% ============================================================
 
-IQ-Learn (Garg et al., 2021) targets the low-data IRL regime: few expert demonstrations, no adversarial training loop, and a single tractable optimization problem. The paper introduces the insight that learning a $Q$-function directly is equivalent to solving a penalized conditional log-likelihood problem, where the chi-squared regularizer selects a reward from the equivalence class of observationally indistinguishable rewards. Two algebraic identities make this reduction exact.
+IQ-Learn (Garg et al., 2021) addresses a gap between two approaches to imitation learning. Behavioral cloning (BC) is simple and stable but ignores the sequential structure of the problem: small errors compound as the agent drifts to states it never saw during training. Dynamics-aware methods such as GAIL (Ho \& Ermon, 2016) correct this by framing IL as inverse RL, but require solving a min-max problem over reward and policy jointly. With sparse expert coverage, adversarial training is unstable: the discriminator overfits to the handful of observed state-action pairs and destabilizes policy updates.
 
-The practical advantage is stability. Adversarial methods such as GAIL (Ho \& Ermon, 2016) solve a min-max problem and require the discriminator and generator to co-evolve. With sparse expert coverage, the discriminator overfits to the handful of observed state-action pairs, producing a reward signal that destabilizes policy updates. IQ-Learn replaces this with a single concave maximization over $Q$, which converges reliably even when expert trajectories number in the single digits. The simulation in Section~\ref{sec:results} illustrates this directly: on the 90-state Rust bus with only five expert trajectories, IQ-Learn achieves 98.9\% policy accuracy and perfect reward recovery, while GAIL collapses to 1.1\%.
-
-In the finite discrete setting of DDC models, where transition probabilities $p(s'|s,a)$ are known, exact continuation values make the IQ-Learn objective algebraically equivalent to a penalized conditional log-likelihood. Unlike NFXP, IQ-Learn does not enforce the Bellman equation as a hard constraint. Unlike GLADIUS (Kang et al., 2025), IQ-Learn does not explicitly enforce Bellman consistency, which means the recovered $Q$ may not satisfy the Bellman equation; GLADIUS addresses this via a Bellman error penalty with global convergence guarantees via the Polyak-\L{}ojasiewicz condition.
+IQ-Learn eliminates the min-max problem by learning a single $Q$-function that implicitly defines both reward and policy. The paper proves a one-to-one correspondence between the original IRL saddle point and a minimization over $Q$ alone (Lemmas 3.1--3.2, Propositions 3.3--3.4). The resulting objective is a penalized conditional log-likelihood: the first term is BC's log-likelihood, and the chi-squared penalty on implied rewards adds Bellman structure. IQ-Learn is therefore a strict generalization of regularized BC. In the finite discrete DDC setting with known transitions, exact continuation values make this reduction algebraically exact. Unlike NFXP and GLADIUS, IQ-Learn does not enforce Bellman consistency as a hard constraint; the penalty encourages but does not guarantee it.
 
 
 %% ============================================================
@@ -104,7 +102,7 @@ where $\hat{r}_i = Q(s_i,a_i) - \beta\sum_{s'} V(s')\,p(s'|s_i,a_i)$ and $V(s) =
 
 Expression~\eqref{eq:penMLE} is a penalized conditional log-likelihood. The first term is the multinomial logit log-likelihood with $Q$-values as utilities. The second term is an $\ell^2$ penalty on the Bellman-implied reward, weighted by the expert occupancy. The penalty is quadratic in $\hat{r}$ but not in $Q$ (because $V$ depends on $Q$ through the logsumexp). No inner Bellman solve appears because $V$ is an explicit function of $Q$.
 
-\paragraph{Identification.} Multiple reward functions rationalize the same policy. For any potential $h: \mathcal{S} \to \R$, the shaped reward $r'(s,a) = r(s,a) + h(s) - \beta\sum_{s'} h(s')\,p(s'|s,a)$ yields the same optimal policy (Ng et al., 1999). IQ-Learn does not resolve this non-identification. The chi-squared regularizer selects the element with smallest implied reward at expert-visited states. This has no economic interpretation, unlike the anchor normalizations of AAIRL (Lee et al., 2026) which set the exit payoff to zero.
+\paragraph{Identification.} Multiple reward functions rationalize the same policy. For any potential $h: \mathcal{S} \to \R$, the shaped reward $r'(s,a) = r(s,a) + h(s) - \beta\sum_{s'} h(s')\,p(s'|s,a)$ yields the same optimal policy (Ng et al., 1999). IQ-Learn does not resolve this non-identification. The chi-squared regularizer selects the element with smallest implied reward at expert-visited states. This has no economic interpretation, unlike the anchor normalizations of AAIRL (Lee et al., 2026) which set the exit payoff to zero. As $\alpha \to \infty$ the penalty vanishes and the objective reduces to standard conditional log-likelihood maximization, recovering BC as a special case with no Bellman structure.
 
 \paragraph{Comparison to GLADIUS.} Both IQ-Learn and GLADIUS combine a log-likelihood term with a Bellman-consistency penalty. The key difference is how the continuation value $\E[V(s')|s,a]$ is handled. IQ-Learn with known transitions computes it exactly. GLADIUS works model-free and introduces a dual variable $\zeta(s,a) \approx \E[V(s')|s,a]$ to correct the double-sampling bias. GLADIUS also explicitly enforces Bellman consistency and has global convergence guarantees via the PL condition, while IQ-Learn does not enforce or guarantee Bellman satisfaction.
 
@@ -154,9 +152,9 @@ $\hat{\pi}(a|s) \leftarrow \text{softmax}(Q(s,\cdot)/\sigma)$\;
 
 \input{iq_learn_results}
 
-Four methods run on five expert trajectories (500 obs) of the 90-state Rust bus with $\beta=0.95$, across three seeds. Policy accuracy is measured against oracle NFXP (500 trajectories).
+Four methods run on five expert trajectories of the 90-state Rust bus, three seeds, policy accuracy against oracle NFXP (500 trajectories).
 
-IQ-Learn achieves 98.9\% accuracy and cosine similarity 1.000 in 1.3 seconds. GAIL collapses: with only five trajectories, the discriminator covers ${\approx}60$ of 90 state-action pairs and drives the policy in the wrong direction across all seeds, reaching 1.1\% accuracy at 56 seconds. MCE-IRL achieves 100\% accuracy but takes 9.6 seconds because soft value iteration must converge at every outer gradient step. BC reaches 98.9\% by reading the empirical replacement threshold from frequency counts, but recovers no reward. On states 70--89---high-mileage bins rarely seen in five short trajectories---IQ-Learn and MCE-IRL both maintain full OOD accuracy, as does BC via parametric extrapolation; GAIL's adversarial collapse extends to these unseen states as well, reaching 0\%.
+GAIL collapses: with only five trajectories the discriminator covers ${\approx}60$ of 90 state-action pairs and produces a destabilizing reward signal, reaching 1.1\% at 56 seconds. IQ-Learn achieves 98.9\% with perfect reward recovery in 1.1 seconds. IQ-Learn and BC both reach 98.9\%---this is the expected result since IQ-Learn is a generalization of regularized BC; on a task simple enough for BC, the two match on policy accuracy. The structural difference is reward recovery: IQ-Learn returns $(\hat\theta_1,\hat\theta_2)=(0.001,3.0)$ with cosine similarity 1.000; BC recovers no reward. MCE-IRL achieves 100\% via full soft value iteration but takes 9.6 seconds. On OOD states 70--89, all three stable methods reach 100\%; GAIL collapses there too.
 
 \paragraph{Counterfactuals.}
 The recovered policy $\hat{\pi}(a|s) = \mathrm{softmax}(Q/\sigma)$ is identified: it is invariant to additive potential shaping $r' = r + h(s) - \beta\sum_{s'}h(s')p(s'|s,a)$. Action rankings at a given state and behavioral prediction under the \emph{current} environment are valid.
@@ -168,7 +166,7 @@ Four uses are \emph{not} valid. (1)~Policy under new transitions $P'$: requires 
 \section{EconIRL Implementation}
 %% ============================================================
 
-The estimator is in \texttt{src/econirl/estimation/iq\_learn.py} as \texttt{IQLearnEstimator}. Run \texttt{python papers/econirl\_package/primers/iq\_learn/iq\_learn\_run.py} to regenerate results.
+The estimator is \texttt{IQLearnEstimator} in \texttt{src/econirl/estimation/iq\_learn.py}. Run \texttt{iq\_learn\_run.py} in this folder to regenerate results.
 
 \begin{table}[H]
 \centering\footnotesize
