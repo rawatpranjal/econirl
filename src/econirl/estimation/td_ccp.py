@@ -1501,12 +1501,26 @@ class TDCCPEstimator(BaseEstimator):
 
             H = compute_numerical_hessian(jnp.array(params_opt), ll_fn)
 
-            if cfg.robust_se:
-                # Clustered MLE sandwich: Var = H^{-1} B_cluster H^{-1}
-                # Bread: numerical Hessian of total pseudo-LL (H is negative semi-definite)
-                # Meat: per-obs pseudo-LL scores, summed within individual before outer product
-                # This correctly handles panel dependence (T transitions per individual).
-                self._log("Computing clustered sandwich standard errors")
+            if cfg.robust_se and cfg.cross_fitting:
+                # With cross-fitting, h/g are estimated from independent data so the
+                # first-stage correction terms in zeta_i are small (Neyman orthogonality).
+                # Use the locally robust GMM sandwich: V = (G^T Omega^{-1} G)^{-1} / n_eff
+                self._log("Computing locally robust standard errors (cross-fitting)")
+                lambda_table = self._compute_backward_value(
+                    params_opt, h_table, g_table, feature_matrix,
+                    actions, states, next_actions, next_states,
+                    problem, gamma,
+                )
+                hessian = self._compute_robust_se(
+                    params_opt, h_table, g_table, lambda_table,
+                    feature_matrix, actions, states, next_actions,
+                    next_states, np.array(ccps), problem, gamma,
+                    individual_ids=individual_ids,
+                )
+            elif cfg.robust_se:
+                # Without cross-fitting, use clustered MLE sandwich: Var = H^{-1} B H^{-1}
+                # This captures panel clustering but not first-stage h/g error.
+                self._log("Computing clustered sandwich standard errors (no cross-fitting)")
                 hessian = self._compute_clustered_se(
                     params_opt, h_table, g_table, feature_matrix,
                     all_states_np, all_actions_np, panel,
