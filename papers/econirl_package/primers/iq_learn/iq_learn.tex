@@ -1,6 +1,6 @@
-\documentclass[11pt]{article}
-\usepackage[left=0.9in,right=0.9in,top=0.9in,bottom=0.9in]{geometry}
-\input{notation}
+\documentclass[10pt]{article}
+\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
+\input{../notation}
 \usepackage[ruled,lined]{algorithm2e}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
@@ -154,18 +154,18 @@ $\hat{\pi}(a|s) \leftarrow \text{softmax}(Q(s,\cdot)/\sigma)$\;
 
 \input{iq_learn_results}
 
-The benchmark runs four methods on five expert trajectories (500 observations) of the 90-state Rust bus with $\beta=0.95$, repeated across three seeds. Policy accuracy is measured against the oracle NFXP policy fitted on 500 trajectories.
+Four methods run on five expert trajectories (500 obs) of the 90-state Rust bus with $\beta=0.95$, across three seeds. Policy accuracy is measured against oracle NFXP (500 trajectories).
 
-IQ-Learn achieves 98.9\% policy accuracy and a cosine similarity of 1.000 to the true parameters $(0.001,\,3.0)$ in 1.3 seconds. GAIL collapses completely: the linear discriminator fitted on five trajectories covers only about 60 of 90 state-action pairs, producing a reward signal that drives the policy in the wrong direction across all three seeds, yielding 1.1\% accuracy at 56 seconds per run. The high adversarial training cost without any policy improvement is GAIL's characteristic failure mode at low data. MCE-IRL achieves 100\% accuracy and matching cosine similarity but takes 9.6 seconds per run because soft value iteration must converge inside each outer gradient step. IQ-Learn avoids this entirely: the smoothed value function $V(s)=\sigma\log\sum_a\exp(Q(s,a)/\sigma)$ is a closed-form function of $Q$, so no inner fixed-point solve is required. BC reaches 98.9\% by reading the empirical replacement threshold from frequency counts, but recovers no structural reward and would produce wrong counterfactuals under any policy change.
+IQ-Learn achieves 98.9\% accuracy and cosine similarity 1.000 in 1.3 seconds. GAIL collapses: with only five trajectories, the discriminator covers ${\approx}60$ of 90 state-action pairs and drives the policy in the wrong direction across all seeds, reaching 1.1\% accuracy at 56 seconds. MCE-IRL achieves 100\% accuracy but takes 9.6 seconds because soft value iteration must converge at every outer gradient step. BC reaches 98.9\% by reading the empirical replacement threshold from frequency counts, but recovers no reward.
 
-IQ-Learn is the right choice when demonstrations are scarce and adversarial training stability cannot be taken for granted. For structural counterfactuals requiring an exact Bellman fixed point, NFXP or MCE-IRL is preferred.
+\paragraph{Counterfactuals.} IQ-Learn supports two counterfactual uses. First, the recovered policy $\hat{\pi}$ can be simulated forward under alternative transition matrices or feature perturbations, producing valid behavioral predictions. Second, the implied reward $\hat{r}(s,a) = Q(s,a) - \beta\sum_{s'}p(s'|s,a)V(s')$ can be compared across actions to rank alternatives. Two counterfactuals are \emph{not} valid: welfare calculations require cardinal utility and IQ-Learn's reward scale is set by the chi-squared regularizer rather than by an economic anchor, so welfare comparisons across policies are not identified. Impulse-response analysis under parameter changes also requires a Bellman fixed-point constraint; for both, NFXP or MCE-IRL should be used instead.
 
 
 %% ============================================================
 \section{EconIRL Implementation}
 %% ============================================================
 
-The estimator is in \texttt{src/econirl/estimation/iq\_learn.py} as \texttt{IQLearnEstimator}. Run \texttt{python papers/primers/iq\_learn\_example.py} to regenerate results.
+The estimator is in \texttt{src/econirl/estimation/iq\_learn.py} as \texttt{IQLearnEstimator}. Run \texttt{python papers/econirl\_package/primers/iq\_learn/iq\_learn\_run.py} to regenerate results.
 
 \begin{table}[H]
 \centering\footnotesize
