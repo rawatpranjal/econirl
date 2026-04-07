@@ -2,17 +2,21 @@
 
 \begin{table}[H]
 \centering\footnotesize
-\caption{IQ-Learn vs NFXP on Rust bus (90 bins, $\beta\!=\!0.9999$). IQ-Learn trades log-likelihood for smaller implied reward.}
+\caption{Low-data stability benchmark: 5 expert trajectories (500~obs), 3~seeds.
+  Policy accuracy is the fraction of states where the greedy action matches
+  oracle NFXP trained on 500~trajectories ($\beta=0.95$). Reward cos-similarity compares recovered
+  parameters to true $(\theta_1,\theta_2)=(0.001,3.0)$; not applicable for non-parametric methods.
+  Mean~$\pm$~std across seeds.}
 \label{tab:iq_results}
 \vspace{-0.5em}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l c c c}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l c c r}
 \toprule
- & True & IQ-Learn & NFXP \\
+Method & Policy acc.~(\%) & Reward cos-sim & Time (s) \\
 \midrule
-Op.\ cost ($\times 10^{-3}$) & 1.000 & 9.643 & 1.231 \\
-Repl.\ cost & 3.000 & 1.539 & 3.011 \\
-Log-likelihood & --- & -4292.5 & -4263.2 \\
-Time (sec) & --- & 3.1 & 12.4 \\
+IQ-Learn & $98.9 \pm 0.0$ & $1.000 \pm 0.000$ & $1$ \\
+MCE-IRL  & $100.0 \pm 0.0$  & $1.000 \pm 0.000$  & $10$ \\
+GAIL     & $1.1 \pm 0.0$     & \multicolumn{1}{c}{---}     & $56$ \\
+BC       & $98.9 \pm 0.0$       & \multicolumn{1}{c}{---}       & ${<}1$ \\
 \bottomrule
 \end{tabular*}
 \end{table}

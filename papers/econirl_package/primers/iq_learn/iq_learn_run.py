@@ -28,7 +28,7 @@ OUT_JSON = PRIMER_DIR / "iq_learn_results.json"
 SEEDS = [42, 7, 123]
 N_EXPERT_TRAJS = 5
 N_PERIODS = 100
-N_ORACLE_TRAJS = 2000
+N_ORACLE_TRAJS = 500
 
 
 def cosine_similarity(a, b):
@@ -65,7 +65,7 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
     print(f"  [seed={seed}] IQ-Learn...", flush=True)
     t0 = time.time()
     iq_result = IQLearnEstimator(
-        config=IQLearnConfig(q_type="linear", alpha=1.0, max_iter=500)
+        config=IQLearnConfig(q_type="tabular", alpha=1.0, max_iter=500)
     ).estimate(panel=panel, utility=utility, problem=problem, transitions=transitions)
     iq_time = time.time() - t0
     iq_params = np.array(iq_result.parameters[:2])
@@ -87,7 +87,7 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
     print(f"  [seed={seed}] MCE-IRL...", flush=True)
     t0 = time.time()
     mce_result = MCEIRLEstimator(
-        config=MCEIRLConfig(outer_max_iter=200, verbose=False)
+        config=MCEIRLConfig(outer_max_iter=200, compute_se=False, verbose=False)
     ).estimate(panel=panel, utility=utility, problem=problem, transitions=transitions)
     mce_time = time.time() - t0
     mce_params = np.array(mce_result.parameters[:2])
@@ -106,6 +106,12 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
     )
 
     # --- GAIL ---
+    # GAIL requires ActionDependentReward (same feature matrix, different wrapper)
+    from econirl.preferences.action_reward import ActionDependentReward
+    gail_utility = ActionDependentReward(
+        feature_matrix=jnp.array(utility.feature_matrix),
+        parameter_names=list(utility.parameter_names),
+    )
     print(f"  [seed={seed}] GAIL...", flush=True)
     t0 = time.time()
     gail_result = GAILEstimator(
@@ -114,9 +120,10 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
             max_rounds=200,
             discriminator_lr=0.05,
             discriminator_steps=5,
+            compute_se=False,
             verbose=False,
         )
-    ).estimate(panel=panel, utility=utility, problem=problem, transitions=transitions)
+    ).estimate(panel=panel, utility=gail_utility, problem=problem, transitions=transitions)
     gail_time = time.time() - t0
     seed_results["gail"] = {
         "params": None,
@@ -195,7 +202,7 @@ def write_tex(summary):
 \centering\footnotesize
 \caption{{Low-data stability benchmark: {N_EXPERT_TRAJS} expert trajectories ({N_EXPERT_TRAJS * N_PERIODS}~obs), {len(SEEDS)}~seeds.
   Policy accuracy is the fraction of states where the greedy action matches
-  oracle NFXP trained on {N_ORACLE_TRAJS:,}~trajectories. Reward cos-similarity compares recovered
+  oracle NFXP trained on {N_ORACLE_TRAJS:,}~trajectories ($\beta=0.95$). Reward cos-similarity compares recovered
   parameters to true $(\theta_1,\theta_2)=(0.001,3.0)$; not applicable for non-parametric methods.
   Mean~$\pm$~std across seeds.}}
 \label{{tab:iq_results}}
@@ -231,7 +238,7 @@ def main():
         operating_cost=0.001,
         replacement_cost=3.0,
         num_mileage_bins=90,
-        discount_factor=0.9999,
+        discount_factor=0.95,
     )
     utility = LinearUtility.from_environment(env)
     true_params = np.array([0.001, 3.0])

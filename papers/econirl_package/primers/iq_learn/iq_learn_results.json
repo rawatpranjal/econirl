@@ -1,18 +1,150 @@
 {
-  "nfxp": {
+  "oracle": {
     "params": [
-      0.001230690259658907,
-      3.011475487945494
+      0.0010531876239080079,
+      2.9953301237269123
     ],
-    "ll": -4263.201656970805,
-    "time": 12.379202127456665
+    "ll": -10246.433075610239,
+    "time": 3.3908791542053223
   },
-  "iq_learn": {
-    "params": [
-      0.00964258424937725,
-      1.539245843887329
-    ],
-    "ll": -4292.48486328125,
-    "time": 3.0801708698272705
+  "seeds": {
+    "42": {
+      "iq_learn": {
+        "params": [
+          0.009097732603549957,
+          15.471749305725098
+        ],
+        "policy_acc": 0.9888888888888889,
+        "cos_sim": 0.9999999675667961,
+        "time": 2.5559098720550537,
+        "converged": true
+      },
+      "mce_irl": {
+        "params": [
+          0.0012753846822306514,
+          3.4782052040100098
+        ],
+        "policy_acc": 1.0,
+        "cos_sim": 0.9999999994440345,
+        "time": 11.381226062774658,
+        "converged": false
+      },
+      "gail": {
+        "params": null,
+        "policy_acc": 0.011111111111111112,
+        "cos_sim": null,
+        "time": 55.08347797393799,
+        "converged": false
+      },
+      "bc": {
+        "params": null,
+        "policy_acc": 0.9888888888888889,
+        "cos_sim": null,
+        "time": 0.13778305053710938,
+        "converged": true
+      }
+    },
+    "7": {
+      "iq_learn": {
+        "params": [
+          -0.008033310994505882,
+          39.29696273803711
+        ],
+        "policy_acc": 0.9888888888888889,
+        "cos_sim": 0.999999855407597,
+        "time": 0.5893361568450928,
+        "converged": false
+      },
+      "mce_irl": {
+        "params": [
+          0.0023820430506020784,
+          3.340975284576416
+        ],
+        "policy_acc": 1.0,
+        "cos_sim": 0.9999999279348721,
+        "time": 8.362800121307373,
+        "converged": false
+      },
+      "gail": {
+        "params": null,
+        "policy_acc": 0.011111111111111112,
+        "cos_sim": null,
+        "time": 60.412517786026,
+        "converged": false
+      },
+      "bc": {
+        "params": null,
+        "policy_acc": 0.9888888888888889,
+        "cos_sim": null,
+        "time": 0.006376981735229492,
+        "converged": true
+      }
+    },
+    "123": {
+      "iq_learn": {
+        "params": [
+          -0.0016398158622905612,
+          14.062471389770508
+        ],
+        "policy_acc": 0.9888888888888889,
+        "cos_sim": 0.9999998987757917,
+        "time": 0.716839075088501,
+        "converged": true
+      },
+      "mce_irl": {
+        "params": [
+          0.0012547045480459929,
+          2.9811184406280518
+        ],
+        "policy_acc": 1.0,
+        "cos_sim": 0.9999999961674565,
+        "time": 8.93525767326355,
+        "converged": false
+      },
+      "gail": {
+        "params": null,
+        "policy_acc": 0.011111111111111112,
+        "cos_sim": null,
+        "time": 52.075958013534546,
+        "converged": false
+      },
+      "bc": {
+        "params": null,
+        "policy_acc": 0.9888888888888889,
+        "cos_sim": null,
+        "time": 0.002473115921020508,
+        "converged": true
+      }
+    }
+  },
+  "summary": {
+    "iq_learn": {
+      "policy_acc_mean": 0.9888888888888889,
+      "policy_acc_std": 0.0,
+      "cos_sim_mean": 0.9999999072500616,
+      "cos_sim_std": 4.6179226400806454e-08,
+      "time_mean": 1.287361701329549
+    },
+    "mce_irl": {
+      "policy_acc_mean": 1.0,
+      "policy_acc_std": 0.0,
+      "cos_sim_mean": 0.9999999745154544,
+      "cos_sim_std": 3.296459689273936e-08,
+      "time_mean": 9.55976128578186
+    },
+    "gail": {
+      "policy_acc_mean": 0.011111111111111112,
+      "policy_acc_std": 0.0,
+      "cos_sim_mean": null,
+      "cos_sim_std": null,
+      "time_mean": 55.85731792449951
+    },
+    "bc": {
+      "policy_acc_mean": 0.9888888888888889,
+      "policy_acc_std": 0.0,
+      "cos_sim_mean": null,
+      "cos_sim_std": null,
+      "time_mean": 0.048877716064453125
+    }
   }
 }
