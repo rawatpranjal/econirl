@@ -5,7 +5,7 @@
       2.9953301237269123
     ],
     "ll": -10246.433075610239,
-    "time": 3.3908791542053223
+    "time": 2.933867931365967
   },
   "seeds": {
     "42": {
@@ -15,8 +15,9 @@
           15.471749305725098
         ],
         "policy_acc": 0.9888888888888889,
+        "ood_acc": 1.0,
         "cos_sim": 0.9999999675667961,
-        "time": 2.5559098720550537,
+        "time": 2.1872260570526123,
         "converged": true
       },
       "mce_irl": {
@@ -25,22 +26,25 @@
           3.4782052040100098
         ],
         "policy_acc": 1.0,
+        "ood_acc": 1.0,
         "cos_sim": 0.9999999994440345,
-        "time": 11.381226062774658,
+        "time": 9.925904750823975,
         "converged": false
       },
       "gail": {
         "params": null,
         "policy_acc": 0.011111111111111112,
+        "ood_acc": 0.0,
         "cos_sim": null,
-        "time": 55.08347797393799,
+        "time": 46.82031011581421,
         "converged": false
       },
       "bc": {
         "params": null,
         "policy_acc": 0.9888888888888889,
+        "ood_acc": 1.0,
         "cos_sim": null,
-        "time": 0.13778305053710938,
+        "time": 0.13413000106811523,
         "converged": true
       }
     },
@@ -51,8 +55,9 @@
           39.29696273803711
         ],
         "policy_acc": 0.9888888888888889,
+        "ood_acc": 1.0,
         "cos_sim": 0.999999855407597,
-        "time": 0.5893361568450928,
+        "time": 0.452178955078125,
         "converged": false
       },
       "mce_irl": {
@@ -61,22 +66,25 @@
           3.340975284576416
         ],
         "policy_acc": 1.0,
+        "ood_acc": 1.0,
         "cos_sim": 0.9999999279348721,
-        "time": 8.362800121307373,
+        "time": 7.242345809936523,
         "converged": false
       },
       "gail": {
         "params": null,
         "policy_acc": 0.011111111111111112,
+        "ood_acc": 0.0,
         "cos_sim": null,
-        "time": 60.412517786026,
+        "time": 46.90369391441345,
         "converged": false
       },
       "bc": {
         "params": null,
         "policy_acc": 0.9888888888888889,
+        "ood_acc": 1.0,
         "cos_sim": null,
-        "time": 0.006376981735229492,
+        "time": 0.002705812454223633,
         "converged": true
       }
     },
@@ -87,8 +95,9 @@
           14.062471389770508
         ],
         "policy_acc": 0.9888888888888889,
+        "ood_acc": 1.0,
         "cos_sim": 0.9999998987757917,
-        "time": 0.716839075088501,
+        "time": 0.44115304946899414,
         "converged": true
       },
       "mce_irl": {
@@ -97,22 +106,25 @@
           2.9811184406280518
         ],
         "policy_acc": 1.0,
+        "ood_acc": 1.0,
         "cos_sim": 0.9999999961674565,
-        "time": 8.93525767326355,
+        "time": 7.318172216415405,
         "converged": false
       },
       "gail": {
         "params": null,
         "policy_acc": 0.011111111111111112,
+        "ood_acc": 0.0,
         "cos_sim": null,
-        "time": 52.075958013534546,
+        "time": 46.52851414680481,
         "converged": false
       },
       "bc": {
         "params": null,
         "policy_acc": 0.9888888888888889,
+        "ood_acc": 1.0,
         "cos_sim": null,
-        "time": 0.002473115921020508,
+        "time": 0.0017850399017333984,
         "converged": true
       }
     }
@@ -121,30 +133,38 @@
     "iq_learn": {
       "policy_acc_mean": 0.9888888888888889,
       "policy_acc_std": 0.0,
+      "ood_acc_mean": 1.0,
+      "ood_acc_std": 0.0,
       "cos_sim_mean": 0.9999999072500616,
       "cos_sim_std": 4.6179226400806454e-08,
-      "time_mean": 1.287361701329549
+      "time_mean": 1.0268526871999104
     },
     "mce_irl": {
       "policy_acc_mean": 1.0,
       "policy_acc_std": 0.0,
+      "ood_acc_mean": 1.0,
+      "ood_acc_std": 0.0,
       "cos_sim_mean": 0.9999999745154544,
       "cos_sim_std": 3.296459689273936e-08,
-      "time_mean": 9.55976128578186
+      "time_mean": 8.162140925725302
     },
     "gail": {
       "policy_acc_mean": 0.011111111111111112,
       "policy_acc_std": 0.0,
+      "ood_acc_mean": 0.0,
+      "ood_acc_std": 0.0,
       "cos_sim_mean": null,
       "cos_sim_std": null,
-      "time_mean": 55.85731792449951
+      "time_mean": 46.750839392344155
     },
     "bc": {
       "policy_acc_mean": 0.9888888888888889,
       "policy_acc_std": 0.0,
+      "ood_acc_mean": 1.0,
+      "ood_acc_std": 0.0,
       "cos_sim_mean": null,
       "cos_sim_std": null,
-      "time_mean": 0.048877716064453125
+      "time_mean": 0.04620695114135742
     }
   }
 }

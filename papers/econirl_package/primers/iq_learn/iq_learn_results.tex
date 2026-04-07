@@ -2,21 +2,21 @@
 
 \begin{table}[H]
 \centering\footnotesize
-\caption{Low-data stability benchmark: 5 expert trajectories (500~obs), 3~seeds.
-  Policy accuracy is the fraction of states where the greedy action matches
-  oracle NFXP trained on 500~trajectories ($\beta=0.95$). Reward cos-similarity compares recovered
-  parameters to true $(\theta_1,\theta_2)=(0.001,3.0)$; not applicable for non-parametric methods.
-  Mean~$\pm$~std across seeds.}
+\caption{Low-data stability benchmark: 5~trajectories (500~obs), 3~seeds.
+  Policy acc.\ vs.\ oracle NFXP (500~trajectories, $\beta=0.95$).
+  OOD: states 70--89 (high-mileage bins rarely visited in training).
+  Cos-sim: recovered vs.\ true $(\theta_1,\theta_2)=(0.001,3.0)$; N/A for non-parametric.
+  Mean~$\pm$~std.}
 \label{tab:iq_results}
 \vspace{-0.5em}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l c c r}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l c c c r}
 \toprule
-Method & Policy acc.~(\%) & Reward cos-sim & Time (s) \\
+Method & Policy acc.~(\%) & OOD acc.~(\%) & Reward cos-sim & Time (s) \\
 \midrule
-IQ-Learn & $98.9 \pm 0.0$ & $1.000 \pm 0.000$ & $1$ \\
-MCE-IRL  & $100.0 \pm 0.0$  & $1.000 \pm 0.000$  & $10$ \\
-GAIL     & $1.1 \pm 0.0$     & \multicolumn{1}{c}{---}     & $56$ \\
-BC       & $98.9 \pm 0.0$       & \multicolumn{1}{c}{---}       & ${<}1$ \\
+IQ-Learn & $98.9 \pm 0.0$ & $100.0 \pm 0.0$ & $1.000 \pm 0.000$ & $1$ \\
+MCE-IRL  & $100.0 \pm 0.0$  & $100.0 \pm 0.0$  & $1.000 \pm 0.000$  & $8$ \\
+GAIL     & $1.1 \pm 0.0$     & $0.0 \pm 0.0$     & \multicolumn{1}{c}{---}     & $47$ \\
+BC       & $98.9 \pm 0.0$       & $100.0 \pm 0.0$       & \multicolumn{1}{c}{---}       & ${<}1$ \\
 \bottomrule
 \end{tabular*}
 \end{table}

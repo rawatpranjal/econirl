@@ -29,6 +29,7 @@ SEEDS = [42, 7, 123]
 N_EXPERT_TRAJS = 5
 N_PERIODS = 100
 N_ORACLE_TRAJS = 500
+OOD_STATES = list(range(70, 90))  # high-mileage bins rarely seen in 5 short trajectories
 
 
 def cosine_similarity(a, b):
@@ -40,10 +41,13 @@ def cosine_similarity(a, b):
     return float(np.dot(a, b) / denom)
 
 
-def policy_accuracy(pi_hat, pi_oracle):
+def policy_accuracy(pi_hat, pi_oracle, states=None):
     """Fraction of states where greedy action matches oracle."""
     greedy_hat = np.argmax(np.array(pi_hat), axis=1)
     greedy_oracle = np.argmax(np.array(pi_oracle), axis=1)
+    if states is not None:
+        greedy_hat = greedy_hat[states]
+        greedy_oracle = greedy_oracle[states]
     return float(np.mean(greedy_hat == greedy_oracle))
 
 
@@ -72,6 +76,7 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
     seed_results["iq_learn"] = {
         "params": iq_params.tolist(),
         "policy_acc": policy_accuracy(iq_result.policy, oracle_policy),
+        "ood_acc": policy_accuracy(iq_result.policy, oracle_policy, states=OOD_STATES),
         "cos_sim": cosine_similarity(iq_params, true_params),
         "time": iq_time,
         "converged": bool(iq_result.converged),
@@ -94,6 +99,7 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
     seed_results["mce_irl"] = {
         "params": mce_params.tolist(),
         "policy_acc": policy_accuracy(mce_result.policy, oracle_policy),
+        "ood_acc": policy_accuracy(mce_result.policy, oracle_policy, states=OOD_STATES),
         "cos_sim": cosine_similarity(mce_params, true_params),
         "time": mce_time,
         "converged": bool(mce_result.converged),
@@ -128,6 +134,7 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
     seed_results["gail"] = {
         "params": None,
         "policy_acc": policy_accuracy(gail_result.policy, oracle_policy),
+        "ood_acc": policy_accuracy(gail_result.policy, oracle_policy, states=OOD_STATES),
         "cos_sim": None,
         "time": gail_time,
         "converged": bool(gail_result.converged),
@@ -148,6 +155,7 @@ def run_seed(seed, oracle_policy, env, utility, true_params):
     seed_results["bc"] = {
         "params": None,
         "policy_acc": policy_accuracy(bc_result.policy, oracle_policy),
+        "ood_acc": policy_accuracy(bc_result.policy, oracle_policy, states=OOD_STATES),
         "cos_sim": None,
         "time": bc_time,
         "converged": True,
@@ -161,6 +169,7 @@ def aggregate(all_seed_results, methods):
     summary = {}
     for m in methods:
         accs = [r[m]["policy_acc"] for r in all_seed_results]
+        ood_vals = [r[m]["ood_acc"] for r in all_seed_results]
         times = [r[m]["time"] for r in all_seed_results]
         cos_vals = [
             r[m]["cos_sim"]
@@ -170,6 +179,8 @@ def aggregate(all_seed_results, methods):
         summary[m] = {
             "policy_acc_mean": float(np.mean(accs)),
             "policy_acc_std": float(np.std(accs)),
+            "ood_acc_mean": float(np.mean(ood_vals)),
+            "ood_acc_std": float(np.std(ood_vals)),
             "cos_sim_mean": float(np.mean(cos_vals)) if cos_vals else None,
             "cos_sim_std": float(np.std(cos_vals)) if cos_vals else None,
             "time_mean": float(np.mean(times)),
@@ -181,6 +192,11 @@ def write_tex(summary):
     def fmt_acc(m):
         mu = summary[m]["policy_acc_mean"] * 100
         sig = summary[m]["policy_acc_std"] * 100
+        return f"${mu:.1f} \\pm {sig:.1f}$"
+
+    def fmt_ood(m):
+        mu = summary[m]["ood_acc_mean"] * 100
+        sig = summary[m]["ood_acc_std"] * 100
         return f"${mu:.1f} \\pm {sig:.1f}$"
 
     def fmt_cos(m):
@@ -200,21 +216,21 @@ def write_tex(summary):
 
 \begin{{table}}[H]
 \centering\footnotesize
-\caption{{Low-data stability benchmark: {N_EXPERT_TRAJS} expert trajectories ({N_EXPERT_TRAJS * N_PERIODS}~obs), {len(SEEDS)}~seeds.
-  Policy accuracy is the fraction of states where the greedy action matches
-  oracle NFXP trained on {N_ORACLE_TRAJS:,}~trajectories ($\beta=0.95$). Reward cos-similarity compares recovered
-  parameters to true $(\theta_1,\theta_2)=(0.001,3.0)$; not applicable for non-parametric methods.
-  Mean~$\pm$~std across seeds.}}
+\caption{{Low-data stability benchmark: {N_EXPERT_TRAJS}~trajectories ({N_EXPERT_TRAJS * N_PERIODS}~obs), {len(SEEDS)}~seeds.
+  Policy acc.\ vs.\ oracle NFXP ({N_ORACLE_TRAJS:,}~trajectories, $\beta=0.95$).
+  OOD: states 70--89 (high-mileage bins rarely visited in training).
+  Cos-sim: recovered vs.\ true $(\theta_1,\theta_2)=(0.001,3.0)$; N/A for non-parametric.
+  Mean~$\pm$~std.}}
 \label{{tab:iq_results}}
 \vspace{{-0.5em}}
-\begin{{tabular*}}{{\textwidth}}{{@{{\extracolsep{{\fill}}}} l c c r}}
+\begin{{tabular*}}{{\textwidth}}{{@{{\extracolsep{{\fill}}}} l c c c r}}
 \toprule
-Method & Policy acc.~(\%) & Reward cos-sim & Time (s) \\
+Method & Policy acc.~(\%) & OOD acc.~(\%) & Reward cos-sim & Time (s) \\
 \midrule
-IQ-Learn & {fmt_acc("iq_learn")} & {fmt_cos("iq_learn")} & {fmt_time("iq_learn")} \\
-MCE-IRL  & {fmt_acc("mce_irl")}  & {fmt_cos("mce_irl")}  & {fmt_time("mce_irl")} \\
-GAIL     & {fmt_acc("gail")}     & {fmt_cos("gail")}     & {fmt_time("gail")} \\
-BC       & {fmt_acc("bc")}       & {fmt_cos("bc")}       & {fmt_time("bc")} \\
+IQ-Learn & {fmt_acc("iq_learn")} & {fmt_ood("iq_learn")} & {fmt_cos("iq_learn")} & {fmt_time("iq_learn")} \\
+MCE-IRL  & {fmt_acc("mce_irl")}  & {fmt_ood("mce_irl")}  & {fmt_cos("mce_irl")}  & {fmt_time("mce_irl")} \\
+GAIL     & {fmt_acc("gail")}     & {fmt_ood("gail")}     & {fmt_cos("gail")}     & {fmt_time("gail")} \\
+BC       & {fmt_acc("bc")}       & {fmt_ood("bc")}       & {fmt_cos("bc")}       & {fmt_time("bc")} \\
 \bottomrule
 \end{{tabular*}}
 \end{{table}}
