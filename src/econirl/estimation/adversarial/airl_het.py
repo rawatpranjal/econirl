@@ -372,9 +372,14 @@ class AIRLHetEstimator(AdversarialEstimatorBase):
             )
             em_lls.append(mixture_ll)
 
-            pbar.set_postfix({"LL": f"{mixture_ll:.1f}"})
-
             rel_change = abs(mixture_ll - prev_ll) / max(abs(prev_ll), 1.0)
+            prior_str = " ".join(f"{float(p):.2f}" for p in segment_priors)
+            pbar.set_postfix({
+                "LL": f"{mixture_ll:.1f}",
+                "dLL": f"{rel_change:.5f}",
+                "priors": f"[{prior_str}]",
+            })
+
             if rel_change < self.config.em_convergence_tol and em_iter > 0:
                 converged = True
                 break
