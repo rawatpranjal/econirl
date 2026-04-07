@@ -42,6 +42,35 @@ from econirl.preferences.base import UtilityFunction
 EULER_GAMMA = 0.5772156649015329
 
 
+# ── Module-level JIT for the CCP logit step ────────────────────────────────
+#
+# By making z_tilde / e_tilde / all_states / all_actions EXPLICIT ARGUMENTS
+# rather than closed-over variables, JAX can reuse this compiled XLA kernel
+# across all NPL iterations (the kernel is keyed on shape+dtype, not on
+# the concrete values of the captured arrays).  If z_tilde were in the
+# closure instead, every NPL step would create a new Python function with a
+# new constant baked into the XLA program, forcing a full recompilation.
+
+def _ccp_logit_neg_ll(params, z_tilde, e_tilde, all_states, all_actions, inv_sigma):
+    """CCP logit pseudo-LL with augmented features (value only).
+
+    v(s,a; theta) = z_tilde[s,a,:]@theta + e_tilde[s,a]
+    LL = sum_{i} log softmax(v / sigma)[s_i, a_i]
+    """
+    theta = params.astype(z_tilde.dtype)
+    v = jnp.einsum('sak,k->sa', z_tilde, theta) + e_tilde
+    log_probs = jax.nn.log_softmax(v * inv_sigma, axis=1)
+    return -(log_probs[all_states, all_actions].sum())
+
+
+# JIT the value+grad together.  jax.jit is lazy — compilation fires on the
+# first call, keyed on (function_id, abstract_args=(shape, dtype)).  Since
+# _ccp_logit_neg_ll is defined at module level its function_id is stable, so
+# the compiled XLA kernel is reused for every NPL step (same shapes, different
+# concrete values of z_tilde/e_tilde).
+_ccp_logit_neg_ll_and_grad = jax.jit(jax.value_and_grad(_ccp_logit_neg_ll))
+
+
 class CCPEstimator(BaseEstimator):
     """CCP-based estimator for dynamic discrete choice models.
 
@@ -491,6 +520,51 @@ class CCPEstimator(BaseEstimator):
             self._num_policy_iterations if self._num_policy_iterations > 0 else 100
         )
 
+        # ── One-time setup before NPL loop ─────────────────────────────────
+        # These are fixed across all NPL iterations and are used to build the
+        # logit objective function once (stable Python identity → jaxopt
+        # JIT-compiles the solver update step once and reuses it every NPL step).
+        beta = problem.discount_factor
+        num_actions = problem.num_actions
+        sigma = problem.scale_parameter
+        lower, upper = utility.get_parameter_bounds()
+        states_arr = jnp.asarray(panel.get_all_states())
+        actions_arr = jnp.asarray(panel.get_all_actions())
+        inv_sigma_f64 = jnp.float64(1.0 / sigma)
+        _is_linear = hasattr(utility, 'feature_matrix')
+
+        if _is_linear:
+            features_f64 = jnp.array(utility.feature_matrix, dtype=jnp.float64)
+
+            # neg_ll_base is defined ONCE — stable Python function identity.
+            # z64 and e64 are passed as fun_args (dynamic args), so jaxopt
+            # compiles the solver update step based on (function, shapes/dtypes)
+            # and reuses the compiled kernel across all NPL steps even when
+            # z64/e64 change values.
+            def neg_ll_base(params_x, z64, e64):
+                return _ccp_logit_neg_ll_and_grad(
+                    params_x, z64, e64, states_arr, actions_arr, inv_sigma_f64
+                )
+        else:
+            # Fallback for non-linear utility: finite differences
+            def neg_ll_base(params_x, z64, e64):
+                val = float(-self._compute_log_likelihood(
+                    jnp.array(params_x, dtype=jnp.float32),
+                    panel, utility, ccps, transitions, problem,
+                ))
+                n = len(params_x)
+                grad = np.zeros(n)
+                for i in range(n):
+                    eps = max(1e-5, abs(float(params_x[i])) * 1e-4)
+                    pf = params_x.at[i].add(eps)
+                    pb = params_x.at[i].add(-eps)
+                    grad[i] = (float(-self._compute_log_likelihood(
+                        jnp.array(pf, dtype=jnp.float32), panel, utility, ccps, transitions, problem,
+                    )) - float(-self._compute_log_likelihood(
+                        jnp.array(pb, dtype=jnp.float32), panel, utility, ccps, transitions, problem,
+                    ))) / (2 * eps)
+                return val, jnp.array(grad)
+
         # Step 2: Policy iteration loop
         from tqdm import tqdm
         pbar = tqdm(
@@ -512,60 +586,19 @@ class CCPEstimator(BaseEstimator):
                 ccps, transitions, utility, current_params, problem
             )
 
-            # Pre-compute augmented features z_tilde and e_tilde from cached W_z, W_e.
+            # Compute augmented features z_tilde and e_tilde from cached W_z, W_e.
             # v(s,a; theta) = z_tilde(s,a)' * theta + e_tilde(s,a)
-            # This is a standard logit — no matrix inversion per gradient call.
-            beta = problem.discount_factor
-            num_states = problem.num_states
-            num_actions = problem.num_actions
-
-            if hasattr(utility, 'feature_matrix'):
-                features = jnp.array(utility.feature_matrix, dtype=W_z.dtype)
-                # E[W_z(x') | x, a]: shape (S, A, K)
+            if _is_linear:
                 E_W_z = jnp.stack([transitions[a] @ W_z for a in range(num_actions)], axis=1)
                 E_W_e = jnp.stack([transitions[a] @ W_e for a in range(num_actions)], axis=1)
-                z_tilde = features + beta * E_W_z          # (S, A, K)
-                e_tilde = beta * E_W_e                     # (S, A)
+                z64 = (features_f64 + beta * E_W_z.astype(jnp.float64))  # (S, A, K)
+                e64 = (beta * E_W_e).astype(jnp.float64)                  # (S, A)
+                fun_args = (z64, e64)
             else:
-                z_tilde = None
-                e_tilde = None
-
-            all_states = panel.get_all_states()
-            all_actions = panel.get_all_actions()
-            sigma = problem.scale_parameter
-
-            def neg_ll_fast(params_x):
-                """Pseudo-LL using precomputed augmented features — no matrix inversion."""
-                if z_tilde is not None:
-                    theta = jnp.array(params_x, dtype=z_tilde.dtype)
-                    v = jnp.einsum('sak,k->sa', z_tilde, theta) + e_tilde
-                else:
-                    # Fallback for non-linear utility (rare)
-                    return -self._compute_log_likelihood(
-                        jnp.array(params_x, dtype=jnp.float32),
-                        panel, utility, ccps, transitions, problem,
-                    )
-                log_probs = jax.nn.log_softmax(v / sigma, axis=1)
-                return -float(log_probs[all_states, all_actions].sum())
-
-            def neg_ll_and_grad(params_x):
-                val = neg_ll_fast(params_x)
-                n = len(params_x)
-                grad = jnp.zeros(n, dtype=jnp.float64)
-                for i in range(n):
-                    eps_i = max(1e-5, float(jnp.abs(params_x[i])) * 1e-4)
-                    p_plus = params_x.at[i].add(eps_i)
-                    p_minus = params_x.at[i].add(-eps_i)
-                    grad = grad.at[i].set(
-                        (neg_ll_fast(p_plus) - neg_ll_fast(p_minus)) / (2 * eps_i)
-                    )
-                return val, grad
-
-            # Maximize pseudo-likelihood (standard logit with augmented features)
-            lower, upper = utility.get_parameter_bounds()
+                fun_args = (None, None)
 
             result = minimize_lbfgsb(
-                neg_ll_and_grad,
+                neg_ll_base,
                 jnp.array(current_params, dtype=jnp.float64),
                 bounds=(jnp.asarray(lower, dtype=jnp.float64),
                         jnp.asarray(upper, dtype=jnp.float64)),
@@ -575,7 +608,7 @@ class CCPEstimator(BaseEstimator):
                 desc="CCP",
                 value_and_grad=True,
                 param_names=list(utility.parameter_names),
-                jit=False,
+                fun_args=fun_args,
             )
 
             current_params = jnp.array(result.x, dtype=jnp.float32)

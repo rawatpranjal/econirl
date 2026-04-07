@@ -43,6 +43,7 @@ def minimize_lbfgsb(
     value_and_grad: bool = False,
     param_names: Sequence[str] | None = None,
     jit: bool = True,
+    fun_args: tuple = (),
 ) -> OptimizeResult:
     """Bounded L-BFGS optimization using jaxopt.
 
@@ -77,6 +78,11 @@ def minimize_lbfgsb(
         If True (default), JIT-compile the solver steps. Set to False when the
         objective function uses Python control flow (float(), bool(), in-place
         assignment) that is not compatible with JAX tracing.
+    fun_args : tuple, optional
+        Extra positional arguments passed to fun as fun(x, *fun_args).
+        Passing dynamic arrays here (rather than closing over them) allows
+        jaxopt to JIT-compile the solver once and reuse it across calls with
+        different concrete values of those arrays.
 
     Returns
     -------
@@ -85,31 +91,42 @@ def minimize_lbfgsb(
     """
     x0 = jnp.asarray(x0, dtype=jnp.float64)
 
+    # jaxopt.LBFGSB.init_state / update signature:
+    #   init_state(init_params, bounds, *args)
+    #   update(params, state, bounds, *args)
+    # where *args are extra positional args forwarded to fun(params, *args).
+    # jaxopt.LBFGS does not have a bounds arg.
     if bounds is not None:
         lower = jnp.asarray(bounds[0], dtype=jnp.float64)
         upper = jnp.asarray(bounds[1], dtype=jnp.float64)
+        bounds_val = (lower, upper)
         solver = jaxopt.LBFGSB(
             fun=fun, value_and_grad=value_and_grad,
             maxiter=maxiter, tol=tol, jit=jit,
         )
-        init_kw = {"bounds": (lower, upper)}
     else:
+        bounds_val = None
         solver = jaxopt.LBFGS(
             fun=fun, value_and_grad=value_and_grad,
             maxiter=maxiter, tol=tol, jit=jit,
         )
-        init_kw = {}
 
     # Step-by-step loop. Only the first iteration incurs JIT cost; subsequent
     # iterations reuse the compiled update.
-    state = solver.init_state(x0, **init_kw)
+    if bounds_val is not None:
+        state = solver.init_state(x0, bounds_val, *fun_args)
+    else:
+        state = solver.init_state(x0, *fun_args)
     params = x0
     prev_val = float("inf")
 
     pbar = tqdm(range(maxiter), desc=desc, disable=not verbose, leave=True)
     nit = 0
     for i in pbar:
-        params, state = solver.update(params, state, **init_kw)
+        if bounds_val is not None:
+            params, state = solver.update(params, state, bounds_val, *fun_args)
+        else:
+            params, state = solver.update(params, state, *fun_args)
         nit = i + 1
 
         fval = float(state.value)
@@ -143,14 +160,15 @@ def minimize_lbfgsb(
 
     pbar.close()
 
-    # Final convergence check
+    # Final convergence check — call fun with extra args
     if value_and_grad:
-        final_val, final_grad = fun(params)
+        final_val, final_grad = fun(params, *fun_args)
         final_val = float(final_val)
         grad_norm = float(jnp.linalg.norm(jnp.asarray(final_grad)))
     else:
-        final_val = float(fun(params))
-        grad_norm = float(jnp.linalg.norm(jax.grad(fun)(params)))
+        _fun_no_args = lambda p: fun(p, *fun_args)  # noqa: E731
+        final_val = float(_fun_no_args(params))
+        grad_norm = float(jnp.linalg.norm(jax.grad(_fun_no_args)(params)))
 
     converged = grad_norm < tol * 10
 

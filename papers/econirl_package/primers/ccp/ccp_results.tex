@@ -9,7 +9,7 @@
 
 \newcommand{\bcLL}{-4249.41}
 \newcommand{\bcAcc}{98.9\%}
-\newcommand{\bcTime}{0.54}
+\newcommand{\bcTime}{0.42}
 
 \newcommand{\nfxpOC}{0.001231}
 \newcommand{\nfxpRC}{3.0115}
@@ -22,16 +22,16 @@
 \newcommand{\ccpOC}{0.001225}
 \newcommand{\ccpRC}{3.0101}
 \newcommand{\ccpLL}{-4263.20}
-\newcommand{\ccpTime}{14.9}
+\newcommand{\ccpTime}{7.5}
 \newcommand{\ccpCosine}{1.0000}
-\newcommand{\ccpSpeedup}{0.3}
+\newcommand{\ccpSpeedup}{0.5}
 \newcommand{\ccpSEoc}{0.000305}
-\newcommand{\ccpSErc}{0.051291}
+\newcommand{\ccpSErc}{0.051293}
 
 \newcommand{\hmOC}{-0.000830}
 \newcommand{\hmRC}{2.8568}
 \newcommand{\hmLL}{-4285.25}
-\newcommand{\hmTime}{6.8}
+\newcommand{\hmTime}{1.5}
 \newcommand{\hmCosine}{1.0000}
 \newcommand{\hmLLgap}{22.05}
 
@@ -51,8 +51,35 @@ Log-likelihood & -4285.25 & -4266.27 & -4263.36 & -4263.20 & -4263.20 \\
 |LL gap| & 22.0503 & 3.0726 & 0.1611 & 0.0004 & --- \\
 Cosine sim. & 1.0000 & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 SE($\theta_c$) & --- & --- & --- & 0.000305 & 0.000309 \\
-SE($RC$) & --- & --- & --- & 0.051291 & 0.051597 \\
-Time (s) & 6.8 & 5.1 & 7.3 & 14.9 & 3.9 \\
+SE($RC$) & --- & --- & --- & 0.051293 & 0.051597 \\
+Time (s) & 1.5 & 1.2 & 1.8 & 7.5 & 3.9 \\
 \bottomrule
+\end{tabular*}
+\end{table}
+
+\newcommand{\initNFXPMaxNit}{55}
+\newcommand{\initNFXPMinNit}{12}
+\newcommand{\initCCPOCRange}{0.0000000}
+\newcommand{\initCCPRCRange}{0.0000}
+
+% ── Table: Initialization robustness ──
+\begin{table}[H]
+\centering
+\caption{Sensitivity to starting values on Rust bus (\ccpNbins\ states, $\beta=\ccpBeta$). NFXP outer iterations and log-likelihood vary with the starting point. CCP K=5 produces identical estimates regardless of starting theta: $\hat\theta_c$ range \initCCPOCRange, $\hat{RC}$ range \initCCPRCRange.}
+\label{tab:init_robustness}
+\small
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l r r r r r r}
+\toprule
+Starting point & \multicolumn{3}{c}{NFXP} & \multicolumn{3}{c}{CCP K=5} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+& Iter. & $\hat\theta_c$ & $\hat{RC}$ & Iter. & $\hat\theta_c$ & $\hat{RC}$ \\
+\midrule
+Default (data-driven) & 12 & 0.001231 & 3.0115 & 5 & 0.001225 & 3.0101 \\
+Near truth $(0.001, 3.0)$ & 12 & 0.001231 & 3.0115 & 5 & 0.001225 & 3.0101 \\
+Bad 1: $(1.0, 0.1)$ & 31 & 0.001231 & 3.0115 & 5 & 0.001225 & 3.0101 \\
+Bad 2: $(0.0001, 50)$ & 55 & 0.001231 & 3.0115 & 5 & 0.001225 & 3.0101 \\
+Bad 3: $(10^{-5}, 10^{-5})$ & 12 & 0.001231 & 3.0115 & 5 & 0.001225 & 3.0101 \\
+\bottomrule
+\multicolumn{7}{l}{\footnotesize $^*$ Did not converge --- result at iteration limit.}
 \end{tabular*}
 \end{table}

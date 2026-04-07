@@ -176,6 +176,76 @@ def main():
     print(f"  K=1 Hotz-Miller: LL gap = {results['npl'][1]['ll_gap']:.4f}")
     print(f"  K=5 NPL:         LL gap = {results['npl'][5]['ll_gap']:.6f} (matches MLE)")
 
+    # ── Experiment 2: Initialization robustness ───────────────
+    # CCP K=5 is invariant to starting theta because step 1 reads CCPs
+    # directly from data frequencies (no initial theta involvement).
+    # NFXP must search from a parametric starting point; bad starting
+    # values cause more outer iterations (slow convergence) or failure.
+    print("\n  Running initialization robustness experiment...")
+    init_points = {
+        "default":       jnp.array([0.01,   5.0]),   # data-driven (from NFXP default)
+        "near truth":    jnp.array([0.001,  3.0]),
+        "bad (tiny RC)": jnp.array([1.0,    0.1]),
+        "bad (huge RC)": jnp.array([0.0001, 50.0]),
+        "bad (near 0)":  jnp.array([1e-5,   1e-5]),
+    }
+
+    results["init_robustness"] = {}
+    for label, init_p in init_points.items():
+        print(f"    {label}: init=[{float(init_p[0]):.5f}, {float(init_p[1]):.4f}]")
+
+        # NFXP from this starting point
+        t0 = time.time()
+        nfxp_rob = NFXPEstimator(
+            optimizer="BHHH", inner_solver="hybrid",
+            inner_tol=1e-12, inner_max_iter=200,
+            se_method="asymptotic", verbose=False,
+        )
+        nfxp_rob_res = nfxp_rob.estimate(
+            panel=panel, utility=utility, problem=problem, transitions=transitions,
+            initial_params=init_p,
+        )
+        nfxp_rob_time = time.time() - t0
+
+        # CCP K=5 from this starting point
+        t0 = time.time()
+        ccp_rob = CCPEstimator(
+            num_policy_iterations=5, compute_hessian=False, verbose=False,
+        )
+        ccp_rob_res = ccp_rob.estimate(
+            panel=panel, utility=utility, problem=problem, transitions=transitions,
+            initial_params=init_p,
+        )
+        ccp_rob_time = time.time() - t0
+
+        results["init_robustness"][label] = {
+            "init_oc": float(init_p[0]),
+            "init_rc": float(init_p[1]),
+            "nfxp_oc": float(nfxp_rob_res.parameters[0]),
+            "nfxp_rc": float(nfxp_rob_res.parameters[1]),
+            "nfxp_ll": float(nfxp_rob_res.log_likelihood),
+            "nfxp_nit": int(nfxp_rob_res.num_iterations),
+            "nfxp_converged": bool(nfxp_rob_res.converged),
+            "nfxp_time": nfxp_rob_time,
+            "ccp_oc": float(ccp_rob_res.parameters[0]),
+            "ccp_rc": float(ccp_rob_res.parameters[1]),
+            "ccp_ll": float(ccp_rob_res.log_likelihood),
+            "ccp_nit": int(ccp_rob_res.num_iterations),
+            "ccp_time": ccp_rob_time,
+        }
+        r = results["init_robustness"][label]
+        print(f"      NFXP: theta_c={r['nfxp_oc']:.6f}, RC={r['nfxp_rc']:.4f}, "
+              f"LL={r['nfxp_ll']:.2f}, nit={r['nfxp_nit']}, conv={r['nfxp_converged']}")
+        print(f"      CCP:  theta_c={r['ccp_oc']:.6f}, RC={r['ccp_rc']:.4f}, "
+              f"LL={r['ccp_ll']:.2f}, nit={r['ccp_nit']}")
+
+    init_nfxp_nits = [v["nfxp_nit"] for v in results["init_robustness"].values()]
+    init_ccp_ocs = [v["ccp_oc"] for v in results["init_robustness"].values()]
+    init_ccp_rcs = [v["ccp_rc"] for v in results["init_robustness"].values()]
+    print(f"\n  NFXP outer iterations across starting points: {init_nfxp_nits}")
+    print(f"  CCP K=5 oc range: [{min(init_ccp_ocs):.6f}, {max(init_ccp_ocs):.6f}]")
+    print(f"  CCP K=5 rc range: [{min(init_ccp_rcs):.4f}, {max(init_ccp_rcs):.4f}]")
+
     # ── Write LaTeX ────────────────────────────────────────────
     def fmt(v, digits=6):
         if v is None:
@@ -256,6 +326,52 @@ def main():
     tex.append(row("Time (s)", "time", 1))
 
     tex.append("\\bottomrule")
+    tex.append("\\end{tabular*}")
+    tex.append("\\end{table}")
+
+    # Robustness macros
+    all_nits = [v["nfxp_nit"] for v in results["init_robustness"].values()]
+    all_ccp_ocs = [v["ccp_oc"] for v in results["init_robustness"].values()]
+    all_ccp_rcs = [v["ccp_rc"] for v in results["init_robustness"].values()]
+    tex.append("")
+    tex.append(f"\\newcommand{{\\initNFXPMaxNit}}{{{max(all_nits)}}}")
+    tex.append(f"\\newcommand{{\\initNFXPMinNit}}{{{min(all_nits)}}}")
+    tex.append(f"\\newcommand{{\\initCCPOCRange}}{{{max(all_ccp_ocs)-min(all_ccp_ocs):.7f}}}")
+    tex.append(f"\\newcommand{{\\initCCPRCRange}}{{{max(all_ccp_rcs)-min(all_ccp_rcs):.4f}}}")
+    tex.append("")
+
+    # Initialization robustness table
+    tex.append("% ── Table: Initialization robustness ──")
+    tex.append("\\begin{table}[H]")
+    tex.append("\\centering")
+    tex.append("\\caption{Sensitivity to starting values on Rust bus (\\ccpNbins\\ states, "
+               "$\\beta=\\ccpBeta$). NFXP outer iterations and log-likelihood vary "
+               "with the starting point. CCP K=5 produces identical estimates regardless "
+               "of starting theta: $\\hat\\theta_c$ range \\initCCPOCRange, "
+               "$\\hat{RC}$ range \\initCCPRCRange.}")
+    tex.append("\\label{tab:init_robustness}")
+    tex.append("\\small")
+    tex.append("\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}} l r r r r r r}")
+    tex.append("\\toprule")
+    tex.append("Starting point & \\multicolumn{3}{c}{NFXP} & \\multicolumn{3}{c}{CCP K=5} \\\\")
+    tex.append("\\cmidrule(lr){2-4}\\cmidrule(lr){5-7}")
+    tex.append("& Iter. & $\\hat\\theta_c$ & $\\hat{RC}$ & Iter. & $\\hat\\theta_c$ & $\\hat{RC}$ \\\\")
+    tex.append("\\midrule")
+    label_map = {
+        "default":       "Default (data-driven)",
+        "near truth":    "Near truth $(0.001, 3.0)$",
+        "bad (tiny RC)": "Bad 1: $(1.0, 0.1)$",
+        "bad (huge RC)": "Bad 2: $(0.0001, 50)$",
+        "bad (near 0)":  "Bad 3: $(10^{-5}, 10^{-5})$",
+    }
+    for key, disp in label_map.items():
+        v = results["init_robustness"][key]
+        conv_flag = "" if v["nfxp_converged"] else "$^*$"
+        tex.append(f"{disp} & {v['nfxp_nit']}{conv_flag} & "
+                   f"{v['nfxp_oc']:.6f} & {v['nfxp_rc']:.4f} & "
+                   f"{v['ccp_nit']} & {v['ccp_oc']:.6f} & {v['ccp_rc']:.4f} \\\\")
+    tex.append("\\bottomrule")
+    tex.append("\\multicolumn{7}{l}{\\footnotesize $^*$ Did not converge --- result at iteration limit.}")
     tex.append("\\end{tabular*}")
     tex.append("\\end{table}")
 

@@ -162,21 +162,25 @@ The econirl implementation caches $W_\phi$ and $W_e$ at the start of each NPL st
 
 
 %% ============================================================
-\section{Results: NPL Convergence to MLE}
+\section{Results}
 %% ============================================================
 
-% Auto-generated results from ccp_results.py
+% Auto-generated results from ccp_results.py — both tables below
 \input{ccp_results}
 
-The table directly demonstrates the NPL convergence theorem. Starting from pure empirical choice frequencies (K=1, Hotz-Miller), the LL gap to NFXP is \hmLLgap\ nats --- consistent but not efficient. By K=3 the gap has collapsed to under 0.2 nats and the parameter estimates are essentially recovered. At K=5 the gap is 0.0004, which is machine precision relative to the problem scale. This is the zero Jacobian property in action: each NPL iteration removes the first-order sensitivity to CCP estimation noise, and five steps suffice to eliminate it entirely.
+\paragraph{NPL convergence to MLE (Table~\ref{tab:ccp_vs_nfxp}).}
+Starting from pure empirical choice frequencies (K=1, Hotz-Miller), the LL gap to NFXP is \hmLLgap\ nats --- consistent but not efficient. By K=3 the gap has collapsed to under 0.2 nats and the parameter estimates are essentially recovered. At K=5 the gap is 0.0004, which is machine precision relative to the problem scale. This is the zero Jacobian property in action: each NPL iteration removes the first-order sensitivity to CCP estimation noise, and five steps suffice to eliminate it entirely.
 
-The key point is that this convergence starts from a non-parametric starting point. The K=1 estimator requires no knowledge of the utility function or initial parameter guesses; it reads off parameters directly from observed choice frequencies inverted through the transition structure. NPL iterations buy efficiency without changing what information is required. NFXP cannot be initialized this way --- it requires a parametric starting point and a Bellman solver from step one.
+K=1 also runs in \hmTime s versus NFXP's \nfxpTime s on the same problem, a roughly 2.5$\times$ advantage. The gain is structural: NFXP must solve the Bellman equation at every outer gradient evaluation, while K=1 pays one $O(|\mathcal{S}|^3)$ matrix inversion followed by a plain logit. For large state spaces the per-gradient cost gap widens further.
 
-CCP is the method of choice when a researcher wants consistent preliminary estimates before specifying the full utility function, when the state space makes repeated Bellman solutions expensive relative to matrix inversion, or when the problem is a dynamic game where NFXP is infeasible. A single Hotz-Miller step ($K\!=\!1$) is sufficient for specification search; full NPL ($K\!=\!5{-}10$) delivers publication-grade estimates with identical standard errors to NFXP.
+\paragraph{Initialization robustness (Table~\ref{tab:init_robustness}).}
+The second table exposes a qualitative difference between the two estimators. NFXP requires a parametric starting point $\theta_0$; from a well-specified start (near the truth) it converges in \initNFXPMinNit\ outer iterations, but from a misspecified start (e.g.\ $RC=50$) it requires \initNFXPMaxNit\ outer iterations --- each involving a full inner Bellman solve. The researcher must either guess a reasonable $\theta_0$ or run a preliminary screening pass.
+
+CCP K=5 is invariant to $\theta_0$ by construction. Step 1 reads CCPs directly from empirical frequencies; the logit in Step 2d is convex and converges to the same global optimum regardless of where it starts. Across all five starting points the NPL fixed point is identical to seven decimal places (Table~\ref{tab:init_robustness}). This means CCP does not require a preliminary screening pass or a good initial guess --- it is self-initializing.
 
 
 \paragraph{Code.}
-\texttt{ccp\_results.py} generates Table~\ref{tab:ccp_vs_nfxp}. Estimator: \texttt{src/econirl/estimation/ccp.py}. Behavioral cloning achieves \bcAcc\ policy accuracy (log-likelihood \bcLL), confirming that CCP learns from MDP structure beyond empirical action frequencies.
+\texttt{ccp\_results.py} generates Tables~\ref{tab:ccp_vs_nfxp}~and~\ref{tab:init_robustness}. Estimator: \texttt{src/econirl/estimation/ccp.py}. Behavioral cloning achieves \bcAcc\ policy accuracy (log-likelihood \bcLL), confirming that CCP learns from MDP structure beyond empirical action frequencies.
 \begin{verbatim}
 .venv/bin/python papers/econirl_package/primers/ccp/ccp_results.py
 \end{verbatim}
