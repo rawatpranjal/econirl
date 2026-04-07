@@ -158,7 +158,10 @@ Four methods run on five expert trajectories (500 obs) of the 90-state Rust bus 
 
 IQ-Learn achieves 98.9\% accuracy and cosine similarity 1.000 in 1.3 seconds. GAIL collapses: with only five trajectories, the discriminator covers ${\approx}60$ of 90 state-action pairs and drives the policy in the wrong direction across all seeds, reaching 1.1\% accuracy at 56 seconds. MCE-IRL achieves 100\% accuracy but takes 9.6 seconds because soft value iteration must converge at every outer gradient step. BC reaches 98.9\% by reading the empirical replacement threshold from frequency counts, but recovers no reward.
 
-\paragraph{Counterfactuals.} IQ-Learn supports two counterfactual uses. First, the recovered policy $\hat{\pi}$ can be simulated forward under alternative transition matrices or feature perturbations, producing valid behavioral predictions. Second, the implied reward $\hat{r}(s,a) = Q(s,a) - \beta\sum_{s'}p(s'|s,a)V(s')$ can be compared across actions to rank alternatives. Two counterfactuals are \emph{not} valid: welfare calculations require cardinal utility and IQ-Learn's reward scale is set by the chi-squared regularizer rather than by an economic anchor, so welfare comparisons across policies are not identified. Impulse-response analysis under parameter changes also requires a Bellman fixed-point constraint; for both, NFXP or MCE-IRL should be used instead.
+\paragraph{Counterfactuals.}
+The recovered policy $\hat{\pi}(a|s) = \mathrm{softmax}(Q/\sigma)$ is identified: it is invariant to additive potential shaping $r' = r + h(s) - \beta\sum_{s'}h(s')p(s'|s,a)$. Action rankings at a given state and behavioral prediction under the \emph{current} environment are valid.
+
+Four uses are \emph{not} valid. (1)~Policy under new transitions $P'$: requires solving the Bellman equation under $P'$ with an identified reward; the IQ-Learn $Q$ is not a Bellman fixed point. (2)~Welfare comparisons: reward scale is set by the chi-squared regularizer (minimum $\|\hat{r}\|^2$), not by an economic anchor. (3)~Cross-state reward comparisons: the additive potential $h(s)$ shifts reward independently per state, so $\hat{r}(s,a)$ is not identified across states. (4)~Impulse-response under parameter changes: requires structural Bellman consistency. For all four, use NFXP or MCE-IRL.
 
 
 %% ============================================================
