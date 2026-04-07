@@ -30,4 +30,4 @@ TD-CCP is the right choice when transition densities are unavailable or too expe
 
 - Adusumilli, K. and Eckardt, D. (2025). Temporal-Difference Estimation of Dynamic Discrete Choice Models. Working paper.
 
-The full derivation, algorithm, and simulation results are in the [TD-CCP primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/tdccp.pdf).
+The full derivation, algorithm, and simulation results are in the [TD-CCP primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/tdccp/tdccp.pdf).

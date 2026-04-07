@@ -69,7 +69,27 @@ def main():
         env, n_individuals=N_BUSES, n_periods=N_PERIODS, seed=SEED + 1000,
     )
 
+    from econirl.estimation.behavioral_cloning import BehavioralCloningEstimator
+    from econirl.core.bellman import SoftBellmanOperator
+    from econirl.core.solvers import policy_iteration as pi_solve
+
+    # True policy
+    operator = SoftBellmanOperator(problem, jnp.asarray(transitions, dtype=jnp.float64))
+    true_reward = jnp.asarray(utility.compute(jnp.asarray(true_params, dtype=jnp.float32)), dtype=jnp.float64)
+    true_result = pi_solve(operator, true_reward, tol=1e-10, max_iter=200, eval_method="matrix")
+    true_actions = np.argmax(np.array(true_result.policy), axis=1)
+
     results = {}
+
+    # -- BC baseline --
+    print("\n  Running BC...")
+    t0 = time.time()
+    bc = BehavioralCloningEstimator(smoothing=1.0, verbose=False)
+    bc_res = bc.estimate(panel, utility, problem, jnp.asarray(transitions))
+    bc_time = time.time() - t0
+    bc_acc = float(np.mean(np.argmax(np.array(bc_res.policy), axis=1) == true_actions))
+    results["bc"] = {"ll": float(bc_res.log_likelihood), "acc": bc_acc, "time": bc_time}
+    print(f"    LL={results['bc']['ll']:.2f}, acc={bc_acc:.2%}")
 
     # -- NFXP oracle --
     print("\n  Running NFXP...")

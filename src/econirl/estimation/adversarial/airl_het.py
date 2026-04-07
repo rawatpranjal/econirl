@@ -95,6 +95,13 @@ class AIRLHetConfig:
     # Consistency and regularization
     consistency_weight: float = 0.1
     prior_smoothing: float = 0.01
+    prior_min: float = 0.0  # minimum prior per segment (prevents collapse, e.g. 1/K)
+    prior_damping: float = 0.0  # damping for prior updates (0=no damping, 1=no update)
+    reward_weight_decay: float = 0.0
+    normalize_reward: bool = False  # clamp reward Frobenius norm to 1 per AIRL round
+    unit_normalize_reward: bool = False  # project linear reward onto unit sphere each round
+    gradient_clip_norm: float = 0.0  # clip gradient norm (0 = disabled)
+    antisymmetric_init: bool = False  # init K=2 segments with opposite rewards
 
     # Shaping
     use_shaping: bool = True
@@ -273,17 +280,51 @@ class AIRLHetEstimator(AdversarialEstimatorBase):
         key = jax.random.key(self.config.seed)
         segment_rewards = []
         segment_opt_states = []
-        optimizer = optax.adam(self.config.reward_lr)
+        if self.config.reward_weight_decay > 0:
+            base_optimizer = optax.adamw(
+                self.config.reward_lr,
+                weight_decay=self.config.reward_weight_decay,
+            )
+        else:
+            base_optimizer = optax.adam(self.config.reward_lr)
 
+        if self.config.gradient_clip_norm > 0:
+            optimizer = optax.chain(
+                optax.clip_by_global_norm(self.config.gradient_clip_norm),
+                base_optimizer,
+            )
+        else:
+            optimizer = base_optimizer
+
+        base_rw = None
         for k in range(K):
             key, subkey = jax.random.split(key)
             if self.config.reward_type == "tabular":
-                # Small random perturbation per segment for symmetry breaking
-                rw = 0.01 * jax.random.normal(subkey, (n_states, n_actions))
+                if self.config.antisymmetric_init and K >= 2:
+                    if k == 0:
+                        base_rw = 1.5 * jax.random.normal(subkey, (n_states, n_actions))
+                        rw = base_rw
+                    elif k == 1 and base_rw is not None:
+                        rw = -base_rw
+                    else:
+                        rw = 1.5 * jax.random.normal(subkey, (n_states, n_actions))
+                else:
+                    rw = 0.5 * jax.random.normal(subkey, (n_states, n_actions))
                 rw = self._enforce_anchor_reward(rw, exit_action, absorbing)
+                if self.config.normalize_reward:
+                    rw = jnp.clip(rw, -5.0, 5.0)
             else:
                 n_features = utility.num_parameters
-                rw = 0.01 * jax.random.normal(subkey, (n_features,))
+                if self.config.antisymmetric_init and K >= 2:
+                    if k == 0:
+                        base_rw = 0.5 * jax.random.normal(subkey, (n_features,))
+                        rw = base_rw
+                    elif k == 1 and base_rw is not None:
+                        rw = -base_rw
+                    else:
+                        rw = 0.01 * jax.random.normal(subkey, (n_features,))
+                else:
+                    rw = 0.01 * jax.random.normal(subkey, (n_features,))
             segment_rewards.append(rw)
             segment_opt_states.append(optimizer.init(rw))
 
@@ -327,7 +368,7 @@ class AIRLHetEstimator(AdversarialEstimatorBase):
             posteriors = self._apply_consistency(
                 posteriors, individual_groups
             )
-            segment_priors = self._update_priors(posteriors)
+            segment_priors = self._update_priors(posteriors, segment_priors)
 
             # --- M-step ---
             for k in range(K):
@@ -508,12 +549,26 @@ class AIRLHetEstimator(AdversarialEstimatorBase):
         adjusted = adjusted / np.maximum(row_sums, 1e-10)
         return jnp.array(adjusted)
 
-    def _update_priors(self, posteriors: jnp.ndarray) -> jnp.ndarray:
-        """Update segment priors with Dirichlet smoothing."""
-        K = posteriors.shape[1]
+    def _update_priors(
+        self, posteriors: jnp.ndarray, old_priors: jnp.ndarray | None = None
+    ) -> jnp.ndarray:
+        """Update segment priors with Dirichlet smoothing, optional floor and damping."""
         alpha = self.config.prior_smoothing
         raw = posteriors.mean(axis=0) + alpha
-        return raw / raw.sum()
+        new_priors = raw / raw.sum()
+
+        # Floor: prevent any segment from collapsing to zero
+        if self.config.prior_min > 0:
+            new_priors = jnp.maximum(new_priors, self.config.prior_min)
+            new_priors = new_priors / new_priors.sum()
+
+        # Damping: slow down prior updates to prevent oscillation
+        if self.config.prior_damping > 0 and old_priors is not None:
+            d = self.config.prior_damping
+            new_priors = (1.0 - d) * new_priors + d * old_priors
+            new_priors = new_priors / new_priors.sum()
+
+        return new_priors
 
     # --- M-step ---
 
@@ -621,7 +676,9 @@ class AIRLHetEstimator(AdversarialEstimatorBase):
                     exp_s, exp_a, exp_ns, exp_w,
                     pol_s, pol_a, pol_ns,
                 )
-                updates, opt_state = optimizer.update(grads, opt_state)
+                updates, opt_state = optimizer.update(
+                    grads, opt_state, reward_params
+                )
                 reward_params = optax.apply_updates(reward_params, updates)
 
             # Enforce anchor on reward params
@@ -629,6 +686,18 @@ class AIRLHetEstimator(AdversarialEstimatorBase):
                 reward_params = self._enforce_anchor_reward(
                     reward_params, exit_action, absorbing
                 )
+                if self.config.normalize_reward:
+                    # Clip to [-5, 5] to prevent scale explosion while
+                    # keeping reward values meaningful for value iteration
+                    reward_params = jnp.clip(reward_params, -5.0, 5.0)
+
+            # Unit-normalize linear reward to fix scale at 1 (reward can only
+            # ROTATE, not SCALE). Prevents adversarial scale inflation from
+            # causing the mixture LL to decrease indefinitely at the correct
+            # segment assignment.
+            if self.config.unit_normalize_reward and self.config.reward_type == "linear":
+                theta_norm = jnp.linalg.norm(reward_params)
+                reward_params = reward_params / (theta_norm + 1e-8)
 
             # Update policy
             reward_matrix = get_rm(reward_params)

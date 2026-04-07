@@ -26,12 +26,32 @@
 \usepackage{placeins}
 
 %% ---------- shared macros ----------
+\usepackage{amsthm}
 \newcommand{\E}{\mathbb{E}}
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\calS}{\mathcal{S}}
 \newcommand{\calA}{\mathcal{A}}
 \newcommand{\calH}{\mathcal{H}}
 \newcommand{\calD}{\mathcal{D}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+%% ---------- theorem environments ----------
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\newtheorem{definition}{Definition}
+
+%% ---------- code listings ----------
+\usepackage{listings}
+\lstset{
+  language=Python,
+  basicstyle=\small\ttfamily,
+  keywordstyle=\bfseries,
+  breaklines=true,
+  frame=single,
+  xleftmargin=1em,
+  numbers=none,
+}
 
 %% ---------- common DDC notation table ----------
 \newcommand{\commonnotation}{%

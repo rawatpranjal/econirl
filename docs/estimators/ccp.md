@@ -31,4 +31,4 @@ CCP is the method of choice when inner-loop cost is the bottleneck, which occurs
 - Hotz, V. J. and Miller, R. A. (1993). Conditional Choice Probabilities and the Estimation of Dynamic Models. *The Review of Economic Studies*, 60(3), 497-529.
 - Aguirregabiria, V. and Mira, P. (2002). Swapping the Nested Fixed Point Algorithm: A Class of Estimators for Discrete Markov Decision Models. *Econometrica*, 70(4), 1519-1543.
 
-The full derivation, algorithm, and simulation results are in the [CCP primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/ccp.pdf).
+The full derivation, algorithm, and simulation results are in the [CCP primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/ccp/ccp.pdf).

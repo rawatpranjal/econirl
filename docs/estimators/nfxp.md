@@ -31,4 +31,4 @@ NFXP is the right choice when you need publication-grade structural estimates wi
 - Rust, J. (1987). Optimal Replacement of GMC Bus Engines: An Empirical Model of Harold Zurcher. *Econometrica*, 55(5), 999-1033.
 - Iskhakov, F., Lee, J., Rust, J., Schjerning, B., & Seo, K. (2016). Comment on "Constrained Optimization Approaches to Estimation of Structural Models." *Econometrica*, 84(1), 365-370.
 
-The full derivation, algorithm, and simulation results are in the [NFXP primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/nfxp.pdf).
+The full derivation, algorithm, and simulation results are in the [NFXP primer (PDF)](https://github.com/rawatpranjal/econirl/blob/main/papers/econirl_package/primers/nfxp/nfxp.pdf).

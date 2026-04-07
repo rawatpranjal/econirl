@@ -1,11 +1,14 @@
-\documentclass[11pt]{article}
-\usepackage{preamble}
-\usepackage{placeins}
+\documentclass[10pt]{article}
+\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
+\input{../notation}
+\usepackage[ruled,lined]{algorithm2e}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
+\setlength{\parskip}{0.3em}
+\setlength{\parindent}{0em}
 
-\title{Primer: Nested Fixed Point (NFXP-NK)\\[4pt]
+\title{Primer: Nested Fixed Point (NFXP-NK)\\[3pt]
 \large Rust (1987), Iskhakov, Rust and Schjerning (2016)}
 \author{econirl package documentation}
 \date{}
@@ -17,236 +20,123 @@
 \section{Context and Problem}
 %% ============================================================
 
-Harold Zurcher manages a fleet of buses and must decide each period whether to keep operating the current engine or pay a fixed cost to replace it.
-Rust (1987) formalized this as a dynamic discrete choice (DDC) model and proposed the first computationally feasible estimator: the nested fixed point algorithm.
-The outer loop maximizes the log-likelihood over structural parameters $\theta$.
-The inner loop solves the Bellman equation to machine precision at each candidate $\theta$, producing the choice probabilities that enter the likelihood.
+Harold Zurcher manages a fleet of buses and must decide each period whether to keep operating the current engine or pay a fixed cost to replace it. \citet{rust1987} formalized this as a dynamic discrete choice (DDC) model and proposed the first computationally feasible estimator: the nested fixed point algorithm. The outer loop maximizes the log-likelihood over structural parameters $\theta$. The inner loop solves the Bellman equation to machine precision at each candidate $\theta$, producing the choice probabilities that enter the likelihood.
 
-The inner loop is the bottleneck.
-Value iteration converges at rate $\beta$ per step, so when $\beta$ approaches 1 (patient agents, long horizons), convergence slows dramatically.
-At $\beta = 0.9999$, successive approximation requires thousands of contractions per likelihood evaluation.
+The inner loop is the bottleneck. Value iteration converges at rate $\beta$ per step, so when $\beta$ approaches 1 (patient agents, long horizons), convergence slows dramatically. At $\beta = 0.9999$, successive approximation requires thousands of contractions per likelihood evaluation.
 
-Iskhakov, Rust and Schjerning (2016) introduced the SA-then-NK polyalgorithm that eliminates this bottleneck.
-The algorithm starts with successive approximation (SA) for safe global convergence and switches to Newton-Kantorovich (NK) near the fixed point for quadratic convergence.
-The total iteration count becomes insensitive to $\beta$: roughly 20 SA steps followed by 4 NK iterations suffices at any discount factor.
-In Monte Carlo experiments at $\beta = 0.9999$, NFXP-NK converges in 100 percent of 1,250 trials in 0.074 seconds, while MPEC-AMPL converges in zero.
+\citet{iskhakov2016} introduced the SA-then-NK polyalgorithm that eliminates this bottleneck. The algorithm starts with successive approximation (SA) for safe global convergence and switches to Newton-Kantorovich (NK) near the fixed point for quadratic convergence. The total iteration count becomes insensitive to $\beta$: roughly 20 SA steps followed by 4 NK iterations suffices at any discount factor. In Monte Carlo experiments at $\beta = 0.9999$, NFXP-NK converges in 100 percent of 1,250 trials in 0.074 seconds, while MPEC-AMPL converges in zero.
 
-NFXP is the foundational structural estimator in DDC.
-Every other estimator in this package defines itself relative to NFXP: CCP avoids the inner loop via Hotz-Miller inversion, MPEC replaces it with constrained optimization, NNES approximates it with a neural network, and TD-CCP eliminates the need for transition probabilities entirely.
+NFXP is the foundational structural estimator in DDC. Every other estimator in this package defines itself relative to NFXP: CCP avoids the inner loop via Hotz-Miller inversion, MPEC replaces it with constrained optimization, NNES approximates it with a neural network, and TD-CCP eliminates the need for transition probabilities entirely.
 
 %% ============================================================
 \section{Model and Notation}
 %% ============================================================
 
-\subsection{Notation}
+\commonnotation
 
-\begin{table}[h!]
-\centering\small
-\begin{tabular}{ll}
-\toprule
-Symbol & Meaning \\
-\midrule
-$s \in \mathcal{S}$, $a \in \mathcal{A}$ & Discrete state and action \\
-$\beta \in [0,1)$ & Discount factor \\
-$\sigma > 0$ & Logit scale parameter (Type I EV noise) \\
-$P(s' \mid s,a)$ & Transition kernel (known or estimated) \\
-$\phi(s,a) \in \R^K$ & Feature vector for state-action pair \\
-$\theta \in \R^K$ & Structural parameters \\
-$u(s,a;\theta) = \theta^\top \phi(s,a)$ & Flow utility (linear in parameters) \\
-\midrule
-$T$ & Soft Bellman operator (eq.~\ref{eq:bellman_op}) \\
-$V^*(s;\theta)$ & Integrated value function (fixed point of $T$) \\
-$Q(s,a;\theta)$ & Choice-specific value function \\
-$\pi(a \mid s;\theta)$ & Softmax choice probability \\
-$P_\pi$ & Policy-weighted transition matrix \\
-$B_k$ & BHHH Hessian approximation at step $k$ \\
-\bottomrule
-\end{tabular}
-\end{table}
-\FloatBarrier
-
-\subsection{The DDC Model}
-
-An agent observes state $s_t$, chooses action $a_t$, and receives flow payoff $u(s_t, a_t; \theta) + \sigma\,\varepsilon_{t,a}$ where $\varepsilon_{t,a}$ is i.i.d.\ Type I extreme value.
-The choice-specific value function satisfies the Bellman equation
+An agent observes state $s_t$, chooses action $a_t$, and receives flow payoff $u(s_t, a_t; \theta) + \sigma\,\varepsilon_{t,a}$ where $\varepsilon_{t,a}$ is i.i.d.\ Type I extreme value. The choice-specific value function satisfies the Bellman equation
 \begin{equation}
 \label{eq:bellman}
-Q(s,a;\theta) \;=\; u(s,a;\theta) \;+\; \beta \sum_{s' \in \mathcal{S}} P(s' \mid s,a)\, V(s'),
+Q(s,a;\theta) \;=\; u(s,a;\theta) \;+\; \beta \sum_{s'} P(s' \mid s,a)\, V(s'),
 \end{equation}
 where the integrated value function is the log-sum-exp
 \begin{equation}
 \label{eq:value}
-V(s) \;=\; \sigma \log \sum_{a \in \mathcal{A}} \exp\!\bigl(Q(s,a;\theta)/\sigma\bigr).
+V(s) \;=\; \sigma \log \sum_{a} \exp\!\bigl(Q(s,a;\theta)/\sigma\bigr).
 \end{equation}
-The optimal policy is the softmax
-\begin{equation}
-\label{eq:policy}
-\pi(a \mid s;\theta) \;=\; \frac{\exp\!\bigl(Q(s,a;\theta)/\sigma\bigr)}{\sum_{a'} \exp\!\bigl(Q(s,a';\theta)/\sigma\bigr)}.
-\end{equation}
-Substituting~\eqref{eq:bellman} into~\eqref{eq:value} defines the soft Bellman operator $T$:
+The optimal policy is the softmax $\pi(a \mid s;\theta) = \exp\!\bigl((Q(s,a) - V(s))/\sigma\bigr)$. Substituting~\eqref{eq:bellman} into~\eqref{eq:value} defines the soft Bellman operator $T$:
 \begin{equation}
 \label{eq:bellman_op}
 (TV)(s) \;=\; \sigma \log \sum_{a} \exp\!\Bigl(\bigl[u(s,a;\theta) + \beta \textstyle\sum_{s'} P(s'|s,a)\,V(s')\bigr]\big/\sigma\Bigr).
 \end{equation}
 The operator $T$ is a contraction with modulus $\beta$ under the sup norm, so $V = TV$ has a unique fixed point for each $\theta$.
 
-\subsection{Maximum Likelihood Objective}
-
-Given panel data $\mathcal{D} = \{(s_i, a_i)\}_{i=1}^N$ from $I$ individuals observed over $T$ periods ($N = I \times T$), NFXP estimates $\theta$ by maximizing the conditional log-likelihood
-\begin{equation}
-\label{eq:mle}
-\hat\theta_{\text{NFXP}} \;=\; \argmax_\theta \;\ell(\theta) \;=\; \argmax_\theta \sum_{i=1}^{N} \log \pi(a_i \mid s_i; \theta).
-\end{equation}
-The choice probabilities $\pi(a \mid s; \theta)$ depend on $\theta$ through the fixed point $V^*(\theta)$, which must be recomputed at each candidate $\theta$ during optimization.
-
 %% ============================================================
 \section{Identification and Theory}
 %% ============================================================
 
-\begin{proposition}[MLE consistency]
-Under the assumptions of additive separability, conditional independence, and i.i.d.\ Type I extreme value errors (AS/CI/EV), if the feature matrix $\Phi \in \R^{|\mathcal{S}||\mathcal{A}| \times K}$ has full column rank and the parameter space $\Theta$ is compact with $\theta_0$ in the interior, then $\hat\theta_{\text{NFXP}}$ is consistent and asymptotically efficient:
+Given panel data $\calD = \{(s_i, a_i)\}_{i=1}^N$, NFXP estimates $\theta$ by maximizing the conditional log-likelihood
 \begin{equation}
-\label{eq:asymptotic}
-\sqrt{N}\bigl(\hat\theta - \theta_0\bigr) \;\xrightarrow{d}\; \mathcal{N}\!\bigl(0,\; I(\theta_0)^{-1}\bigr),
+\label{eq:mle}
+\hat\theta_{\text{NFXP}} \;=\; \argmax_\theta \;\ell(\theta) \;=\; \argmax_\theta \sum_{i=1}^{N} \log \pi(a_i \mid s_i; \theta).
 \end{equation}
-where $I(\theta_0) = \E\bigl[\psi_i(\theta_0)\,\psi_i(\theta_0)^\top\bigr]$ is the Fisher information matrix and $\psi_i$ is the per-observation score defined in~\eqref{eq:score}.
+
+\begin{proposition}[MLE consistency, \citealt{rust1987}]
+Under additive separability, conditional independence, and i.i.d.\ Type I extreme value errors, if the feature matrix $\Phi \in \R^{|\calS||\calA| \times K}$ has full column rank and $\Theta$ is compact with $\theta_0$ interior, then $\hat\theta_{\text{NFXP}}$ is consistent and asymptotically efficient:
+$\sqrt{N}(\hat\theta - \theta_0) \xrightarrow{d} \mathcal{N}(0, I(\theta_0)^{-1})$
+where $I(\theta_0) = \E[\psi_i\psi_i^\top]$ is the Fisher information and $\psi_i$ is the score~\eqref{eq:score}.
 \end{proposition}
 
-The rank condition on $\Phi$ requires that features vary across actions.
-State-only features that are identical for all actions produce collinear columns and a singular information matrix.
-In the Rust bus example, the operating cost feature equals the mileage state for the keep action and zero for the replace action, while the replacement cost feature is one for replace and zero for keep.
-These features are action-dependent by construction.
+The rank condition requires features that vary across actions. The discount factor $\beta$ is not identified without restrictions \citep{magnacThesmar2002} and must be fixed by the researcher. The scale $\sigma$ is normalized to 1.
 
-The discount factor $\beta$ is not identified without a priori restrictions.
-Rust (1987) fixes $\beta$ and estimates $\theta$ conditional on $\beta$.
-The scale parameter $\sigma$ is also not separately identified from the magnitude of $\theta$; the convention is to normalize $\sigma = 1$.
-
-For counterfactual analysis, the identified object $\hat\theta$ supports policy simulation under parameter perturbation.
-Changing $\theta$ (for example, increasing the replacement cost) while holding transitions $P$ fixed produces a new policy $\pi'(a|s;\theta')$ by re-solving the Bellman equation.
-The parametric form $u = \theta^\top \phi$ resolves the reward shaping ambiguity: the reward is pinned down by $\theta$ and $\phi$, so there is no free shaping potential.
+For counterfactual analysis, the identified object $\hat\theta$ supports policy simulation under parameter perturbation. Changing $\theta$ while holding $P$ fixed produces a new policy by re-solving the Bellman equation. The parametric form $u = \theta^\top \phi$ resolves reward shaping ambiguity: the reward is pinned down by $\theta$ and $\phi$, so there is no free shaping potential.
 
 %% ============================================================
 \section{Estimation Algorithm}
 %% ============================================================
 
-The gradient of the log-likelihood is computed analytically via the implicit function theorem, differentiating through the Bellman fixed point without backpropagation.
-
-The per-observation score is
+The gradient is computed analytically via the implicit function theorem, differentiating through the Bellman fixed point. The per-observation score is
 \begin{equation}
 \label{eq:score}
 \psi_i(\theta) \;=\; \frac{1}{\sigma}\Bigl[\nabla_\theta Q(s_i,a_i) - \sum_{a} \pi(a \mid s_i)\,\nabla_\theta Q(s_i,a)\Bigr],
 \end{equation}
-where $\nabla_\theta Q(s,a) = \phi(s,a) + \beta \sum_{s'} P(s'|s,a)\,\frac{\partial V(s')}{\partial \theta}$ and the total derivative $\frac{\partial V}{\partial \theta}$ solves the linear system
+where $\nabla_\theta Q(s,a) = \phi(s,a) + \beta \sum_{s'} P(s'|s,a)\frac{\partial V}{\partial \theta}$ and the total derivative solves the linear system
 \begin{equation}
 \label{eq:implicit}
-\bigl(I - \beta\, P_\pi\bigr) \frac{\partial V}{\partial \theta} \;=\; \sum_{a} \pi(a \mid s)\, \phi(s,a),
+(I - \beta P_\pi) \frac{\partial V}{\partial \theta} = \sum_{a} \pi(a|s)\,\phi(s,a).
 \end{equation}
-with $P_\pi(s,s') = \sum_a \pi(a|s)\,P(s'|s,a)$ the policy-weighted transition matrix.
-
-The BHHH outer optimizer approximates the Hessian with the outer product of scores:
-\begin{equation}
-\label{eq:bhhh}
-B_k \;=\; \frac{1}{N}\sum_{i=1}^{N} \psi_i(\theta_k)\,\psi_i(\theta_k)^\top.
-\end{equation}
-This is guaranteed positive definite, avoiding the indefinite Hessian issues that plague Newton methods near saddle points.
+The BHHH outer optimizer approximates the Hessian with the outer product of scores $B_k = \frac{1}{N}\sum_i \psi_i \psi_i^\top$, which is guaranteed positive definite.
 
 \begin{algorithm}[H]
 \DontPrintSemicolon
-\caption{NFXP-NK (Rust 1987, Iskhakov et al.\ 2016)}
+\caption{NFXP-NK \citep{rust1987,iskhakov2016}}
 \label{alg:nfxp}
-\KwIn{Panel $\mathcal{D} = \{(s_i, a_i)\}_{i=1}^N$, features $\phi$, transitions $P$, discount $\beta$, scale $\sigma$}
-Initialize $\theta_0$ from data heuristic\tcp*{\texttt{\_estimate\_initial\_params()}}
+\KwIn{Panel $\calD = \{(s_i, a_i)\}_{i=1}^N$, features $\phi$, transitions $P$, discount $\beta$, scale $\sigma$}
+Initialize $\theta_0$ from data heuristic\;
 \For{$k = 0, 1, 2, \ldots$}{
-  \textbf{Inner loop:} solve $V = TV$ at $\theta_k$\tcp*{\texttt{\_solve\_inner()}}
+  \textbf{Inner loop:} solve $V = TV$ at $\theta_k$\;
   \Begin(\tcp*[f]{SA phase: safe global convergence}){
-    \For{$j = 1, 2, \ldots$}{
-      $V \leftarrow TV$\;
-      \lIf{$\|V - TV\|_\infty < \varepsilon_{\text{switch}}$}{\textbf{break}}
-    }
+    \lFor{$j = 1, 2, \ldots$ \KwTo convergence}{$V \leftarrow TV$}
   }
   \Begin(\tcp*[f]{NK phase: quadratic local convergence}){
     \For{$j = 1, 2, \ldots$}{
-      Solve $(I - \beta\,\nabla T)\,\delta = TV - V$; \quad $V \leftarrow V + \delta$\;
+      Solve $(I - \beta\nabla T)\delta = TV - V$; \quad $V \leftarrow V + \delta$\;
       \lIf{$\|\delta\|_\infty < \varepsilon_{\text{inner}}$}{\textbf{break}}
     }
   }
-  Compute $Q(s,a) = u(s,a;\theta_k) + \beta \sum_{s'} P(s'|s,a)\,V(s')$\;
-  Compute $\pi(a|s) = \text{softmax}(Q/\sigma)$\;
+  Compute $Q(s,a)$ via~\eqref{eq:bellman}, $\pi(a|s)$ via softmax\;
   \BlankLine
-  \textbf{Score:} solve $(I - \beta P_\pi)\frac{\partial V}{\partial\theta} = \sum_a \pi \cdot \phi$\tcp*{\texttt{\_compute\_analytical\_score()}}
-  Compute $\psi_i$ via~\eqref{eq:score} for each observation\;
+  \textbf{Score:} solve~\eqref{eq:implicit} for $\partial V/\partial\theta$, compute $\psi_i$ via~\eqref{eq:score}\;
   \BlankLine
-  \textbf{Outer update:}\tcp*{\texttt{\_bhhh\_optimize()}}
+  \textbf{Outer update (BHHH):}\;
   $B_k \leftarrow \frac{1}{N}\sum_i \psi_i \psi_i^\top + \lambda I$\;
-  $d_k \leftarrow B_k^{-1}\bigl(\frac{1}{N}\sum_i \psi_i\bigr)$\;
-  Line search: $\alpha_k \leftarrow$ step-halving until $\ell(\theta_k + \alpha_k d_k) > \ell(\theta_k)$\;
-  $\theta_{k+1} \leftarrow \theta_k + \alpha_k\, d_k$\;
+  $d_k \leftarrow B_k^{-1}(\frac{1}{N}\sum_i \psi_i)$\;
+  Line search: $\alpha_k$ via step-halving until $\ell(\theta_k + \alpha_k d_k) > \ell(\theta_k)$\;
+  $\theta_{k+1} \leftarrow \theta_k + \alpha_k d_k$\;
   \lIf{$\|\nabla\ell\| < \varepsilon_{\text{outer}}$}{\textbf{break}}
 }
-\KwOut{$\hat\theta$, $V^*$, $\pi^*$, $B^{-1}$ for robust standard errors}
+\KwOut{$\hat\theta$, $V^*$, $\pi^*$, $B^{-1}$ (robust standard errors)}
 \end{algorithm}
 
-Code annotations reference methods in \texttt{src/econirl/estimation/nfxp.py}.
-The inner loop calls \texttt{hybrid\_iteration()} from \texttt{src/econirl/core/solvers.py}.
-Default tolerances: $\varepsilon_{\text{switch}} = 10^{-3}$, $\varepsilon_{\text{inner}} = 10^{-12}$, $\varepsilon_{\text{outer}} = 10^{-6}$, $\lambda = 10^{-8}$.
+Default tolerances: $\varepsilon_{\text{switch}} = 10^{-3}$, $\varepsilon_{\text{inner}} = 10^{-12}$, $\varepsilon_{\text{outer}} = 10^{-6}$, $\lambda = 10^{-8}$. Code: \texttt{src/econirl/estimation/nfxp.py}, inner loop in \texttt{src/econirl/core/solvers.py}.
 
 %% ============================================================
 \section{Simulation}
 %% ============================================================
 
-The companion script \texttt{papers/primers/nfxp\_demo.py} runs NFXP on the Rust bus engine (90 mileage states, 2 actions, $\beta = 0.95$) with 500 individuals observed for 100 periods.
-The API call is five lines:
+\input{nfxp_results}
 
-\begin{lstlisting}[basicstyle=\footnotesize\ttfamily]
-from econirl.environments.rust_bus import RustBusEnvironment
-from econirl.estimation.nfxp import NFXPEstimator
-from econirl.preferences.linear import LinearUtility
-from econirl.simulation.synthetic import simulate_panel
+NFXP recovers both parameters within one standard error of the true values. The operating cost estimate is \nfxpOC\ (true 0.001) and the replacement cost is \nfxpRC\ (true 3.0), both with analytical standard errors from the BHHH outer product. Policy accuracy is \nfxpAcc: the estimated policy assigns the same greedy action as the true policy at every state. Behavioral cloning matches the greedy policy at \bcAcc\ of states but cannot recover structural parameters or produce standard errors, confirming that NFXP is learning from MDP structure.
 
-env = RustBusEnvironment(operating_cost=0.001,
-    replacement_cost=3.0, num_mileage_bins=90,
-    discount_factor=0.95)
-utility = LinearUtility.from_environment(env)
-panel = simulate_panel(env, n_individuals=500,
-    n_periods=100, seed=42)
-result = NFXPEstimator(se_method="robust").estimate(
-    panel, utility, env.problem_spec,
-    env.transition_matrices)
-\end{lstlisting}
+NFXP's advantages over CCP and MPEC are threefold: the inner loop produces an exact fixed point so the likelihood surface is smooth, the analytical score~\eqref{eq:implicit} gives exact gradients at negligible cost, and the BHHH outer product produces valid robust standard errors without bootstrap. The limitation is computational scaling: the inner loop costs $O(|\calS|^2)$ per contraction and the NK step costs $O(|\calS|^3)$. For state spaces above a few thousand, NNES, TD-CCP, and SEES scale better.
 
-Results are auto-generated from the companion script.
-To update, rerun \texttt{nfxp\_demo.py} followed by
-\texttt{generate\_tables.py}.
+\paragraph{Code.}
+\texttt{nfxp\_run.py} generates Table~\ref{tab:nfxp_results}. Estimator: \texttt{src/econirl/estimation/nfxp.py}.
+\begin{verbatim}
+.venv/bin/python papers/econirl_package/primers/nfxp/nfxp_run.py
+\end{verbatim}
 
-\begin{table}[H]
-\centering
-\caption{NFXP-NK on the Rust bus engine (90 states, $\beta = 0.95$, 50{,}000 obs).}
-\label{tab:nfxp_results}
-\input{tables/nfxp_results}
-\end{table}
-
-Both parameters are recovered within one standard error of the true values.
-The operating cost estimate $\hat\theta_c = 0.001044$ is close to the true value of $0.001$, and the replacement cost $\widehat{RC} = 3.008$ is close to $3.0$.
-Policy accuracy is 100 percent: the estimated policy assigns the same argmax action as the true policy at every state.
-Estimation takes under 3 seconds on a single CPU.
-
-\paragraph{Cross-estimator comparison.}
-The Rust bus benchmark runs all twelve estimators on this problem.
-NFXP, CCP, and MCE-IRL recover identical parameters to four decimal places, confirming DDC-IRL equivalence.
-Neural estimators (NNES, TD-CCP, SEES) recover parameters with small approximation error.
-Adversarial estimators (AIRL, GAIL) produce noisier estimates due to optimization variance from the min-max training loop.
-NFXP's advantages are threefold: the inner loop produces an exact fixed point so the likelihood surface is smooth, the analytical score~\eqref{eq:implicit} gives exact gradients at negligible cost, and the BHHH outer product~\eqref{eq:bhhh} produces valid robust standard errors without bootstrap.
-The limitation is computational scaling: the inner loop costs $O(|\mathcal{S}|^2)$ per contraction and the NK step costs $O(|\mathcal{S}|^3)$.
-For state spaces above a few thousand states, NNES, TD-CCP, and SEES become faster because their cost scales with data size rather than state space size.
-
-\paragraph{Counterfactual exercise.}
-The estimated $\hat\theta$ supports policy counterfactuals by re-solving~\eqref{eq:bellman_op} at modified parameters.
-A fuel tax that increases operating costs by 50 percent ($\theta_c' = 1.5\,\hat\theta_c$) shifts the replacement threshold to lower mileage, with welfare effect $\Delta W = \E_{\mu_0}[V(s;\theta') - V(s;\hat\theta)]$.
-This is valid because $u = \theta^\top\phi$ pins down the reward and $P(s'|s,a)$ does not depend on $\theta$.
-Counterfactuals that change $P$ itself, such as a preventive maintenance program that slows mileage accumulation, require re-estimating transition probabilities from new data and re-solving the model.
-The econirl post-estimation module computes $\Delta W$ with bootstrap confidence intervals given any pair of parameter vectors $(\hat\theta, \theta')$.
-Standard errors on the counterfactual policy $\pi'(a|s;\theta')$ propagate from the asymptotic distribution of $\hat\theta$ via the delta method, since the mapping $\theta \mapsto \pi(\cdot|\cdot;\theta)$ is smooth at any interior fixed point.
-The companion script \texttt{nfxp\_demo.py} demonstrates this workflow end to end.
-Full documentation is at \texttt{docs/estimators/nfxp.md}.
+\bibliographystyle{plainnat}
+\bibliography{references}
 
 \end{document}

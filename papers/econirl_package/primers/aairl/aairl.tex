@@ -1,6 +1,6 @@
 \documentclass[11pt]{article}
 \usepackage[right=1in,left=1in,top=0.9in,bottom=0.9in]{geometry}
-\input{notation}
+\input{../notation}
 \usepackage{algorithm}
 \usepackage{algorithmic}
 \usepackage{titling}
@@ -9,7 +9,8 @@
 
 \newcommand{\calL}{\mathcal{L}}
 
-\title{Primer: Anchored AIRL with Heterogeneity (AAIRL)}
+\title{Primer: Anchored AIRL with Heterogeneity (AAIRL)\\
+\large Lee, Sudhir, and Wang (2026)}
 \author{econirl package documentation}
 \date{}
 
@@ -20,7 +21,7 @@
 \section{Problem and Motivation}
 %% ============================================================
 
-Standard IRL methods recover a reward function from observed behavior, but the recovered reward is not robust to changes in the environment. For any function $h : \calS \to \R$, the shaped reward $r'(s,a) = r(s,a) + \beta h(s') - h(s)$ induces the same optimal policy under the original dynamics but a different policy under new dynamics. AIRL (Fu et al.\ 2018) solves this by decomposing the discriminator into a transferable reward $g_\theta(s,a)$ and a non-transferable shaping potential $h_\phi(s)$, learning them jointly so that $g_\theta$ converges to the true reward. Lee, Sudhir, and Wang (2026) extend AIRL with anchor constraints and latent heterogeneity for structural estimation of dynamic discrete choice models on serialized content platforms. We call this Anchored AIRL (AAIRL).
+Standard IRL methods recover a single reward function from observed behavior, but content platforms and subscription services host consumers with fundamentally different tastes. A quality-loving user who buys every episode and a price-sensitive user who exits early have nothing in common structurally, and fitting one model to the pooled data recovers a meaningless average that misrepresents both types. AIRL \citep{fu2018} addresses reward ambiguity from potential-based shaping but assumes a homogeneous population and requires state-only rewards, making it inapplicable to dynamic discrete choice models with exit actions and absorbing states. \citet{lee2026} extend AIRL with anchor constraints that identify action-dependent rewards and an EM algorithm that recovers latent consumer segments. We call this Anchored AIRL (AAIRL).
 
 %% ============================================================
 \section{Model and Notation}
@@ -28,159 +29,122 @@ Standard IRL methods recover a reward function from observed behavior, but the r
 
 \commonnotation
 
-The agent solves the maximum causal entropy problem
+Each consumer belongs to one of $K$ latent segments. Segment $k$ has reward function $r^*_k(s,a)$ and solves the maximum causal entropy problem
 \begin{equation}
-\label{eq:objective}
-\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \beta^t \big(r(s_t, a_t) + \sigma \calH(\pi(\cdot \mid s_t))\big)\right]
+\label{eq:mce}
+\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \beta^t \big(r_k(s_t, a_t) + \sigma\, \calH(\pi(\cdot \mid s_t))\big)\right],
 \end{equation}
-where $\calH$ is the Shannon entropy. The optimal policy satisfies
-\begin{equation}
-\label{eq:softmax}
-\pi^*(a \mid s) = \frac{\exp(A^*(s,a)/\sigma)}{\sum_{a'} \exp(A^*(s,a')/\sigma)}, \qquad A^*(s,a) = Q^*(s,a) - V^*(s).
-\end{equation}
+giving the softmax optimal policy $\pi^*_k(a \mid s) = \exp(A^*_k(s,a)/\sigma) / Z_k(s)$ where $A^*_k = Q^*_k - V^*_k$.
 
-\begin{table}[h!]
+\begin{table}[H]
 \centering\small
+\caption{AAIRL-specific notation (supplements common DDC notation above).}
+\label{tab:aairl_notation}
 \begin{tabular}{ll}
 \toprule
 Symbol & Meaning \\
 \midrule
-$r^*(s,a)$, $\pi^*(a \mid s)$ & True reward, expert policy \\
-$V^*(s)$, $Q^*(s,a)$, $A^*(s,a)$ & Value, action-value, advantage functions \\
-\midrule
-$g_\theta(s,a)$ & Reward network (parameterized by $\theta$) \\
-$h_\phi(s)$ & Shaping potential $\approx V(s)$ (parameterized by $\phi$) \\
-$\pi_\omega(a \mid s)$ & Policy network (parameterized by $\omega$) \\
-$f_{\theta,\phi}(s,a,s')$ & Discriminator logit (Eq.~\ref{eq:f}) \\
-$D_{\theta,\phi}(s,a,s')$ & Discriminator output $\in [0,1]$ (Eq.~\ref{eq:D}) \\
+$K$ & Number of latent consumer segments \\
+$\lambda_k \in [0,1]$ & Prior weight of segment $k$, $\sum_k \lambda_k = 1$ \\
+$q_{ik} = p(k \mid \tau_i)$ & Posterior probability trajectory $i$ belongs to segment $k$ \\
+$g_\theta^k(s,a)$ & Reward network for segment $k$ (parameterized by $\theta$) \\
+$h_\phi^k(s)$ & Shaping potential for segment $k$, approximates $V^*_k(s)$ \\
+$f^k(s,a,s')$ & Discriminator logit for segment $k$ (Eq.~\ref{eq:f}) \\
+$D^k(s,a,s')$ & Discriminator output $\in [0,1]$ for segment $k$ (Eq.~\ref{eq:D}) \\
+$a_{\text{exit}}$ & Anchor action: $g_\theta^k(s, a_{\text{exit}}) = 0$ for all $s, k$ \\
+$s_{\text{abs}}$ & Absorbing state: $h_\phi^k(s_{\text{abs}}) = 0$ for all $k$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 \FloatBarrier
 
-AIRL uses a structured discriminator that decomposes into reward and shaping:
+The AIRL discriminator decomposes the logit into reward and shaping:
 \begin{align}
-f_{\theta,\phi}(s,a,s') &= g_\theta(s,a) + \beta\, h_\phi(s') - h_\phi(s), \label{eq:f}\\[3pt]
-D_{\theta,\phi}(s,a,s') &= \frac{\exp(f_{\theta,\phi})}{\exp(f_{\theta,\phi}) + \pi_\omega(a \mid s)}. \label{eq:D}
+f^k_{\theta,\phi}(s,a,s') &= g_\theta^k(s,a) + \beta\, h_\phi^k(s') - h_\phi^k(s), \label{eq:f}\\[3pt]
+D^k_{\theta,\phi}(s,a,s') &= \frac{\exp(f^k_{\theta,\phi})}{\exp(f^k_{\theta,\phi}) + \pi^k(a \mid s)}. \label{eq:D}
 \end{align}
-The key structural assumption is in~\eqref{eq:f}: the logit $f$ is a sum of a state-action reward term and a potential-based shaping term, mirroring the Bellman decomposition $Q = r + \beta \E[V(s')] - V(s) + V(s)$.
+Each trajectory $\tau_i$ is generated by consumer $i$ who draws segment $k$ with probability $\lambda_k$ and then follows policy $\pi^*_k$ across all their series. Consumers are assigned consistent segment membership across multiple series via a consistency constraint on the posteriors.
 
 %% ============================================================
 \section{Identification}
 %% ============================================================
 
-\paragraph{Reward shaping ambiguity.} IRL rewards are identified only up to potential-based shaping (Ng et al.\ 1999). The observed policy constrains $|\calS|(|\calA|-1)$ equations but the reward has $|\calS| \cdot |\calA|$ unknowns, leaving $|\calS|$ free variables corresponding to the value function (Cao and Cohen 2021, Theorem 1).
+\paragraph{Reward shaping ambiguity.} IRL rewards are identified only up to potential-based shaping \citep{ng1999}: for any $h : \calS \to \R$, the shaped reward $r'(s,a) = r(s,a) + \beta h(s') - h(s)$ induces the same optimal policy. The observed policy constrains $|\calS|(|\calA|-1)$ equations while the reward has $|\calS| \cdot |\calA|$ unknowns, leaving $|\calS|$ free variables \citep{cao2021}.
 
-\paragraph{AIRL disentanglement (Fu et al.\ 2018, Theorem 1).} At the adversarial optimum, if the reward is state-only ($g_\theta$ depends on $s$ not $a$) and the MDP is decomposable (all states linked), then $g_\theta(s) = r^*(s) + c$ for some constant $c$. The decomposability condition rules out absorbing states, limiting applicability to DDC models.
+\paragraph{Standard AIRL \citep[Theorem~1]{fu2018}.} At the adversarial optimum, if the reward is state-only and the MDP is decomposable (all states recurrent), then $g_\theta(s) = r^*(s) + c$. The decomposability condition excludes absorbing states; state-only rewards exclude action-dependent utilities. Both assumptions fail in DDC.
 
-\paragraph{Anchor identification (Lee, Sudhir, Wang 2026).} Anchoring extends the result to action-dependent rewards. If one action (exit) has known zero reward and one state (absorbing) has known zero value,
+\paragraph{Anchor identification \citep{lee2026}.} Two normalization anchors eliminate the $|\calS|$ residual degrees of freedom and extend the result to action-dependent rewards. If
 \begin{equation}
 \label{eq:anchors}
-g_\theta(s, a_{\text{exit}}) = 0 \;\; \forall s, \qquad h_\phi(s_{\text{abs}}) = 0,
+g_\theta^k(s,\, a_{\text{exit}}) = 0\ \forall s, \qquad h_\phi^k(s_{\text{abs}}) = 0,
 \end{equation}
-the decomposition~\eqref{eq:f} is unique at convergence: $g_\theta(s,a) = r^*(s,a)$ and $h_\phi(s) = V^*(s)$.
+then at the adversarial optimum $g_\theta^k(s,a) = r^*_k(s,a)$ and $h_\phi^k(s) = V^*_k(s)$. The exit-action anchor pins the reward level; the absorbing-state anchor pins the value level. Together they uniquely identify the full action-dependent reward.
+
+\paragraph{EM identifiability.} With $K \geq 2$ segments and prior $\lambda$, the mixture model is locally identifiable when segment policies $\pi^*_k$ are distinct \citep{yakowitz1968}. The EM algorithm recovers the correct segments when initialization is diversified across segments via small random perturbations.
 
 %% ============================================================
 \section{Estimation Algorithm}
 %% ============================================================
 
 \begin{algorithm}[h!]
-\caption{AIRL with Anchor Constraints}
-\label{alg:airl}
+\caption{EM-AIRL: Anchored AIRL with Latent Heterogeneity \citep{lee2026}}
+\label{alg:aairl}
 \begin{algorithmic}[1]
-\REQUIRE Expert transitions $\calD_{\text{obs}} = \{(s, a, s')_n\}_{n=1}^N$, discount $\beta$, learning rate $\alpha$, anchor action $a_{\text{exit}}$, absorbing state $s_{\text{abs}}$
-\ENSURE Recovered reward $g_\theta$, value function $h_\phi$, policy $\pi_\omega$
+\REQUIRE Expert trajectories $\{\tau_i\}_{i=1}^N$, segments $K$, discount $\beta$,
+  anchor action $a_{\text{exit}}$, absorbing state $s_{\text{abs}}$, learning rate $\alpha$
+\ENSURE Segment rewards $\{g_\theta^k\}_{k=1}^K$, priors $\{\lambda_k\}$, posteriors $\{q_{ik}\}$
 
-\STATE Initialize $\theta_0, \phi_0, \omega_0$; set $\pi_\omega \leftarrow$ uniform
+\STATE Initialize $g_\theta^k$ with small random perturbations; enforce anchors~\eqref{eq:anchors}
+\STATE Initialize $\lambda_k = 1/K$,\; $q_{ik} = 1/K$ for all $i, k$
 
-\FOR{round $= 1, 2, \ldots$ until convergence}
+\FOR{EM iteration $= 1, 2, \ldots$ until convergence}
 
-\STATE \textbf{// Generate policy transitions}
-\STATE Sample $M$ transitions $\calD_{\text{sim}}$ by rolling out $\pi_\omega$
+  \STATE \textbf{E-step:} For each trajectory $\tau_i$ and segment $k$:
+  \STATE \quad Compute $\ell_{ik} \leftarrow \log \lambda_k + \sum_t \log \pi^k(a_t \mid s_t)$
+  \STATE \quad Set $q_{ik} \leftarrow \exp(\ell_{ik}) / \sum_{k'} \exp(\ell_{ik'})$ \quad (log-sum-exp stable)
+  \STATE \quad Apply within-user consistency: average $q_{ik}$ across trajectories from same individual
 
-\STATE \textbf{// Update discriminator}
-\FOR{$j = 1, \ldots, J$}
-  \STATE Compute $f_n$ via~\eqref{eq:f}, then $D_n$ via~\eqref{eq:D}
-  \STATE $\calL_{\text{disc}} = -\frac{1}{N}\sum_{\calD_{\text{obs}}} \log D_n - \frac{1}{M}\sum_{\calD_{\text{sim}}} \log(1 - D_m)$
-  \STATE $\theta, \phi \leftarrow \theta, \phi - \alpha\,\nabla_{\theta,\phi}\,\calL_{\text{disc}}$
-  \STATE Enforce anchors~\eqref{eq:anchors}
-\ENDFOR
+  \STATE \textbf{Update priors:} $\lambda_k \leftarrow \bigl(\tfrac{1}{N}\sum_i q_{ik} + \varepsilon_{\text{smooth}}\bigr)$, renormalize
 
-\STATE \textbf{// Update policy}
-\STATE Reward signal: $\tilde{r} = f_{\theta,\phi}(s,a,s') - \log \pi_\omega(a \mid s)$
-\STATE \textbf{Tabular:} $\pi_\omega \leftarrow (1-\alpha_p)\,\pi_\omega^{\text{old}} + \alpha_p\,\pi^{\text{VI}}$ \quad (conservative mixing)
-\STATE \textbf{Neural:} update $\omega$ via PPO on $\max_{\pi_\omega} \E[\sum_t \beta^t \tilde{r}]$
+  \FOR{segment $k = 1, \ldots, K$}
+    \FOR{AIRL round $= 1, \ldots, J$}
+      \STATE Sample $M$ transitions $\calD_{\text{sim}}$ from current segment-$k$ policy $\pi^k$
+      \FOR{discriminator step $= 1, \ldots, d$}
+        \STATE $\calL_{\text{disc}} \leftarrow -\frac{1}{N}\sum_i q_{ik} \sum_{\calD_i}\log D^k - \frac{1}{M}\sum_{\calD_{\text{sim}}}\log(1-D^k)$
+        \STATE $g_\theta^k, h_\phi^k \leftarrow$ Adam step on $\calL_{\text{disc}}$
+        \STATE Enforce anchors~\eqref{eq:anchors} on $g_\theta^k$
+      \ENDFOR
+      \STATE Update $\pi^k$ via soft value iteration on $g_\theta^k$ (conservative mixing)
+      \IF{$\|\pi^k_{\text{new}} - \pi^k_{\text{old}}\|_\infty < \varepsilon_{\text{AIRL}}$} \textbf{break} \ENDIF
+    \ENDFOR
+  \ENDFOR
 
-\IF{$\max_{s,a} |\pi^{\text{new}} - \pi^{\text{old}}| < \varepsilon$}
-  \STATE \textbf{break}
-\ENDIF
+  \STATE Compute mixture LL: $\calL = \sum_i \log \sum_k \lambda_k \prod_t \pi^k(a_t \mid s_t)$
+  \IF{$|\Delta \calL| / |\calL| < \varepsilon_{\text{EM}}$} \textbf{break} \ENDIF
 
 \ENDFOR
 \end{algorithmic}
 \end{algorithm}
 \FloatBarrier
 
-\paragraph{Generator options.} The tabular generator uses soft value iteration with conservative policy mixing ($\alpha_p < 1$) to prevent reward divergence from exact VI overshooting. The neural generator uses PPO with clipped surrogate objective, which naturally takes small policy steps.
+\paragraph{Conservative mixing.} The tabular policy generator uses $\pi^k_{\text{new}} = (1 - \alpha_p)\,\pi^k_{\text{old}} + \alpha_p\,\pi^{\text{VI}}$ with $\alpha_p \leq 0.2$ to prevent reward divergence from exact value iteration overshooting. The anchors~\eqref{eq:anchors} are enforced after every discriminator update.
 
-\paragraph{At convergence.} When $D = 1/2$ everywhere: $f_{\theta,\phi} = \log \pi^* = A^*$. With anchors~\eqref{eq:anchors} enforced, $g_\theta = r^*$ and $h_\phi = V^*$.
-
-%% ============================================================
-\section{Simulation Example}
-%% ============================================================
-
-We test AIRL on the serialized content environment from \texttt{examples/serialized-content/lsw\_replication.py}. The environment has 51 states (50 episodes across 5 books plus one absorbing state), 3 actions (buy, wait, exit), and 6 linear reward features. The ground truth is Segment A (``Pay and Read'') from the LSW replication. Data consists of 2,000 users reading 3 books each, producing 5,997 trajectories and 67,391 observations.
-
-\begin{table}[h!]
-\centering\small
-\begin{tabular}{lrrr}
-\toprule
-Parameter & True & NFXP & AIRL ($\alpha_p\!=\!0.1$, 500 rds) \\
-\midrule
-\input{aairl_results}  % auto-generated by aairl_run.py
-\bottomrule
-\end{tabular}
-\caption{Parameter recovery on 51-state serialized content (K=1). Run \texttt{python airl\_run.py} to regenerate. NFXP recovers all parameters with correct signs. AIRL with conservative VI still shows reward scale inflation, though relative feature ordering is preserved.}
-\label{tab:results}
-\end{table}
-\FloatBarrier
-
-NFXP is the gold standard on this tabular problem: it solves the Bellman fixed point exactly and recovers all 6 parameters within 15\% of the true values in 13 seconds. AIRL with conservative policy iteration slows the reward divergence (reward range 5 vs 50 without dampening) but does not fully stabilize. The relative ordering of buy-action features (quality $>$ cliffhanger $>$ progress $>$ buy cost) is preserved, but the absolute values are inflated by a factor of 3--5. This is the known adversarial reward scale issue: the discriminator loss is invariant to uniform scaling of the reward, so without an external anchor on the scale, the optimizer drifts upward. The anchor constraints~\eqref{eq:anchors} pin down the level but not the scale.
-
-The three counterfactual exercises (Type A: introduce WFF, Type B: customized wait-times, Type C: content-based pricing) use ground truth rewards and produce qualitatively correct results. Wait and Read purchases increase 356\% under content-based pricing. These counterfactuals do not depend on the AIRL recovery quality because they use the known structural parameters.
+\paragraph{Convergence.} The outer EM loop terminates when the relative change in mixture log-likelihood falls below $\varepsilon_{\text{EM}} = 0.001$. The inner AIRL loop terminates when $\|\pi^k_{\text{new}} - \pi^k_{\text{old}}\|_\infty < \varepsilon_{\text{AIRL}} = 10^{-4}$.
 
 %% ============================================================
-\section{Comparison to Other Estimators}
+\section{Simulation}
 %% ============================================================
 
-\begin{table}[h!]
-\centering\small
-\begin{tabular}{lcccc}
-\toprule
- & NFXP & MCE-IRL & AIRL & GLADIUS \\
-\midrule
-Requires known $P$ & Yes & Yes & No (PPO) / Yes (VI) & Yes \\
-Continuous states & No & No & Yes (PPO) & Yes \\
-Action-dependent $r$ & Yes & Yes & With anchors & Yes \\
-Identification & Parametric MLE & Feature matching & Disentanglement & Bellman decomp. \\
-Tabular performance & Excellent & Good & Unstable & Biased \\
-\bottomrule
-\end{tabular}
-\caption{AIRL in context. AIRL's advantage is continuous-state capability via PPO. On tabular problems, structural methods (NFXP, MCE-IRL) are more stable and accurate.}
-\label{tab:comparison}
-\end{table}
-\FloatBarrier
+We construct a 51-state serialized content MDP (50 episode states plus one absorbing terminal state, 3 actions: buy, wait, exit, 6 linear reward features). Two latent consumer types are drawn from ground truth: Segment~A (``Heavy Reader,'' 55\% prior) values quality strongly with parameters $[-0.2,\, 2.5,\, 1.2,\, -0.4,\, 0.8,\, 0.6]$; Segment~B (``Price-Sensitive,'' 45\% prior) has high price sensitivity with parameters $[-1.8,\, 0.4,\, 0.3,\, -0.1,\, 0.1,\, 0.2]$. Data consist of \aairlNusers{} users reading 3 books each, producing \aairlNobs{} observations.
 
-AIRL's advantage over NFXP and MCE-IRL is handling continuous state spaces when using PPO as the generator. Its advantage over GLADIUS is the disentanglement guarantee: the recovered reward is structurally meaningful, not a Q-value identified only up to a state-dependent constant. On tabular problems, NFXP dominates: faster, more accurate, and theoretically grounded in maximum likelihood.
+\input{aairl_results}
+
+The table tells the story directly. AAIRL~$K{=}2$ assigns \aairlSegAcc{} of trajectories to the correct segment, recovers Segment~A with cosine similarity \aairlCosA{} and Segment~B with similarity \aairlCosB{}. Within each type, the segment-specific policy matches observed behavior \aairlPaccA{} and \aairlPaccB{} of the time. AIRL~$K{=}1$ fits a single reward vector to the pooled data; the cosine similarity between that vector and the true-average reward is \airlKoneCos{}, but this average reward misrepresents both types and prevents any segment-specific analysis or counterfactual. BC matches surface action frequencies (\bcAcc{} accuracy) but encodes no structural information and cannot recover unobserved types.
+
+The decisive advantage of AAIRL is identifiability. It is the only estimator in this comparison that recovers two distinct reward functions from a mixed population. A downstream analyst who wants to understand why Segment~B exits early, or simulate the effect of a pricing intervention targeted at price-sensitive users, can only answer that question with an estimator that discovers the segment. Run \texttt{python aairl\_run.py} in this directory to regenerate all results.
 
 %% ============================================================
-\paragraph{References.}
-\begin{description}
-\item[Fu et al.\ (2018)] Learning Robust Rewards with Adversarial IRL. ICLR.
-\item[Lee, Sudhir, Wang (2026)] Modeling Serialized Content Consumption: Adversarial IRL for DDC.
-\item[Ng et al.\ (1999)] Policy Invariance Under Reward Transformations. ICML.
-\item[Cao, Cohen (2021)] Identifiability in Inverse Reinforcement Learning. NeurIPS.
-\item[Magnac, Thesmar (2002)] Identifying Dynamic Discrete Decision Processes. Econometrica.
-\item[Kang, Yoganarasimhan, Jain (2025)] GLADIUS: ERM for Offline IRL.
-\end{description}
+\bibliographystyle{plainnat}
+\bibliography{../references}
 
 \end{document}
