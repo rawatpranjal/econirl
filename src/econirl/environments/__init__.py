@@ -14,6 +14,10 @@ from econirl.environments.objectworld import ObjectworldEnvironment
 from econirl.environments.rdw_scrappage import RDWScrapageEnvironment
 from econirl.environments.rust_bus import RustBusEnvironment
 from econirl.environments.scania import ScaniaComponentEnvironment
+from econirl.environments.shapeshifter import (
+    ShapeshifterConfig,
+    ShapeshifterEnvironment,
+)
 from econirl.environments.supermarket import SupermarketEnvironment
 
 __all__ = [
@@ -31,5 +35,7 @@ __all__ = [
     "RDWScrapageEnvironment",
     "RustBusEnvironment",
     "ScaniaComponentEnvironment",
+    "ShapeshifterConfig",
+    "ShapeshifterEnvironment",
     "SupermarketEnvironment",
 ]

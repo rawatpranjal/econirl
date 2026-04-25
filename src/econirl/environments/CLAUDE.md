@@ -25,6 +25,10 @@ K independent components, M mileage bins each. State space: M^K states via mixed
 ### GridworldEnvironment (`gridworld.py`)
 N x N grid, 5 actions (Left/Right/Up/Down/Stay). N^2 states indexed as `row * N + col`. Absorbing terminal at (N-1, N-1). 3 features: `[step_penalty, terminal_reward, distance_weight]`. Deterministic transitions.
 
+### ShapeshifterEnvironment (`shapeshifter.py`)
+
+Shape-shifting synthetic DGP used by the JSS deep-run Tier 4 cells to verify estimator-vs-paper alignment. Construct from a `ShapeshifterConfig` parameterized along eight axes: `reward_type` (linear or neural), `feature_type` (linear or neural), `action_dependent`, `stochastic_transitions`, `stochastic_rewards`, `num_periods` (None for infinite, int for finite), `discount_factor`, and `state_dim` (1 for scalar, >1 for product space). Total state count is `num_states ** state_dim`, capped at 4096. Neural reward and neural features are produced by frozen tanh MLPs initialized deterministically from `seed`. Ground truth is exact in every regime: linear infinite uses `hybrid_iteration`, finite-horizon uses `backward_induction`, neural-reward feeds the precomputed reward matrix to the same solvers. Per-cell expected estimator support is declared in `experiments/jss_deep_run/matrix.py`.
+
 ## Gotchas
 
 - Transition convention is always `(num_actions, num_states, num_states)` -- this is enforced by `SoftBellmanOperator.__post_init__`.
