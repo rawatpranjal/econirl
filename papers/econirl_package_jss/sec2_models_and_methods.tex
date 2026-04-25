@@ -128,8 +128,6 @@ recompute the Hessian of the profile likelihood in $\theta$ with $\xi$ at its op
 \caption{Sieve joint maximum likelihood}
 \end{algorithm}
 
-\paragraph{Versions.} The \code{SEES} class exposes polynomial and B-spline bases, with the order $K$ chosen by the user or selected by leave-one-out cross-validation. The penalty weight $\kappa$ defaults to one and can be tuned. Setting $\kappa$ to infinity recovers exact value iteration in the basis.
-
 \subsubsection{Neural network efficient estimation (NNES)}
 
 \paragraph{Objective.} NNES \citep{nguyen2025nnes} replaces the value function with a feedforward neural network $V_\eta(s)$ and solves
@@ -151,8 +149,6 @@ initialize $\eta$ by fitting $V_\eta$ to value iteration on a sub-grid of states
 profile the Hessian in $\theta$ via JAX automatic differentiation\;
 \caption{Neural value approximation}
 \end{algorithm}
-
-\paragraph{Versions.} The \code{NNES} class exposes the network width and depth, the optimizer (Adam by default, SGD optional), and the Bellman penalty weight. Standard errors are available because the Hessian is taken in $\theta$ at the profiled $\hat\eta$.
 
 \subsubsection{Temporal-difference CCP (TD-CCP)}
 
@@ -176,7 +172,7 @@ estimate $\hat H$ from the within-fold score outer products\;
 \caption{Cross-fit TD-CCP}
 \end{algorithm}
 
-\paragraph{Versions.} The \code{TDCCP} class exposes the fold count $K$ (default five), the split rule (individual or row, individual is the default and the only one with valid cross-fitting), and the neural CCP head architecture. Inference is asymptotically valid under cross-fitting, which is the practical edge over NFXP on high-dimensional state spaces.
+\paragraph{Versions.} The \code{TDCCP} class exposes two split rules. The default splits by individual and produces a valid cross-fit influence function. The row split is provided for ablations and breaks the orthogonality argument.
 
 \subsection{Maximum entropy inverse reinforcement learning}
 
