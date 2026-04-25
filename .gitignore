@@ -48,6 +48,11 @@ data/processed/
 *.zip
 src/econirl/datasets/rdw_scrappage_data.csv
 src/econirl/datasets/rdw_intermediate/
+src/econirl/datasets/ziebart_big_data.csv
+src/econirl/datasets/lsw_synthetic_data.csv
+
+# JSS deep-run outputs (downloaded fresh from RunPod, not committed)
+experiments/jss_deep_run/results/
 
 # Cache
 cache/
