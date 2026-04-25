@@ -1,6 +1,6 @@
 \section{Models and methods} \label{sec:methods}
 
-This section sets up a unified notation for dynamic discrete choice and inverse reinforcement learning, then walks through the twelve estimators that \pkg{econirl} implements. Each estimator subsection has the same shape. We give the objective the estimator targets, a compact pseudocode block, and a short paragraph naming the variants exposed in the API. Proofs are left to the cited papers.
+This section sets up a unified notation for dynamic discrete choice and inverse reinforcement learning, then walks through the twelve estimators that \pkg{econirl} implements. Each estimator subsection gives the objective and the variants exposed in the API. We include compact pseudocode for the four estimators whose outer structure is non-trivial, namely NFXP, TD-CCP, MCE-IRL, and AIRL. Proofs and convergence arguments are left to the cited papers.
 
 \subsection{Unified notation}
 
@@ -72,17 +72,6 @@ return $\hat\theta = \theta_k$, $H = \nabla^2 \ell(\hat\theta)$ via JAX\;
 \label{eq:mpec}
 \end{equation}
 
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, $P$, $\phi$, initial $(\theta_0, V_0)$}
-\KwOut{$(\hat\theta, \hat V)$, Lagrangian Hessian}
-assemble sparse Jacobian of the Bellman residual via \pkg{JAX}\;
-form the augmented Lagrangian with multipliers $\lambda(s)$ on $V(s) - (T_\theta V)(s) = 0$\;
-solve with SciPy SLSQP using analytic gradients for both $\ell$ and the constraint\;
-recover the structural Hessian by reduced-space projection on the active constraints\;
-\caption{MPEC sequential quadratic programming}
-\end{algorithm}
-
 \paragraph{Versions.} The \code{MPEC} class exposes a full-space SQP solver and a reduced-space variant that solves the Bellman equation analytically inside the subproblem. The reduced-space version is roughly three times slower on the Rust panel but does not require sparse linear algebra. JAX provides Jacobians for both modes.
 
 \subsubsection{Conditional choice probability (CCP)}
@@ -93,19 +82,6 @@ v(s, a) - v(s, a^\ast) = \sigma \log \pi(a \mid s) - \sigma \log \pi(a^\ast \mid
 \label{eq:hotz}
 \end{equation}
 so the structural likelihood can be evaluated from any consistent estimate of $\pi$ without solving the Bellman equation. \citet{aguirregabiria2002} pair this with nested pseudo-likelihood iterations on $\theta$ and $\hat\pi$.
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, $P$, $\phi$, initial $\hat\pi^{(0)}$ from frequency counts}
-\KwOut{$\hat\theta$, $\hat\pi^{(\infty)}$}
-\For{$k = 0, 1, \dots$ until $\theta$ converges}{
-  build $\Psi(s, a) = \sigma \log \hat\pi^{(k)}(a \mid s) + \sigma \gamma$\;
-  back out $V$ from $\Psi$ using the choice-specific value identity\;
-  maximize $\ell$ in $\theta$ with $V$ held fixed at the inversion\;
-  update $\hat\pi^{(k+1)}$ from the new $\theta_{k+1}$ via equation~\eqref{eq:pi}\;
-}
-\caption{Nested pseudo-likelihood for CCP}
-\end{algorithm}
 
 \paragraph{Versions.} The \code{CCP} class exposes one-step and NPL modes. One-step CCP uses empirical choice frequencies and stops at $k = 1$. NPL iterates to joint convergence and is the default for sparse panels where empirical CCPs are noisy. Both modes self-initialize from the data, which is the practical edge over NFXP on the Rust panel.
 
@@ -118,16 +94,6 @@ so the structural likelihood can be evaluated from any consistent estimate of $\
 \end{equation}
 where $\kappa$ is a Bellman residual penalty tuned by cross-validation.
 
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, $P$, $\phi$, basis $b_{1:K}$, penalty $\kappa$}
-\KwOut{$\hat\theta$, $\hat\xi$}
-initialize $\xi$ from a least-squares fit of equation~\eqref{eq:V} on a coarse grid\;
-jointly maximize the penalized log-likelihood in $(\theta, \xi)$ with L-BFGS-B\;
-recompute the Hessian of the profile likelihood in $\theta$ with $\xi$ at its optimum\;
-\caption{Sieve joint maximum likelihood}
-\end{algorithm}
-
 \subsubsection{Neural network efficient estimation (NNES)}
 
 \paragraph{Objective.} NNES \citep{nguyen2025nnes} replaces the value function with a feedforward neural network $V_\eta(s)$ and solves
@@ -136,19 +102,6 @@ recompute the Hessian of the profile likelihood in $\theta$ with $\xi$ at its op
 \label{eq:nnes}
 \end{equation}
 The estimator is root-$n$ consistent and semiparametrically efficient, with a block-diagonal information matrix between $\theta$ and $\eta$.
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, $P$, $\phi$, network $V_\eta$, penalty $\kappa$}
-\KwOut{$\hat\theta$, $\hat\eta$}
-initialize $\eta$ by fitting $V_\eta$ to value iteration on a sub-grid of states\;
-\For{epoch $k = 0, 1, \dots$}{
-  sample minibatches of state-action pairs from the panel\;
-  step $(\theta, \eta)$ jointly with Adam on the penalized log-likelihood\;
-}
-profile the Hessian in $\theta$ via JAX automatic differentiation\;
-\caption{Neural value approximation}
-\end{algorithm}
 
 \subsubsection{Temporal-difference CCP (TD-CCP)}
 
@@ -217,17 +170,6 @@ Two estimators in \pkg{econirl} avoid an explicit reward parametrization and rec
 \end{equation}
 with $\pi_Q$ the soft policy at $Q$ and $r_Q$ the implied reward through the inverse Bellman operator.
 
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, $P$, $\phi$ (used only post hoc), penalty $\kappa$}
-\KwOut{$\hat Q$, recovered reward $\hat r$}
-build $\hat\mu$ from the panel by frequency counts\;
-parametrize $Q$ tabularly (small $|\mathcal{S}| |\mathcal{A}|$) or by a neural head\;
-minimize equation~\eqref{eq:iql} jointly in $Q$ with Adam\;
-recover $\hat r(s, a) = \hat Q(s, a) - \beta \E_{s'} \hat V(s')$\;
-\caption{Inverse soft Q-learning}
-\end{algorithm}
-
 \paragraph{Versions.} The \code{IQLearn} class exposes a tabular Q-function for finite state spaces and a neural Q head for larger ones. The chi-squared objective trades likelihood maximization for speed, and the implied reward is identified up to a state-dependent constant. Tabular Q does not propagate to unvisited states, which the user should check before relying on the recovered reward.
 
 \subsubsection{GLADIUS}
@@ -238,16 +180,6 @@ recover $\hat r(s, a) = \hat Q(s, a) - \beta \E_{s'} \hat V(s')$\;
 \label{eq:gladius}
 \end{equation}
 The first term is the imitation log-likelihood through the soft policy implied by $Q_\eta$. The second term is a Bellman consistency penalty that uses observed transitions in the panel rather than a transition matrix.
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, $\phi$ (used only post hoc), networks $Q_\eta, V_\zeta$, penalty $\kappa$}
-\KwOut{$\hat\eta, \hat\zeta$, recovered reward $\hat r$}
-sample minibatches of $(s_{it}, a_{it}, s_{it+1})$ from the panel\;
-step $(\eta, \zeta)$ with Adam on equation~\eqref{eq:gladius}\;
-recover $\hat r(s, a) = Q_\eta(s, a) - \beta V_\zeta(s')$ averaged over observed $s'$\;
-\caption{GLADIUS dual-network training}
-\end{algorithm}
 
 \paragraph{Versions.} The \code{GLADIUS} class exposes a Q-only mode in which $V_\zeta$ is replaced by the soft maximum of $Q_\eta$, and a dual mode in which $Q_\eta$ and $V_\zeta$ are independent networks. The Bellman penalty weight $\kappa$ trades off imitation accuracy and Bellman consistency. \code{GLADIUS} is the only structural-style estimator in the library that operates without a supplied transition matrix, which makes it the right default for environments where the dynamics are not known.
 
@@ -286,18 +218,6 @@ so the recovered $r_\theta$ is disentangled from the dynamics and transfers acro
 \end{equation}
 with $D_f$ chosen from the Kullback-Leibler, reverse-KL, Jensen-Shannon, or chi-squared family.
 
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, environment simulator, reward net $r_\theta$, $f$-divergence}
-\KwOut{$\hat\theta$}
-\For{epoch $k = 0, 1, \dots$}{
-  sample policy rollouts under $\pi_\theta$\;
-  estimate $\mu_{\pi_\theta}$ by frequency counts on the rollouts\;
-  step $\theta$ on the Fenchel dual of $D_f(\mu_{\pi_\theta} \,\|\, \hat\mu)$\;
-}
-\caption{$f$-divergence IRL}
-\end{algorithm}
-
 \paragraph{Versions.} The \code{FIRL} class exposes the choice of $f$-divergence as a string argument, with the Kullback-Leibler form as the default. The reverse-KL form recovers a mode-seeking policy and is preferred when the expert demonstrations are sparse.
 
 \subsection{Behavioral cloning baseline}
@@ -310,15 +230,6 @@ with $D_f$ chosen from the Kullback-Leibler, reverse-KL, Jensen-Shannon, or chi-
 \label{eq:bc}
 \end{equation}
 where $\pi_{\mathrm{BC}}$ is a logit on the same features $\phi$ but with the reward and Bellman terms dropped.
-
-\begin{algorithm}[H]
-\SetAlgoLined
-\KwIn{panel, features $\phi$}
-\KwOut{$\hat\theta$}
-form the design matrix from $\phi(s_{it}, a_{it})$ across all $(i, t)$\;
-fit a multinomial logit by L-BFGS-B on the cross-entropy\;
-\caption{Behavioral cloning}
-\end{algorithm}
 
 \paragraph{Versions.} The \code{BC} class exposes a tabular logit and a neural variant in which the policy head is a small feedforward network. BC is the lower-bound baseline for every benchmark in the library. Any estimator that fails to beat BC on out-of-sample policy quality is not learning from the Markov decision process structure.
 
