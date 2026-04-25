@@ -87,6 +87,11 @@ from econirl.datasets.trivago_search import (
 load_rust_small = load_rust_bus
 load_ziebart_small = load_taxi_gridworld
 
+from econirl.datasets.shapeshifter import (
+    load_shapeshifter,
+    get_shapeshifter_info,
+)
+
 __all__ = [
     # Real DDC Datasets
     "load_rust_bus",
@@ -153,4 +158,7 @@ __all__ = [
     "get_ziebart_big_info",
     "load_lsw_synthetic",
     "get_lsw_synthetic_info",
+    # Shape-shifter for code-vs-paper alignment benchmarks
+    "load_shapeshifter",
+    "get_shapeshifter_info",
 ]

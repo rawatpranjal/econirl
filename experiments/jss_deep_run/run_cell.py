@@ -66,6 +66,7 @@ def _dataset_loader(name: str) -> Callable[..., Any]:
         "ziebart-small": datasets.load_ziebart_small,
         "ziebart-big":   datasets.load_ziebart_big,
         "lsw-synthetic": datasets.load_lsw_synthetic,
+        "shapeshifter":  datasets.load_shapeshifter,
     }
     if name not in table:
         raise KeyError(f"Unknown dataset name {name!r}")
@@ -155,7 +156,13 @@ def _run_one_replication(
 
     try:
         loader = _dataset_loader(cell.dataset)
-        loader_kwargs = {"seed": seed, "as_panel": True}
+        loader_kwargs: dict[str, Any] = {"seed": seed, "as_panel": True}
+        # Cells targeting the shape-shifter pass their environment
+        # configuration in extra_kwargs["dataset_config"]. Any other
+        # cell ignores this key.
+        dataset_config = cell.extra_kwargs.get("dataset_config", {})
+        if dataset_config:
+            loader_kwargs.update(dataset_config)
         # The loader signatures accept seed but not all keyword names
         # match. Best effort: drop unsupported kwargs.
         try:
@@ -214,11 +221,23 @@ def _run_one_replication(
         record["standard_errors_json"] = _vector_to_json(
             getattr(result, "standard_errors", None)
         )
-        # Truth vector for cosine similarity. Only available for
-        # rust-small with the synthetic ground-truth parameters.
+        # Truth vector for cosine similarity. Available for rust-small
+        # (synthetic ground-truth parameters) and shapeshifter (where
+        # the env exposes its own true theta when reward_type=="linear").
         truth = None
         if cell.dataset == "rust-small":
             truth = np.array([0.001, 3.0])
+        elif cell.dataset == "shapeshifter":
+            from econirl.environments.shapeshifter import (
+                ShapeshifterConfig,
+                ShapeshifterEnvironment,
+            )
+            ss_config = ShapeshifterConfig(
+                seed=seed, **cell.extra_kwargs.get("dataset_config", {})
+            )
+            ss_env = ShapeshifterEnvironment(ss_config)
+            if ss_config.reward_type == "linear":
+                truth = np.asarray(ss_env.get_true_parameter_vector())
         record["cosine_similarity"] = _cosine_similarity(
             result.parameters, truth
         )

@@ -386,6 +386,192 @@ for est, ds, gpu_runtime, cpu_runtime in _TIER_3E_PAIRS:
 
 
 # ---------------------------------------------------------------------------
+# Tier 4. Shape-shifter alignment. Single-axis flips off a spine config
+# to verify each estimator recovers ground truth in regimes its source
+# paper supports and fails predictably in regimes it does not.
+# Per-cell estimator scope is the subset that the paper claims to
+# support; expected failures are recorded in plan_shapeshifter.md.
+# ---------------------------------------------------------------------------
+
+# Spine configuration: linear reward, linear features, action-dependent,
+# stochastic transitions, deterministic rewards, infinite horizon,
+# discount 0.95, S=32, A=3, K=4, state_dim=1, seed=0.
+_SS_SPINE: dict[str, Any] = {
+    "num_states": 32,
+    "num_actions": 3,
+    "num_features": 4,
+    "discount_factor": 0.95,
+    "reward_type": "linear",
+    "feature_type": "linear",
+    "action_dependent": True,
+    "stochastic_transitions": True,
+    "stochastic_rewards": False,
+    "state_dim": 1,
+    "seed": 0,
+}
+
+
+def _ss_config(**overrides: Any) -> dict[str, Any]:
+    """Build a shape-shifter dataset_config by overriding spine axes."""
+    cfg = dict(_SS_SPINE)
+    cfg.update(overrides)
+    return cfg
+
+
+# All twelve focus estimators plus MPEC, BC, and AIRL-Het.
+_SS_ALL_ESTIMATORS: list[str] = [
+    "NFXP", "CCP", "MPEC", "MCE-IRL", "NNES", "SEES", "TD-CCP",
+    "GLADIUS", "AIRL", "IQ-Learn", "f-IRL", "BC",
+]
+
+
+def _make_ss_cells(
+    suffix: str,
+    config: dict[str, Any],
+    estimators: list[str],
+    headline_tag: str = "H_shapeshifter",
+    n_replications: int = 20,
+    hardware: Hardware = "cpu",
+    expected_runtime_s: int = 60,
+    extra_per_estimator: dict[str, dict[str, Any]] | None = None,
+) -> list[Cell]:
+    """Build one Cell per estimator for a given shape-shifter config.
+
+    `extra_per_estimator` maps an estimator name to additional
+    constructor kwargs that get merged into the cell's extra_kwargs
+    (alongside dataset_config). Used to override defaults like NPL=10
+    on CCP or num_segments=2 on AIRL-Het.
+    """
+    cells = []
+    extra_per_estimator = extra_per_estimator or {}
+    for est in estimators:
+        est_slug = est.lower().replace("-", "").replace("_", "")
+        extra = {"dataset_config": config}
+        extra.update(extra_per_estimator.get(est, {}))
+        cells.append(
+            Cell(
+                cell_id=f"tier4_{suffix}_{est_slug}",
+                estimator=est,
+                dataset="shapeshifter",
+                hardware=hardware,
+                n_replications=n_replications,
+                headline_tag=headline_tag,
+                expected_runtime_s=expected_runtime_s,
+                extra_kwargs=extra,
+            )
+        )
+    return cells
+
+
+_NEURAL_REWARD_CAPABLE = ["MCE-IRL", "NNES", "GLADIUS", "AIRL", "f-IRL", "TD-CCP"]
+_NEURAL_FEATURE_CAPABLE = ["NFXP", "CCP", "MPEC", "MCE-IRL", "NNES", "TD-CCP", "GLADIUS", "AIRL", "f-IRL", "IQ-Learn", "BC"]
+_FINITE_HORIZON_CAPABLE = ["NFXP", "CCP", "MPEC", "MCE-IRL", "BC"]
+_STATE_ONLY_TOLERATES = ["NFXP", "CCP", "MPEC", "BC"]  # MCE-IRL is the canonical failure here
+
+TIER_4_SHAPESHIFTER = (
+    # ss-spine: every estimator on the baseline.
+    _make_ss_cells(
+        "spine",
+        _ss_config(),
+        _SS_ALL_ESTIMATORS,
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+    # ss-state-only: features identical across actions. MCE-IRL is the
+    # canonical failure mode (Phase B audit codifies this).
+    + _make_ss_cells(
+        "state_only",
+        _ss_config(action_dependent=False),
+        _STATE_ONLY_TOLERATES + ["MCE-IRL"],
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+    # ss-det-T: deterministic transitions; tests degeneracy handling.
+    + _make_ss_cells(
+        "det_T",
+        _ss_config(stochastic_transitions=False),
+        _SS_ALL_ESTIMATORS,
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+    # ss-stoch-r: noisy reward observation; structural estimators
+    # should be unaffected (they integrate out epsilon).
+    + _make_ss_cells(
+        "stoch_r",
+        _ss_config(stochastic_rewards=True),
+        ["NFXP", "CCP", "MPEC", "MCE-IRL", "NNES", "TD-CCP"],
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+    # ss-finite: finite horizon (T=20). Many estimators do not support
+    # this and will be expected failures.
+    + _make_ss_cells(
+        "finite",
+        _ss_config(num_periods=20),
+        _FINITE_HORIZON_CAPABLE,
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+    # ss-high-gamma: discount 0.999 stresses inner solvers.
+    + _make_ss_cells(
+        "high_gamma",
+        _ss_config(discount_factor=0.999),
+        ["NFXP", "MPEC", "MCE-IRL", "NNES", "TD-CCP"],
+        expected_runtime_s=300,
+    )
+    # ss-large-S: S=128 (above default but well under 4096 cap); tests
+    # tabular vs neural transition.
+    + _make_ss_cells(
+        "large_S",
+        _ss_config(num_states=128),
+        ["NFXP", "CCP", "MCE-IRL", "TD-CCP", "GLADIUS", "BC"],
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+        expected_runtime_s=120,
+    )
+    # ss-neural-r: ground-truth reward is a frozen MLP; only neural-
+    # reward IRL methods can recover it.
+    + _make_ss_cells(
+        "neural_r",
+        _ss_config(reward_type="neural"),
+        _NEURAL_REWARD_CAPABLE,
+        hardware="gpu",
+        expected_runtime_s=600,
+        extra_per_estimator={
+            "MCE-IRL": {"reward_type": "neural"},
+        },
+    )
+    # ss-neural-phi: features are a frozen MLP of the state. All
+    # estimators that take a feature matrix should still work but
+    # identification may suffer.
+    + _make_ss_cells(
+        "neural_phi",
+        _ss_config(feature_type="neural"),
+        _NEURAL_FEATURE_CAPABLE,
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+    # ss-neural-r-phi: hardest case for neural IRL methods.
+    + _make_ss_cells(
+        "neural_r_phi",
+        _ss_config(reward_type="neural", feature_type="neural"),
+        _NEURAL_REWARD_CAPABLE,
+        hardware="gpu",
+        expected_runtime_s=900,
+        extra_per_estimator={"MCE-IRL": {"reward_type": "neural"}},
+    )
+    # ss-multi-action: A=6 widens the choice set; tests MCE-IRL and
+    # CCP scaling.
+    + _make_ss_cells(
+        "multi_action",
+        _ss_config(num_actions=6),
+        ["NFXP", "CCP", "MPEC", "MCE-IRL", "TD-CCP", "BC"],
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+    # ss-product-state: state_dim=2 with num_states=8 per dim → 64 total.
+    + _make_ss_cells(
+        "product_state",
+        _ss_config(num_states=8, state_dim=2),
+        ["NFXP", "CCP", "MCE-IRL", "TD-CCP", "BC"],
+        extra_per_estimator={"CCP": {"num_policy_iterations": 10}},
+    )
+)
+
+
+# ---------------------------------------------------------------------------
 # Master matrix and tier index
 # ---------------------------------------------------------------------------
 
@@ -397,6 +583,7 @@ MATRIX: list[Cell] = (
     + TIER_3C_HETEROGENEITY
     + TIER_3D_TRANSFER
     + TIER_3E_GPU_SPEEDUP
+    + TIER_4_SHAPESHIFTER
 )
 
 TIER_INDEX: dict[str, list[Cell]] = {
@@ -407,6 +594,7 @@ TIER_INDEX: dict[str, list[Cell]] = {
     "3c": TIER_3C_HETEROGENEITY,
     "3d": TIER_3D_TRANSFER,
     "3e": TIER_3E_GPU_SPEEDUP,
+    "4":  TIER_4_SHAPESHIFTER,
 }
 
 
