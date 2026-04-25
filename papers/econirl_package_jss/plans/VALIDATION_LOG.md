@@ -89,7 +89,13 @@ spend compute.
   normalization.
 - Acceptance: reward identification residual below 0.05 against
   the NFXP point estimate.
-- Status: **Pending**.
+- Status: **Fail (wrong feature spec, wrapper default is misleading).**
+  - Wall-clock 9.2 seconds at discount=0.95, asymptotic SE.
+  - Converged: False.
+  - Recovered parameters: `{'f0': 0.0348}`. Single state-only feature.
+  - Log-likelihood: -4915.62. NFXP at the same discount achieves -1900.38. The MCE-IRL fit is solving a fundamentally different problem.
+  - **Cause**: the `MCEIRL` sklearn wrapper docstring says "If feature_matrix is None, uses state index as single feature." Since the canonical Rust setting has utility `U(s, keep) = -theta_c * s`, `U(s, replace) = -RC` with two action-dependent features, falling back to a single state-only scalar feature collapses the likelihood surface (per the project CLAUDE.md warning that features MUST be action-dependent for identification).
+  - **Action**: the MCEIRL wrapper silently constructs an unidentified model when called the same way as NFXP. Either (a) raise an error when the call would default to state-only features and the dataset has more than one action, or (b) inherit the `linear_cost` template from NFXP/CCP so the equivalence claim works out of the box, or (c) accept `utility="linear_cost"` like NFXP does. Until fixed, every plan that uses MCEIRL must explicitly pass an action-dependent `feature_matrix`. The equivalence claim against NFXP cannot be verified through the wrapper as currently designed.
 
 ### MCE-IRL on ziebart-small
 
@@ -98,7 +104,12 @@ spend compute.
   high precision.
 - Acceptance: reward identification residual below 0.05 against
   the true reward weights.
-- Status: **Pending**.
+- Status: **Fail (same wrapper issue as on rust-small).**
+  - Wall-clock 5.0 seconds, asymptotic SE.
+  - Converged: False.
+  - Recovered parameters: `{'f0': -0.0109}`. Single state-only feature; the canonical 3-feature reward (step penalty, terminal reward, distance weight) is never constructed.
+  - Log-likelihood: -803412.64. Astronomically worse than what an identified model would produce.
+  - **Action**: same wrapper fix applies. Until then the plan must construct the action-dependent feature matrix manually using the bundled DGP info (`get_taxi_gridworld_info`).
 
 ### MPEC on rust-small
 
