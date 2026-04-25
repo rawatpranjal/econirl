@@ -1,0 +1,63 @@
+\section{Software design} \label{sec:design}
+
+This section describes the architectural decisions that turn twelve heterogeneous estimators into interchangeable components of a single workflow. The key idea is that every estimator returns the same result object and that every downstream tool consumes that result object rather than the estimator that produced it. The result is a clean separation between estimation and inference, which means that any improvement to the inference layer benefits every estimator at once.
+
+\subsection{The Estimator protocol and the EstimationSummary contract}
+
+Every estimator in the library implements the \code{Estimator} protocol defined in \code{econirl.estimation.base}. The protocol requires a \code{name} property and an \code{estimate} method with the signature
+\begin{quote}
+\code{estimate(panel, utility, problem, transitions) -> EstimationSummary}.
+\end{quote}
+The four arguments specify the data, the utility function, the structural primitives, and the transition tensor. The return value is a single object that carries the parameter point estimates, the parameter names, the standard errors, the variance-covariance matrix, the Hessian at the optimum, the converged value function, the choice probabilities, the goodness-of-fit measures, and the identification diagnostics. The same object exposes formatted output through a \code{summary} method and offers \code{wald\_test}, \code{confidence\_interval}, \code{t\_statistics}, \code{p\_values}, \code{to\_latex}, and \code{to\_dataframe} as convenience methods.
+
+The base class \code{BaseEstimator} reduces the burden on new estimator authors. A subclass implements only the optimization core through the abstract method \code{\_optimize}, which returns an \code{EstimationResult} carrying the raw fit. The base class then handles the standard error computation, the identification check, the goodness-of-fit calculation, and the assembly of the final \code{EstimationSummary}. This template method pattern means that adding a new estimator to the library requires writing the optimization loop and nothing else. The user-facing inference layer comes for free.
+
+\subsection{The shared inference layer}
+
+The inference layer lives in \code{econirl.inference} and is shared across all estimators. Four standard error methods are available through the single entry point \code{compute\_standard\_errors}. The asymptotic method inverts the negative Hessian. The robust sandwich method combines the inverse Hessian with the outer product of the per-observation score contributions. The nonparametric bootstrap resamples individuals with replacement, refits the estimator on each resample, and reports the empirical standard deviation across replications. The clustered method sums the gradient contributions within each individual before forming the outer product, which is the appropriate adjustment for panel data with within-individual dependence. The user selects a method by passing a single string at estimator construction time. All four methods return the same \code{StandardErrorResult} structure.
+
+The identification layer in \code{econirl.inference.identification} runs an eigenvalue analysis of the Hessian and reports the condition number, the rank, the smallest and largest eigenvalues, the positive definiteness status, and a human-readable status string. A separate diagnostic function \code{diagnose\_identification\_issues} flags problematic parameters by checking for near-zero eigenvalues and high pairwise correlations exceeding 0.95. These diagnostics are computed automatically as part of every \code{estimate} call and are stored in the \code{identification} field of the returned \code{EstimationSummary}.
+
+The profile likelihood module in \code{econirl.inference.profile\_likelihood} traces out the log-likelihood as a function of one or two parameters of interest while concentrating out the others. The hypothesis test module in \code{econirl.inference.hypothesis\_tests} provides Wald tests, likelihood ratio tests, and Hausman tests through a uniform interface that accepts any \code{EstimationSummary}. The bootstrap module in \code{econirl.inference.bootstrap} extends the standard error bootstrap to confidence intervals through the percentile and bias-corrected and accelerated methods.
+
+\subsection{Counterfactuals and simulation}
+
+Counterfactual analysis consumes the fitted result rather than the estimator. The functions \code{counterfactual\_policy} and \code{counterfactual\_transitions} in \code{econirl.simulation.counterfactual} take an \code{EstimationSummary} and either a new parameter vector or a new transition tensor and return the implied choice probabilities and value function. The \code{elasticity\_analysis} function reports the partial derivative of any scalar policy summary with respect to any parameter through automatic differentiation. The \code{compute\_stationary\_distribution} function returns the long-run state distribution under the estimated policy, which is the workhorse object for welfare comparisons.
+
+The synthetic data layer in \code{econirl.simulation.synthetic} provides \code{simulate\_panel} for forward simulation under a given policy and \code{run\_monte\_carlo} for parameter recovery experiments under a known data generating process. The Monte Carlo function returns the bias, the root mean squared error, and the empirical coverage rate of the standard errors across replications, which is the standard validation we run for every new estimator before release.
+
+\subsection{Visualization}
+
+The visualization layer in \code{econirl.visualization} accepts an \code{EstimationSummary} and produces publication-ready figures. The functions \code{plot\_choice\_probabilities} and \code{plot\_value\_function} render the policy and the value function over the state space. The function \code{plot\_policy\_comparison} overlays a baseline and a counterfactual policy on the same axes for direct visual comparison. All figures use \pkg{Matplotlib} and are styled to match academic publication conventions.
+
+\subsection{The JAX backbone}
+
+The library is built on \pkg{JAX} \citep{jax2018github} for three reasons. Automatic differentiation produces analytical gradients and Hessians without hand-coded derivatives, which removes the most common source of bugs in structural estimation code. Just-in-time compilation accelerates the inner loops of the structural estimators by an order of magnitude relative to interpreted \proglang{NumPy}. Vectorized mapping over individual trajectories enables bootstrap resampling and Monte Carlo replications to run in parallel on a single machine without manual thread management.
+
+The configuration module \code{econirl.\_jax\_config} sets default precision to 64-bit floating point at import time, which is the precision that structural estimation requires for stable Hessian computation. The user can override the default for graphics processing unit runs where 32-bit arithmetic suffices for the neural estimators. Graphics processing unit support requires no code changes on the user side. \pkg{JAX} dispatches to the available accelerator automatically.
+
+\subsection{Comparison to existing software}
+
+Table~\ref{tab:libraries} compares \pkg{econirl} to the four most directly related open-source libraries along the dimensions that matter for applied work. The \pkg{imitation} library covers inverse reinforcement learning but lacks structural estimators, standard errors, identification diagnostics, and counterfactual analysis. The \pkg{pyblp} library is mature and well-tested but addresses static demand estimation rather than dynamic decision making. The \proglang{R} packages \pkg{mlogit} and \pkg{Rchoice} fit static discrete choice models with no inter-temporal substitution. \pkg{respy} fits a specific class of finite-horizon labor supply models but does not implement inverse reinforcement learning or the broader estimator family. \pkg{econirl} is the only library that spans dynamic discrete choice and inverse reinforcement learning under a unified inference pipeline.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lccccc}
+\toprule
+                            & \pkg{econirl} & \pkg{imitation} & \pkg{pyblp} & \pkg{respy} & \pkg{mlogit} \\
+\midrule
+Dynamic discrete choice     & yes & no  & no  & yes & no  \\
+Inverse reinforcement learning & yes & yes & no  & no  & no  \\
+Standard errors             & yes & no  & yes & yes & yes \\
+Identification diagnostics  & yes & no  & yes & no  & no  \\
+Counterfactual simulation   & yes & no  & yes & yes & no  \\
+GPU acceleration            & yes & yes & no  & no  & no  \\
+Number of estimators        & 12  & 4   & 1   & 1   & 1   \\
+License                     & MIT & MIT & MIT & MIT & GPL \\
+Language                    & Python & Python & Python & Python & R \\
+\bottomrule
+\end{tabular}
+\caption{Comparison of \pkg{econirl} to the most directly related open-source libraries along the dimensions that matter for applied work.}
+\label{tab:libraries}
+\end{table}

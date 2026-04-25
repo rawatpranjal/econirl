@@ -1,0 +1,11 @@
+\section{Computational details} \label{sec:computational}
+
+The illustrations in Section~\ref{sec:illustrations} were produced with \pkg{econirl} version 0.0.4 on \proglang{Python} 3.11. The package supports \proglang{Python} 3.10 or newer. The required dependencies are \pkg{JAX} 0.4.30 or newer, \pkg{Equinox} 0.11 or newer, \pkg{Optax} 0.2 or newer, \pkg{Optimistix} 0.0.7 or newer, \pkg{Lineax} 0.0.5 or newer, \pkg{NumPy} 1.24 or newer, \pkg{Pandas} 2.0 or newer, \pkg{SciPy} 1.10 or newer, and \pkg{Matplotlib} 3.7 or newer. The library is published to the Python Package Index and installs through the standard command
+\begin{quote}
+\code{pip install econirl}.
+\end{quote}
+The development version with optional testing dependencies installs through \code{pip install "econirl[dev]"}. The source repository lives at \url{https://github.com/rawatpranjal/econirl}.
+
+The wall-clock numbers reported in Section~\ref{sec:illustrations} were measured on a single machine running macOS 14.5 on an Apple M2 Pro central processing unit with 32 gigabytes of memory. The graphics processing unit measurement for the Keane-Wolpin illustration used a single NVIDIA A100 with 40 gigabytes of memory through Google Colab. \pkg{JAX} dispatches automatically to the available accelerator, so the user code did not change between the central processing unit and the graphics processing unit run.
+
+All scripts in Appendix~\ref{app:reproducing} use a fixed random seed of 42 to ensure that the numbers in this paper can be reproduced exactly. Each script writes its output to a file named after the figure or table that consumes it. The full paper rebuild requires running the eleven scripts in the appendix and then recompiling the LaTeX source.

@@ -1,0 +1,89 @@
+\section{Models and methods} \label{sec:methods}
+
+This section sets up a unified notation for dynamic discrete choice and inverse reinforcement learning, and then sketches the five families of estimators that \pkg{econirl} implements. The mathematical content is intentionally compact. We give the objective each estimator targets and cite the original paper for the proofs.
+
+\subsection{Unified notation}
+
+A dynamic discrete choice problem is a tuple $(\mathcal{S}, \mathcal{A}, P, r, \beta)$. The state space $\mathcal{S}$ is finite with cardinality $|\mathcal{S}|$. The action space $\mathcal{A}$ is finite with cardinality $|\mathcal{A}|$. Transition probabilities are $P(s' \mid s, a)$ for every triple in $\mathcal{S} \times \mathcal{A} \times \mathcal{S}$. The discount factor $\beta$ lies strictly between zero and one. The flow reward is $r(s, a)$. The decision maker observes the state, chooses an action, receives flow reward, and transitions to a new state according to $P$. A type-one extreme value error with location zero and scale $\sigma$ is added to the deterministic flow utility before the action is taken, following the standard convention in \citet{rust1987}. The conditional value function is
+\begin{equation}
+v(s, a) = r(s, a) + \beta \sum_{s' \in \mathcal{S}} P(s' \mid s, a) V(s'),
+\label{eq:v}
+\end{equation}
+where the integrated value $V(s)$ is the soft maximum of $v(s, a)$ across actions,
+\begin{equation}
+V(s) = \sigma \log \sum_{a \in \mathcal{A}} \exp\left(\frac{v(s, a)}{\sigma}\right) + \sigma \gamma,
+\label{eq:V}
+\end{equation}
+with $\gamma$ the Euler-Mascheroni constant. The optimal choice probability follows the multinomial logit form
+\begin{equation}
+\pi(a \mid s) = \frac{\exp(v(s, a) / \sigma)}{\sum_{a' \in \mathcal{A}} \exp(v(s, a') / \sigma)}.
+\label{eq:pi}
+\end{equation}
+The structural primitives parametrize the reward as $r(s, a) = \theta^\top \phi(s, a)$, where $\phi$ is a known feature mapping and $\theta$ is the unknown parameter vector to be estimated. The data are a panel of $N$ individuals observed for $T_i$ periods each, with realized states and actions. The forward problem is to recover $\theta$ from the panel and the known transitions. The inverse problem is to recover $r$, possibly nonparametrically, from the panel without exploiting a parametric form for the reward.
+
+The protocol implemented in \pkg{econirl} is uniform across all estimators. Every estimator receives a \code{Panel} object with the realized data, a \code{UtilityFunction} object that defines $\phi$ and the parameter names, a \code{DDCProblem} object that fixes $\beta$ and the scale parameter $\sigma$, and a transition tensor of shape \code{(num\_actions, num\_states, num\_states)}. Every estimator returns an \code{EstimationSummary} object whose contract is described in Section~\ref{sec:design}.
+
+\subsection{Structural likelihood} \label{sec:methods:structural}
+
+The structural likelihood family directly maximizes the log-likelihood of observed actions given states under the choice probabilities in equation~\eqref{eq:pi}. The challenge is that the choice probabilities depend on $V$, which depends on $r$, which depends on $\theta$. The six estimators in this family differ in how they handle this nesting.
+
+The nested fixed point estimator of \citet{rust1987}, available in \pkg{econirl} as \code{NFXP}, solves the Bellman equation~\eqref{eq:V} to convergence at every candidate $\theta$ and then evaluates the likelihood. The outer optimization defaults to BHHH with analytical per-observation scores, with L-BFGS-B available as an alternative, and the inner solve runs a successive approximation polyalgorithm that switches to Newton-Kantorovich iterations once contraction slows down, following \citet{iskhakov2016}.
+
+The mathematical programming with equilibrium constraints estimator of \citet{su2012}, available as \code{MPEC}, treats $\theta$ and $V$ as joint optimization variables under the Bellman equation as an equality constraint. The optimization problem is sparse and is solved with sequential quadratic programming. The implementation uses \pkg{SciPy} as the outer solver with JAX-computed Jacobians.
+
+The conditional choice probability estimator of \citet{hotz1993}, available as \code{CCP}, exploits the inverse mapping from choice probabilities to value differences, $\Psi(s, a) = -\log \pi(a \mid s) + \gamma$, to bypass the inner Bellman solve. \pkg{econirl} implements the nested pseudo-likelihood iterations of \citet{aguirregabiria2002}, in which the empirical choice probabilities serve as a starting point and are updated alongside $\theta$ until joint convergence.
+
+The sieve and neural value approximation family, comprising \code{SEES} \citep{luo2024sees} and \code{NNES} \citep{nguyen2025nnes}, replaces the value function $V$ by a sieve basis or a feedforward neural network. The estimation problem becomes joint maximum likelihood over $\theta$ and the value function parameters under a Bellman residual penalty. This family scales to state spaces too large for tabular value iteration. The temporal difference conditional choice probability estimator of \citet{adusumilli2025tdccp}, available as \code{TD-CCP}, combines the CCP decomposition with neural function approximation and cross-fitting to handle high-dimensional state spaces with valid inference.
+
+\subsection{Maximum entropy inverse reinforcement learning}
+
+The maximum entropy inverse reinforcement learning family treats the reward as unknown and recovers it by matching the feature expectations of the expert under a maximum entropy policy. The maximum causal entropy estimator of \citet{ziebart2010}, available as \code{MCEIRL}, parametrizes the reward as $r(s, a) = \theta^\top \phi(s, a)$ and finds the $\theta$ that solves
+\begin{equation}
+\E_\pi[\phi(s, a)] = \E_{\text{expert}}[\phi(s, a)],
+\label{eq:mce}
+\end{equation}
+where the policy $\pi$ on the left is the maximum causal entropy policy under the current $\theta$. The implementation follows the dual occupancy-measure formulation in \citet{gleave2022imitation} for the gradient computation and exposes both the asymptotic standard errors and the dual stopping criterion based on occupancy distance. Maximum causal entropy inverse reinforcement learning under linear features and an action-dependent reward is asymptotically equivalent to structural maximum likelihood under the same features and reward, a result we exploit in Section~\ref{sec:illustrations:mce} to compare the two recovered parameter vectors on the same panel.
+
+\subsection{Neural and Q-function based recovery}
+
+Two estimators in \pkg{econirl} avoid an explicit reward parametrization and recover the choice-relevant primitive directly. The inverse soft Q-learning estimator of \citet{garg2021}, available as \code{IQLearn}, learns a tabular soft Q-function from the expert demonstrations by minimizing a chi-squared distance between the implied state-action occupancy and the empirical occupancy. The reward is recovered post hoc through the inverse Bellman operator. The model-free estimator of \citet{kang2025gladius}, available as \code{GLADIUS}, parametrizes both the Q-function and the integrated value function by separate neural networks and trains them jointly with a Bellman consistency penalty. \code{GLADIUS} is the only estimator in the library that does not require user-supplied transition probabilities.
+
+\subsection{Adversarial inverse reinforcement learning}
+
+The adversarial inverse reinforcement learning estimator of \citet{fu2018}, available as \code{AIRL}, recovers the reward by training a discriminator to distinguish expert state-action pairs from pairs generated by a learned policy. The discriminator is parameterized so that the recovered reward is disentangled from the dynamics, allowing transfer to environments with different transition probabilities. \pkg{econirl} also implements a heterogeneous-agent extension \code{AIRLHet} that follows \citet{lee2026airlhet} and adds an expectation-maximization loop over latent types. The distribution-matching estimator of \citet{ni2021firl}, available as \code{FIRL}, generalizes \code{AIRL} by replacing the binary cross-entropy discriminator loss with an arbitrary $f$-divergence between the policy and expert occupancy measures.
+
+\subsection{Behavioral cloning baseline}
+
+The behavioral cloning estimator, available as \code{BC}, ignores the dynamic structure of the problem and fits a multinomial logit model to the marginal distribution of actions conditional on states. \code{BC} serves as the lower-bound baseline for every benchmark in the library. Any estimator that does not beat behavioral cloning on out-of-sample policy quality is not learning from the Markov decision process structure.
+
+\subsection{Estimator taxonomy}
+
+Table~\ref{tab:taxonomy} summarizes the twelve production estimators along the structural assumptions that determine which estimator applies to which problem. The columns mirror the \code{ProblemCapabilities} dataclass in \code{econirl.estimation.categories}, which serves as the canonical taxonomy and is regenerated whenever a new estimator is added to the library.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lllcccc}
+\toprule
+Estimator & Family & Reward & Trans.\ & Inner & Cont.\ & Recovers \\
+          &        & form   & known   & solve & states & params  \\
+\midrule
+NFXP    & Structural likelihood    & linear  & yes & yes & no  & yes \\
+MPEC    & Structural likelihood    & linear  & yes & no  & no  & yes \\
+CCP     & Structural likelihood    & linear  & yes & no  & no  & yes \\
+SEES    & Sieve approximation      & linear  & yes & no  & yes & yes \\
+NNES    & Neural approximation     & linear  & yes & no  & yes & yes \\
+TD-CCP  & Neural CCP               & linear  & yes & no  & yes & yes \\
+MCE IRL & Max causal entropy       & linear  & yes & yes & no  & yes \\
+GLADIUS & Q-network IRL            & neural  & no  & no  & yes & yes \\
+IQ-Learn& Q-function IRL           & tabular & yes & no  & no  & no  \\
+AIRL    & Adversarial IRL          & linear  & yes & yes & no  & no  \\
+$f$-IRL & Distribution IRL         & tabular & yes & yes & no  & no  \\
+BC      & Imitation                & none    & no  & no  & no  & no  \\
+\bottomrule
+\end{tabular}
+\caption{Twelve production estimators along their structural assumptions. The columns are derived from the \code{ProblemCapabilities} dataclass in \code{econirl.estimation.categories}.}
+\label{tab:taxonomy}
+\end{table}
+
+The columns can be read as a decision aid. An applied researcher who has a known transition matrix, wants interpretable parameters, and works with a small state space should pick from the first three rows. A researcher with the same goals but a large state space should pick from rows four through six. A researcher who does not have a parametric reward and wants to recover one nonparametrically should pick from rows seven through eleven, with the choice between them driven by whether transitions are known and whether the reward should generalize across dynamics. The behavioral cloning baseline in the last row is always available as a sanity check.

@@ -1,0 +1,29 @@
+\section{Reproducing every figure and table} \label{app:reproducing}
+
+Every numbered figure and table in this paper is produced by exactly one script. To regenerate the paper end to end, run each script below from the repository root. All scripts use a fixed random seed of 42 and write their output to the location named in the third column.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Element & Script & Output \\
+\midrule
+Listing 1     & \code{code\_snippets/teaser\_nfxp\_rust.py}        & console \\
+Table 1       & \code{code\_snippets/table1\_estimator\_taxonomy.py}& \code{figures/table1.tex} \\
+Table 2       & \code{code\_snippets/table2\_library\_comparison.py}& \code{figures/table2.tex} \\
+Listing 2     & \code{code\_snippets/listing2\_nfxp\_example.py}    & console \\
+Figure 1      & \code{code\_snippets/fig1\_rust\_bus\_ccp.py}       & \code{figures/fig1.pdf} \\
+Figure 2      & \code{code\_snippets/fig2\_rust\_bus\_value.py}     & \code{figures/fig2.pdf} \\
+Listing 3     & \code{code\_snippets/listing3\_mce\_irl\_example.py}& console \\
+Figure 3      & \code{code\_snippets/fig3\_mce\_irl\_reward.py}     & \code{figures/fig3.pdf} \\
+Listing 4     & \code{code\_snippets/listing4\_nnes\_example.py}    & console \\
+Figure 4      & \code{code\_snippets/fig4\_keane\_wolpin\_policy.py}& \code{figures/fig4.pdf} \\
+Table 3       & \code{examples/rust-bus-engine/benchmark\_all\_estimators.py} & \code{benchmark\_results.csv} \\
+\bottomrule
+\end{tabular}
+\caption{Mapping from each numbered element of the paper to a single reproducing script.}
+\label{tab:reproduce}
+\end{table}
+
+The combined runtime of all eleven scripts is approximately one hour on the central processing unit configuration documented in Section~\ref{sec:computational}, dominated by the adversarial inverse reinforcement learning estimator in Table~\ref{tab:bench}. The Keane-Wolpin script accelerates by roughly a factor of five on a graphics processing unit.

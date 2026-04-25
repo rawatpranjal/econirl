@@ -1,0 +1,72 @@
+\documentclass[article]{jss}
+
+%% -- LaTeX packages and custom commands ---------------------------------------
+
+\usepackage{thumbpdf,lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{listings}
+
+\graphicspath{{figures/}}
+
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\PR}{\mathbb{P}}
+
+%% -- Article metadata --------------------------------------------------------
+
+\author{Pranjal Rawat\\Georgetown University \And
+        John Rust\\Georgetown University \AND
+        Hoang Nguyen\\Affiliation TBD \And
+        Enoch H.\ Kang\\Affiliation TBD \And
+        Maximilian Blesch\\Affiliation TBD}
+
+\Plainauthor{Pranjal Rawat, John Rust, Hoang Nguyen, Enoch H. Kang, Maximilian Blesch}
+
+\title{\pkg{econirl}: Unified Estimation and Inverse Reinforcement Learning for Dynamic Discrete Choice in \proglang{Python}}
+
+\Plaintitle{econirl: Unified Estimation and Inverse Reinforcement Learning for Dynamic Discrete Choice in Python}
+
+\Shorttitle{\pkg{econirl}: Estimation and IRL for DDC}
+
+\Abstract{
+Dynamic discrete choice models and inverse reinforcement learning ask the same question from opposite directions. The structural econometrics literature solves a forward maximum likelihood problem with a parametric reward, while the imitation learning literature recovers an unknown reward from expert behavior. The two communities have developed largely incompatible toolchains. We present \pkg{econirl}, an open-source \proglang{Python} library that implements twelve estimators spanning both traditions under one common interface and a shared post-estimation pipeline. The pipeline provides four standard error methods, identification diagnostics, profile likelihood, hypothesis tests, counterfactual simulation, and visualization, each reusable across every estimator. The library is built on \pkg{JAX} for automatic differentiation and graphics processing unit acceleration. Three worked illustrations on real data demonstrate the unified workflow. The library is available under the MIT license at \url{https://github.com/rawatpranjal/econirl}.
+}
+
+\Plainabstract{
+Dynamic discrete choice models and inverse reinforcement learning solve the same problem from opposite directions, but their tooling has remained fragmented. We present econirl, an open-source Python library that implements twelve estimators from both traditions under a single result-object contract with a shared post-estimation pipeline for standard errors, identification, counterfactuals, and visualization. Three worked illustrations on real data demonstrate the unified workflow.
+}
+
+\Keywords{dynamic discrete choice, inverse reinforcement learning, structural estimation, maximum likelihood, \proglang{Python}, \pkg{JAX}}
+\Plainkeywords{dynamic discrete choice, inverse reinforcement learning, structural estimation, maximum likelihood, Python, JAX}
+
+\Address{
+  Pranjal Rawat\\
+  Department of Economics\\
+  Georgetown University\\
+  Washington, DC, United States of America\\
+  E-mail: \email{pp712@georgetown.edu}\\
+  URL: \url{https://github.com/rawatpranjal/econirl}
+}
+
+\begin{document}
+
+\input{sec1_introduction}
+\input{sec2_models_and_methods}
+\input{sec3_software_design}
+\input{sec4_illustrations}
+\input{sec5_computational_details}
+\input{sec6_summary}
+
+\section*{Acknowledgments}
+\input{acknowledgments}
+
+\bibliography{references}
+
+\appendix
+\input{appendix_a_reproducing}
+
+\end{document}
