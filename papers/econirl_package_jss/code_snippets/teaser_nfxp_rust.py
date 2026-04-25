@@ -13,10 +13,16 @@ SEED = 42
 np.random.seed(SEED)
 
 from econirl.datasets import load_rust_bus
+from econirl.environments.rust_bus import RustBusEnvironment
+from econirl.preferences.linear import LinearUtility
 from econirl.estimation import NFXP
 
+env = RustBusEnvironment(num_mileage_bins=90, discount_factor=0.9999)
 panel = load_rust_bus(as_panel=True)
-result = NFXP(discount_factor=0.9999).estimate(panel)
+result = NFXP().estimate(
+    panel=panel,
+    utility=LinearUtility.from_environment(env),
+    problem=env.problem_spec,
+    transitions=env.transition_matrices,
+)
 print(result.summary())
-print(result.identification.condition_number)
-print(result.confidence_interval(level=0.95))

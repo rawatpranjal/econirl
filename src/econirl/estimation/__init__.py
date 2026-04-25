@@ -24,19 +24,27 @@ from econirl.estimation.categories import (
 from econirl.estimation.nfxp import NFXPEstimator
 from econirl.estimation.mpec import MPECEstimator, MPECConfig
 from econirl.estimation.ccp import CCPEstimator
+NFXP = NFXPEstimator
+MPEC = MPECEstimator
+CCP = CCPEstimator
 
 # Entropy IRL
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
+MCEIRL = MCEIRLEstimator
 
 # Structural approximation
 from econirl.estimation.td_ccp import TDCCPEstimator, TDCCPConfig
 from econirl.estimation.nnes import NNESEstimator, NNESNFXPEstimator
 from econirl.estimation.sees import SEESEstimator
+TDCCP = TDCCPEstimator
+NNES = NNESEstimator
+SEES = SEESEstimator
 
 # Q-learning IRL
 from econirl.estimation.gladius import GLADIUSEstimator, GLADIUSConfig
 from econirl.estimation.iq_learn import IQLearnEstimator, IQLearnConfig
 IQLearn = IQLearnEstimator
+GLADIUS = GLADIUSEstimator
 
 # Adversarial IRL
 from econirl.estimation.adversarial import (
@@ -47,12 +55,16 @@ from econirl.estimation.adversarial import (
     TabularDiscriminator,
     LinearDiscriminator,
 )
+AIRL = AIRLEstimator
+AIRLHet = AIRLHetEstimator
 
 # Distribution-matching IRL
 from econirl.estimation.f_irl import FIRLEstimator
+FIRL = FIRLEstimator
 
 # Imitation baseline
 from econirl.estimation.behavioral_cloning import BehavioralCloningEstimator
+BC = BehavioralCloningEstimator
 
 # Utilities
 from econirl.estimation.transitions import (
@@ -65,35 +77,47 @@ __all__ = [
     "Estimator",
     "EstimationResult",
     # Structural
+    "NFXP",
     "NFXPEstimator",
+    "MPEC",
     "MPECEstimator",
     "MPECConfig",
+    "CCP",
     "CCPEstimator",
     # Entropy IRL
+    "MCEIRL",
     "MCEIRLEstimator",
     "MCEIRLConfig",
     # Structural approximation
+    "TDCCP",
     "TDCCPEstimator",
     "TDCCPConfig",
+    "NNES",
     "NNESEstimator",
     "NNESNFXPEstimator",
+    "SEES",
     "SEESEstimator",
     # Q-learning IRL
+    "GLADIUS",
     "GLADIUSEstimator",
     "GLADIUSConfig",
     "IQLearn",
     "IQLearnEstimator",
     "IQLearnConfig",
     # Adversarial IRL
+    "AIRL",
     "AIRLEstimator",
     "AIRLConfig",
+    "AIRLHet",
     "AIRLHetEstimator",
     "AIRLHetConfig",
     "TabularDiscriminator",
     "LinearDiscriminator",
     # Distribution-matching IRL
+    "FIRL",
     "FIRLEstimator",
     # Imitation baseline
+    "BC",
     "BehavioralCloningEstimator",
     # Taxonomy
     "EstimatorCategory",
