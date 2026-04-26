@@ -137,11 +137,15 @@ def _bootstrap_command(cell: Cell, repo_ref: str) -> str:
         "DEBIAN_FRONTEND=noninteractive apt-get install -y -q "
         "python3 python3-pip python3-venv git curl ca-certificates"
     )
+    # Use python3 -m pip rather than bare pip; on bare ubuntu after
+    # apt-installing python3-pip the `pip` shim may not be on PATH.
+    # Quotes around the package spec are double quotes so the bash -c
+    # single-quoted wrapper does not break.
     jax_install = (
-        "pip install -q 'jax[cuda12_pip]==0.4.30' "
+        "python3 -m pip install -q \"jax[cuda12_pip]==0.4.30\" "
         "-f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
         if cell.hardware == "gpu"
-        else "pip install -q 'jax==0.4.30'"
+        else "python3 -m pip install -q \"jax==0.4.30\""
     )
     # The bootstrap ends by calling the RunPod REST API to self-
     # terminate the pod. Pods do not auto-shut when the entrypoint
@@ -167,23 +171,38 @@ def _bootstrap_command(cell: Cell, repo_ref: str) -> str:
     )
     import base64
     cleanup_b64 = base64.b64encode(cleanup_script.encode()).decode()
-    return (
-        "set -euo pipefail; "
+    cid = cell.cell_id
+    mark_dir = f"/workspace/results/markers/{cid}"
+    # The runpod/base image runs docker_args under /bin/sh (dash), not
+    # bash. dash doesn't know `set -o pipefail` and exits immediately,
+    # restart-looping the container. We re-enter bash explicitly so the
+    # rest of the bootstrap can use bash-isms safely. The whole bash
+    # invocation is single-quoted; the inner script must contain no
+    # single quotes (verified — base64-encoded cleanup script hides any
+    # quotes inside it).
+    inner = (
+        "set -uo pipefail; "
+        f"mkdir -p {mark_dir} 2>/dev/null || mkdir -p {mark_dir} ; "
+        f"date +%s > {mark_dir}/00_started ; "
         f"echo {cleanup_b64} | base64 -d > /tmp/cleanup.sh && chmod +x /tmp/cleanup.sh && "
         "trap /tmp/cleanup.sh EXIT; "
-        f"{apt_install} && "
-        "cd /workspace && "
+        "set -e; "
+        f"{apt_install} && date +%s > {mark_dir}/10_apt_done && "
+        f"cd /workspace && "
         f"git clone --depth 1 --branch main https://github.com/rawatpranjal/EconIRL.git econirl && "
-        f"cd /workspace/econirl && git checkout {repo_ref} && "
-        f"{jax_install} && "
-        "pip install -q -e .[dev] && "
+        f"cd /workspace/econirl && git checkout {repo_ref} && date +%s > {mark_dir}/20_clone_done && "
+        f"{jax_install} && date +%s > {mark_dir}/30_jax_done && "
+        f"python3 -m pip install -q -e .[dev] && date +%s > {mark_dir}/40_pip_done && "
         "mkdir -p /workspace/results/shapeshifter && "
-        f"python -m experiments.jss_deep_run.run_cell --cell-id {cell.cell_id} "
+        f"python3 -m experiments.jss_deep_run.run_cell --cell-id {cid} "
         f"--output-dir /workspace/results/shapeshifter && "
-        f"echo '<<<CSV_BEGIN {cell.cell_id}>>>' && "
-        f"cat /workspace/results/shapeshifter/{cell.cell_id}.csv && "
-        f"echo '<<<CSV_END {cell.cell_id}>>>'"
+        f"date +%s > {mark_dir}/50_cell_done && "
+        f"cp /workspace/results/shapeshifter/{cid}.csv {mark_dir}/result.csv && "
+        f"date +%s > {mark_dir}/99_all_done"
     )
+    if "'" in inner:
+        raise RuntimeError("bootstrap inner contains a single quote; cannot wrap in bash -c")
+    return f"bash -c '{inner}'"
 
 
 def _runpod_pod_payload(
