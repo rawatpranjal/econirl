@@ -139,13 +139,14 @@ def _bootstrap_command(cell: Cell, repo_ref: str) -> str:
     )
     # Use python3 -m pip rather than bare pip; on bare ubuntu after
     # apt-installing python3-pip the `pip` shim may not be on PATH.
-    # Quotes around the package spec are double quotes so the bash -c
-    # single-quoted wrapper does not break.
+    # No quoting on the package spec — brackets are bash-literal as
+    # bare arguments, and any quotes here would have to survive both
+    # the bash -c single-quoted wrap and the runpod GraphQL string.
     jax_install = (
-        "python3 -m pip install -q \"jax[cuda12_pip]==0.4.30\" "
+        "python3 -m pip install -q jax[cuda12_pip]==0.4.30 "
         "-f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
         if cell.hardware == "gpu"
-        else "python3 -m pip install -q \"jax==0.4.30\""
+        else "python3 -m pip install -q jax==0.4.30"
     )
     # The bootstrap ends by calling the RunPod REST API to self-
     # terminate the pod. Pods do not auto-shut when the entrypoint
