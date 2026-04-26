@@ -72,29 +72,31 @@ inference validity is auditable from the artifact.
 
 ## Monte Carlo extension
 
-R = 20 replications per cell. Replications use seed = 42 + r and
+R = 5 replications per cell. Replications use seed = 42 + r and
 both the env and the simulation re-seed, so the Monte Carlo also
 varies the frozen-network weights and transition matrices across
-replications. This ensures the variance estimate reflects real
-sampling variability across DGP draws, not just trajectory noise.
+replications. R = 5 is enough to surface "always passes" vs "always
+fails" vs "intermittent" behaviour for the alignment table; tighter
+SE coverage estimates would need R = 20+ but coverage is not the
+headline of this tier.
 
 ## Compute spec
 
-Twelve axis cells with up to twelve estimators each. Counted:
+Twelve axis cells with up to twelve estimators each. The shape-
+shifter spine is small (S = 32, A = 3) so per-fit times are seconds,
+not minutes. Counted at R = 5 with realistic per-fit times:
 
-- spine: 12 estimators × 20 reps × 60s = 14400s ≈ 4h CPU.
-- state_only, det_T, multi_action, product_state, large_S: similar
-  per-cell budgets, totalling ~12h CPU.
-- finite: 5 estimators × 20 reps × 60s = 6000s ≈ 1.7h CPU.
-- stoch_r: 6 estimators × 20 reps × 60s = 7200s ≈ 2h CPU.
-- high_gamma: 5 estimators × 20 reps × 300s = 30000s ≈ 8h CPU.
-- neural_r, neural_phi, neural_r_phi: 6 + 11 + 6 estimators ×
-  20 reps × 600-900s = 14h GPU.
+- 8 tabular axis cells (spine, state_only, det_T, stoch_r, finite,
+  multi_action, product_state, large_S): ~5–12 estimators × 5 reps ×
+  10–30s ≈ 2 CPU-hours total.
+- high_gamma: 5 estimators × 5 reps × up to 60s ≈ 0.5 CPU-hours.
+- neural_r, neural_phi, neural_r_phi: ~6 estimators × 5 reps ×
+  1–3 min ≈ 1–2 GPU-hours total.
 
-Sequential single-pod wall-clock around 36-40h. At 8-way RunPod
-parallelism the wall-clock floors at the high_gamma cell at roughly
-2h CPU plus the 14h GPU tier in serial, total around 16h. Cost at
-RunPod community rates around 25-35 USD.
+At RunPod community rates (CPU 0.40, GPU 1.20 per hour) and 8-way
+parallelism, expected wall-clock under one hour and expected total
+spend **5 to 10 USD**. The 50 USD ceiling on the dispatcher is a
+safety cap, not the budget.
 
 ## Acceptance criteria
 

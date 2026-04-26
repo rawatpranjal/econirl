@@ -430,9 +430,9 @@ def _make_ss_cells(
     config: dict[str, Any],
     estimators: list[str],
     headline_tag: str = "H_shapeshifter",
-    n_replications: int = 20,
+    n_replications: int = 5,
     hardware: Hardware = "cpu",
-    expected_runtime_s: int = 60,
+    expected_runtime_s: int = 30,
     extra_per_estimator: dict[str, dict[str, Any]] | None = None,
 ) -> list[Cell]:
     """Build one Cell per estimator for a given shape-shifter config.

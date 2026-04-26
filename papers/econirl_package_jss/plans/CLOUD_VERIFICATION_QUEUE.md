@@ -92,14 +92,17 @@ require cloud_test.py.
 python -m experiments.jss_deep_run.dispatch_runpod \
     --tier 4 \
     --max-parallel 8 \
-    --max-spend-usd 35 \
-    --max-wallclock-hours 2 \
+    --max-spend-usd 15 \
+    --max-wallclock-hours 1 \
     --image econirl-deep-run:v1
 ```
 
-Expected total cost ~25-35 USD per plan_shapeshifter.md. The
-`--max-spend-usd` and `--max-wallclock-hours` flags are now
-supported on dispatch_runpod.py.
+Expected total cost **5 to 10 USD** at R = 5 reps per cell on the
+small (S = 32, A = 3) shape-shifter (the rust-small runtime budgets
+in the plan were over-estimates). The `--max-spend-usd 15` is a
+safety cap. Tier 4 has 12 axis cells with up to 12 estimators each;
+at R = 5 the variance is enough to surface "always passes" vs
+"always fails" vs "intermittent" for the alignment table.
 
 ## Step 6 — Aggregate Tier 4 results
 
