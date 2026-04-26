@@ -138,8 +138,34 @@ def _bootstrap_command(cell: Cell, repo_ref: str) -> str:
         if cell.hardware == "gpu"
         else "pip install -q 'jax==0.4.30'"
     )
+    # The bootstrap ends by calling the RunPod REST API to self-
+    # terminate the pod. Pods do not auto-shut when the entrypoint
+    # command exits — they keep billing until something stops them.
+    # Self-termination requires RUNPOD_API_KEY in the pod env (set
+    # via the env dict in _runpod_pod_payload). The pod's own id is
+    # auto-injected by the platform as RUNPOD_POD_ID.
+    #
+    # The trap body uses single quotes throughout and the
+    # `Authorization:` header uses backslash-space escaping so that
+    # no double quote characters end up in the docker_args string —
+    # the runpod GraphQL builder interpolates docker_args into a
+    # double-quoted string and does not escape inner quotes.
+    # The bootstrap installs a base64-encoded cleanup script that
+    # self-terminates the pod when the bootstrap exits. Encoding
+    # avoids embedding double quotes or backslash-space in docker_args
+    # (the runpod GraphQL builder does not escape those and the
+    # parser rejects \ as an unknown escape).
+    cleanup_script = (
+        "#!/bin/bash\n"
+        "curl -s -X DELETE -H \"Authorization: Bearer ${RUNPOD_API_KEY}\" "
+        "https://rest.runpod.io/v1/pods/${RUNPOD_POD_ID} >/dev/null 2>&1\n"
+    )
+    import base64
+    cleanup_b64 = base64.b64encode(cleanup_script.encode()).decode()
     return (
         "set -euo pipefail; "
+        f"echo {cleanup_b64} | base64 -d > /tmp/cleanup.sh && chmod +x /tmp/cleanup.sh && "
+        "trap /tmp/cleanup.sh EXIT; "
         "cd /workspace && "
         f"git clone --depth 1 --branch main https://github.com/rawatpranjal/EconIRL.git econirl && "
         f"cd /workspace/econirl && git checkout {repo_ref} && "
@@ -147,12 +173,19 @@ def _bootstrap_command(cell: Cell, repo_ref: str) -> str:
         "pip install -q -e .[dev] && "
         "mkdir -p /workspace/results/shapeshifter && "
         f"python -m experiments.jss_deep_run.run_cell --cell-id {cell.cell_id} "
-        f"--output-dir /workspace/results/shapeshifter"
+        f"--output-dir /workspace/results/shapeshifter && "
+        f"echo '<<<CSV_BEGIN {cell.cell_id}>>>' && "
+        f"cat /workspace/results/shapeshifter/{cell.cell_id}.csv && "
+        f"echo '<<<CSV_END {cell.cell_id}>>>'"
     )
 
 
 def _runpod_pod_payload(
-    cell: Cell, image: str, volume_id: str, repo_ref: str = "main",
+    cell: Cell,
+    image: str,
+    volume_id: str,
+    repo_ref: str = "main",
+    api_key: str | None = None,
 ) -> dict[str, Any]:
     """Build the GraphQL ``podRentInterruptable`` mutation payload.
 
@@ -164,27 +197,64 @@ def _runpod_pod_payload(
     payload: dict[str, Any] = {
         "name": cell.cell_id,
         "image_name": image,
-        "cloud_type": "COMMUNITY",
+        # cloud_type=ALL covers both COMMUNITY and SECURE; community
+        # alone is often sold out in any given region, especially when
+        # constrained by a network volume's region. Letting RunPod
+        # pick the cheapest matching pod across both pools is the
+        # difference between dispatch succeeding and failing for most
+        # GPU types in 2026.
+        "cloud_type": "ALL",
         "container_disk_in_gb": 20,
+        # No network volume by default. Each pod's CSV is small (a few
+        # KB at R=5) so we cat it to stdout at the end of the bootstrap
+        # and the aggregator scrapes it from the pod logs. Setting a
+        # network volume forces a region constraint that wipes out
+        # availability in 2026.
         "volume_in_gb": 0,
         "volume_mount_path": "/workspace",
-        "network_volume_id": volume_id,
-        "data_center_id": "EU-RO-1",  # matches the network volume's region
         "ports": "",
         "env": {
             "CELL_ID": cell.cell_id,
             "JAX_PLATFORMS": "cuda" if cell.hardware == "gpu" else "cpu",
+            # Required so the bootstrap's trap-EXIT handler can call
+            # the REST API to self-terminate the pod once the cell
+            # finishes. Without it the pod stays RUNNING and bills
+            # forever.
+            "RUNPOD_API_KEY": api_key or os.environ.get("RUNPOD_API_KEY", ""),
         },
         "docker_args": _bootstrap_command(cell, repo_ref),
     }
-    if cell.hardware == "gpu":
-        payload["gpu_count"] = 1
-        payload["gpu_type_id"] = "NVIDIA A100 80GB PCIe"
-    else:
-        payload["gpu_count"] = 0
-        payload["min_vcpu_count"] = 2
-        payload["min_memory_in_gb"] = 4
+    if volume_id:
+        payload["network_volume_id"] = volume_id
+    payload["gpu_count"] = 1  # Even "cpu" cells use a GPU pod because
+    # RunPod CPU pods need an instance_id and have far worse
+    # availability than tiny GPU pods. The cheapest GPU is plenty for
+    # the tabular tier-4 fits.
+    # Caller fills gpu_type_id from the fallback list below.
     return payload
+
+
+# Cheapest-first list of GPU types to try for tabular cells (most
+# Tier 4 cells). When one is sold out, the dispatcher cycles through.
+_GPU_FALLBACKS_TABULAR = [
+    "NVIDIA GeForce RTX 3090",
+    "NVIDIA RTX A4000",
+    "NVIDIA GeForce RTX 4080",
+    "NVIDIA L4",
+    "NVIDIA A40",
+    "NVIDIA RTX A5000",
+    "NVIDIA GeForce RTX 4090",
+]
+# For cells the matrix declares as GPU (neural reward / features), use
+# beefier GPUs.
+_GPU_FALLBACKS_NEURAL = [
+    "NVIDIA RTX A5000",
+    "NVIDIA L40",
+    "NVIDIA L40S",
+    "NVIDIA A40",
+    "NVIDIA RTX A6000",
+    "NVIDIA A100 80GB PCIe",
+]
 
 
 def run_runpod(
@@ -230,20 +300,39 @@ def run_runpod(
             print(f"Halted: {ceiling.halt_reason}")
             break
 
-        # Launch up to max_parallel pods.
+        # Launch up to max_parallel pods, retrying across the GPU
+        # fallback list until one type has capacity.
         while pending and len(in_flight) < max_parallel:
             cell = pending.pop(0)
-            payload = _runpod_pod_payload(cell, image, volume_id or "<volume_id>", repo_ref)
-            try:
-                pod = runpod.create_pod(**payload)
-                in_flight.append((cell, pod["id"], time.time()))
-                print(f"[runpod] launched {cell.cell_id} pod_id={pod['id']}")
-            except Exception as e:
-                print(f"[runpod] failed to launch {cell.cell_id}: {e}")
-                outcomes.append({"cell_id": cell.cell_id, "error": str(e)})
+            base_payload = _runpod_pod_payload(
+                cell, image, volume_id or "<volume_id>", repo_ref, api_key=api_key,
+            )
+            fallbacks = (
+                _GPU_FALLBACKS_NEURAL if cell.hardware == "gpu"
+                else _GPU_FALLBACKS_TABULAR
+            )
+            launched = False
+            last_err: str | None = None
+            for gpu_type in fallbacks:
+                payload = dict(base_payload, gpu_type_id=gpu_type)
+                try:
+                    pod = runpod.create_pod(**payload)
+                    in_flight.append((cell, pod["id"], time.time()))
+                    print(
+                        f"[runpod] launched {cell.cell_id} pod_id={pod['id']} "
+                        f"gpu={gpu_type} cost/hr={pod.get('costPerHr')}"
+                    )
+                    launched = True
+                    break
+                except Exception as e:
+                    last_err = str(e)[:120]
+                    continue
+            if not launched:
+                print(f"[runpod] all GPU fallbacks failed for {cell.cell_id}: {last_err}")
+                outcomes.append({"cell_id": cell.cell_id, "error": last_err})
 
         # Poll pods.
-        time.sleep(60)
+        time.sleep(20)
         still_in_flight = []
         for cell, pod_id, started_at in in_flight:
             try:
@@ -253,7 +342,22 @@ def run_runpod(
                 still_in_flight.append((cell, pod_id, started_at))
                 continue
 
-            if status.get("desiredStatus") == "EXITED":
+            # After a self-terminate (REST DELETE from inside the pod),
+            # get_pod returns None. Treat that as a clean exit.
+            if status is None:
+                elapsed = time.time() - started_at
+                rate = _RUNPOD_USD_PER_HOUR[cell.hardware]
+                spend = (elapsed / 3600.0) * rate
+                ceiling.spend_so_far_usd += spend
+                outcomes.append({
+                    "cell_id": cell.cell_id, "pod_id": pod_id,
+                    "wall_clock_s": elapsed, "spend_usd": spend,
+                    "outcome": "self_terminated",
+                })
+                print(f"[runpod] {cell.cell_id} self-terminated in {elapsed:.0f}s, spend {spend:.3f} USD")
+                continue
+
+            if status.get("desiredStatus") in ("EXITED", "TERMINATED"):
                 elapsed = time.time() - started_at
                 rate = _RUNPOD_USD_PER_HOUR[cell.hardware]
                 spend = (elapsed / 3600.0) * rate
