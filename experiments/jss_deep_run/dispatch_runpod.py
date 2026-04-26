@@ -121,17 +121,22 @@ _RUNPOD_USD_PER_HOUR = {"cpu": 0.40, "gpu": 1.20}
 def _bootstrap_command(cell: Cell, repo_ref: str) -> str:
     """Construct the in-pod setup-and-run command.
 
-    The pod uses the public ``runpod/pytorch`` template (no custom
-    image build required). At launch the pod clones the econirl repo
-    at the pinned ref, installs it with the dev extras, and runs the
-    cell. Output is written to ``/workspace/results`` which is mounted
-    from the persistent network volume so results survive pod
-    termination.
+    The pod uses the public ``runpod/base`` Ubuntu template (~600 MB,
+    pulls in 1-2 minutes vs >10 minutes for runpod/pytorch). The
+    bootstrap installs python3, pip, git, then JAX, then clones and
+    installs econirl, then runs the cell. Output goes to
+    ``/workspace/results`` on the network volume so it survives
+    self-termination.
 
     JAX is installed against CUDA 12 wheels for GPU cells; CPU cells
     install the wheel-only JAX so the inner solver runs on the box's
     CPU.
     """
+    apt_install = (
+        "apt-get update -q && "
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y -q "
+        "python3 python3-pip python3-venv git curl ca-certificates"
+    )
     jax_install = (
         "pip install -q 'jax[cuda12_pip]==0.4.30' "
         "-f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
@@ -166,6 +171,7 @@ def _bootstrap_command(cell: Cell, repo_ref: str) -> str:
         "set -euo pipefail; "
         f"echo {cleanup_b64} | base64 -d > /tmp/cleanup.sh && chmod +x /tmp/cleanup.sh && "
         "trap /tmp/cleanup.sh EXIT; "
+        f"{apt_install} && "
         "cd /workspace && "
         f"git clone --depth 1 --branch main https://github.com/rawatpranjal/EconIRL.git econirl && "
         f"cd /workspace/econirl && git checkout {repo_ref} && "
@@ -205,14 +211,16 @@ def _runpod_pod_payload(
         # GPU types in 2026.
         "cloud_type": "ALL",
         "container_disk_in_gb": 20,
-        # No network volume by default. Each pod's CSV is small (a few
-        # KB at R=5) so we cat it to stdout at the end of the bootstrap
-        # and the aggregator scrapes it from the pod logs. Setting a
-        # network volume forces a region constraint that wipes out
-        # availability in 2026.
+        # Mount the network volume at /workspace so each pod's CSV
+        # survives self-termination. The volume is in EU-RO-1; that
+        # constrains GPU availability but we accept the trade-off
+        # because pod stdout is not queryable via the runpod API.
         "volume_in_gb": 0,
         "volume_mount_path": "/workspace",
-        "ports": "",
+        # Expose SSH so the operator can scp results from the network
+        # volume after Tier 4 finishes; the user's ssh key is auto-
+        # injected by RunPod via PUBLIC_KEY env on the pytorch image.
+        "ports": "22/tcp",
         "env": {
             "CELL_ID": cell.cell_id,
             "JAX_PLATFORMS": "cuda" if cell.hardware == "gpu" else "cpu",
@@ -417,8 +425,8 @@ def main() -> None:
     parser.add_argument("--local", action="store_true", help="Run sequentially in-process.")
     parser.add_argument(
         "--image",
-        default="runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04",
-        help="Container image. Defaults to the public RunPod pytorch+CUDA template; the bootstrap dockerArgs install econirl in-pod, so no custom image build is required.",
+        default="runpod/base:1.0.2-ubuntu2204",
+        help="Container image. Default is runpod/base (~600 MB) so cold-pull on a fresh node finishes in 1-2 min vs >10 min for runpod/pytorch:2.4.0. The bootstrap apt-installs python3, then pip-installs JAX (CPU or CUDA depending on hardware) and econirl.",
     )
     parser.add_argument(
         "--repo-ref",
