@@ -22,8 +22,9 @@ Five separate plans make that fix explicit. Each plan is the
 authoritative artifact for one dataset. Each plan declares which
 metrics and which estimators it owns. The paper Section 4 is
 rewritten from the artifacts each plan produces. Anything that has
-not yet run becomes a placeholder paragraph in the paper. No prose
-about a dataset is committed before the corresponding plan has fired.
+not yet run is withheld except for a plain pending-results note. No
+prose about a dataset is committed before the corresponding plan has
+fired.
 
 ## The five plans
 
@@ -52,9 +53,10 @@ universal inference layer; we claim an inference layer that documents
 its own validity per estimator.
 
 **Single artifact per claim.** Every numerical claim in the paper
-traces to one CSV produced by one script. No hand-edited values. The
-paper compiles from the artifacts plus prose; reruns of the scripts
-update the paper end to end without manual intervention.
+traces to one machine-written artifact produced by one script. No
+hand-edited values. The paper compiles from the artifacts plus prose;
+reruns of the scripts update the paper end to end without manual
+intervention.
 
 **Monte Carlo, not single fits.** Every claim that depends on the
 quality of an estimator (not just on whether the API works) is backed
@@ -65,6 +67,14 @@ plan declares R per claim.
 section that lists the conditions under which an estimator in scope
 fails. Failures are reported, not hidden. The plan declares the
 threshold beyond which a failure is itself the headline.
+
+**Compact experiment infrastructure.** Known-truth validation lives
+in `experiments/known_truth.py`, with fast checks in
+`tests/test_known_truth.py`. Package source only receives estimator
+fixes; the synthetic harness is not exported as public API and does
+not create helper subtrees under `src/econirl/simulation/`. Final
+RTD tutorial pages are written only after the estimator has passed
+its known-truth run.
 
 ## Plan order and dependencies
 
@@ -79,19 +89,17 @@ optimizes total wall-clock and validates the cheap end first:
 5. plan_ziebart_big.md (GPU, longest single cells)
 
 Once all five have fired, paper Section 4 is rewritten in one pass
-from the resulting CSVs.
+from the resulting artifacts.
 
 ## Until each plan fires
 
 Section 4 of the paper currently has subsections that make claims
 about each dataset. Until the corresponding plan has fired and
-produced its CSV, those subsections become a single placeholder
-paragraph: "Results for this dataset are forthcoming. The
-methodology, hardware, and acceptance criteria are documented in
+produced its artifact, those subsections carry only a pending-results
+note: "Results for this dataset are forthcoming. The methodology,
+hardware, and acceptance criteria are documented in
 plans/plan_<dataset>.md." No numerical claims. No tables. No figures.
-The placeholder is a one-line `\todo[inline]{}` marker plus that
-sentence.
 
 The paper does not lie about results that have not yet been
 produced. Once a plan fires the prose for that subsection is written
-from the CSV.
+from the artifact.

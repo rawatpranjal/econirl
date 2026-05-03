@@ -31,11 +31,14 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from econirl.core.bellman import SoftBellmanOperator, bellman_operator_fn
+from econirl.core.bellman import SoftBellmanOperator
 from econirl.core.optimizer import minimize_lbfgsb
 from econirl.core.solvers import (
-    value_iteration, policy_iteration, hybrid_iteration,
-    backward_induction, optimistix_solve,
+    backward_induction,
+    hybrid_iteration,
+    optimistix_solve,
+    policy_iteration,
+    value_iteration,
 )
 from econirl.core.types import DDCProblem, Panel
 from econirl.estimation.base import BaseEstimator, EstimationResult
@@ -340,9 +343,8 @@ class NFXPEstimator(BaseEstimator):
             prev_ll = ll
 
             H_bhhh = scores.T @ scores + 1e-8 * jnp.eye(n_params)
-            try:
-                direction = jnp.linalg.solve(H_bhhh, grad)
-            except Exception:
+            direction = jnp.linalg.solve(H_bhhh, grad)
+            if not bool(jnp.all(jnp.isfinite(direction))):
                 direction = grad
 
             # Step-halving line search
@@ -557,10 +559,13 @@ class NFXPEstimator(BaseEstimator):
             fh_result = backward_induction(operator, utility_seq)
             final_V = fh_result.V
             final_policy = fh_result.policy
+            final_inner_iterations = problem.num_periods
         else:
             solver_result = self._solve_inner(operator, flow_utility)
             final_V = solver_result.V
             final_policy = solver_result.policy
+            final_inner_iterations = solver_result.num_iterations
+            total_inner += final_inner_iterations
 
         # Compute Hessian and gradient contributions for standard errors
         hessian = None
@@ -605,8 +610,8 @@ class NFXPEstimator(BaseEstimator):
             gradient_contributions=gradient_contributions,
             converged=opt_converged,
             num_iterations=n_iter,
-            num_function_evals=n_evals if not finite_horizon or finite_horizon else 0,
-            num_inner_iterations=total_inner if not (self._optimizer == "BHHH" and not finite_horizon) else 0,
+            num_function_evals=n_evals,
+            num_inner_iterations=total_inner,
             message="Converged" if opt_converged else "Did not converge",
             optimization_time=optimization_time,
             metadata={
@@ -615,6 +620,9 @@ class NFXPEstimator(BaseEstimator):
                 "inner_tol": self._inner_tol,
                 "switch_tol": self._switch_tol if self._inner_solver == "hybrid" else None,
                 "outer_tol": self._outer_tol,
+                "num_function_evals": n_evals,
+                "num_inner_iterations": total_inner,
+                "final_inner_iterations": final_inner_iterations,
             },
         )
 

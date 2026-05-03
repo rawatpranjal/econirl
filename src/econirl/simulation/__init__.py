@@ -1,14 +1,13 @@
 """Simulation and counterfactual analysis."""
 
-from econirl.simulation.synthetic import simulate_panel
 from econirl.simulation.counterfactual import (
-    CounterfactualType,
     CounterfactualResult,
+    CounterfactualType,
+    compute_stationary_distribution,
+    compute_welfare_effect,
     counterfactual,
     counterfactual_policy,
     counterfactual_transitions,
-    compute_stationary_distribution,
-    compute_welfare_effect,
     demand_function,
     discount_factor_change,
     elasticity_analysis,
@@ -24,6 +23,7 @@ from econirl.simulation.counterfactual import (
     state_extrapolation,
     welfare_decomposition,
 )
+from econirl.simulation.synthetic import simulate_panel
 
 __all__ = [
     "CounterfactualType",
