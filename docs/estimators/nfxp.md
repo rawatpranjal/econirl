@@ -1,6 +1,6 @@
 # NFXP
 
-**Reference PDF:** [NFXP reference and known-truth validation tutorial](https://github.com/rawatpranjal/EconIRL/blob/feature/known-truth-dgp-harness/papers/econirl_package/primers/nfxp/nfxp.pdf)
+**Reference PDF:** [NFXP reference and known-truth validation tutorial](https://github.com/rawatpranjal/EconIRL/blob/main/papers/econirl_package/primers/nfxp/nfxp.pdf)
 
 NFXP, the nested fixed point estimator, is the reference estimator for
 structural dynamic discrete choice. It estimates primitive reward parameters by
