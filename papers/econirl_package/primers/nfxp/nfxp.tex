@@ -1,142 +1,516 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
+\usepackage[left=0.85in,right=0.85in,top=0.8in,bottom=0.85in]{geometry}
 \input{../notation}
-\usepackage[ruled,lined]{algorithm2e}
+\hypersetup{hypertexnames=false}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
+\setlength{\parskip}{0.45em}
 \setlength{\parindent}{0em}
 
-\title{Primer: Nested Fixed Point (NFXP-NK)\\[3pt]
-\large Rust (1987), Iskhakov, Rust and Schjerning (2016)}
+\title{NFXP Reference and Known-Truth Validation Tutorial\\[3pt]
+\large Nested Fixed Point Estimation for Dynamic Discrete Choice}
 \author{econirl package documentation}
-\date{}
+\date{May 2026}
 
 \begin{document}
 \maketitle
 
-%% ============================================================
-\section{Context and Problem}
-%% ============================================================
+\begin{center}
+\small
+\textbf{RTD page:}
+\url{https://econirl.readthedocs.io/en/latest/estimators/nfxp.html}
+\quad
+\textbf{Source branch:}
+\url{https://github.com/rawatpranjal/EconIRL/tree/feature/known-truth-dgp-harness}
+\end{center}
 
-Harold Zurcher manages a fleet of buses and must decide each period whether to keep operating the current engine or pay a fixed cost to replace it. \citet{rust1987} formalized this as a dynamic discrete choice (DDC) model and proposed the first computationally feasible estimator: the nested fixed point algorithm. The outer loop maximizes the log-likelihood over structural parameters $\theta$. The inner loop solves the Bellman equation to machine precision at each candidate $\theta$, producing the choice probabilities that enter the likelihood.
+\section{Purpose}
 
-The inner loop is the bottleneck. Value iteration converges at rate $\beta$ per step, so when $\beta$ approaches 1 (patient agents, long horizons), convergence slows dramatically. At $\beta = 0.9999$, successive approximation requires thousands of contractions per likelihood evaluation.
+NFXP, the nested fixed point estimator, is the reference estimator for structural
+dynamic discrete choice. It estimates primitive reward parameters by solving the
+agent's dynamic programming problem inside the likelihood. The method is the
+baseline against which CCP, MPEC, NNES, TD-CCP, SEES, and IRL-style estimators
+should be compared.
 
-\citet{iskhakov2016} introduced the SA-then-NK polyalgorithm that eliminates this bottleneck. The algorithm starts with successive approximation (SA) for safe global convergence and switches to Newton-Kantorovich (NK) near the fixed point for quadratic convergence. The total iteration count becomes insensitive to $\beta$: roughly 20 SA steps followed by 4 NK iterations suffices at any discount factor. In Monte Carlo experiments at $\beta = 0.9999$, NFXP-NK converges in 100 percent of 1,250 trials in 0.074 seconds, while MPEC-AMPL converges in zero.
+This document is a known-truth validation tutorial. It does not use real data.
+The synthetic DGP supplies the true reward, transition law, value function,
+policy, and counterfactual oracle objects. That lets us ask a sharp question:
+when the NFXP assumptions hold, does the implementation recover the ground
+truth at medium scale?
 
-NFXP is the foundational structural estimator in DDC. Every other estimator in this package defines itself relative to NFXP: CCP avoids the inner loop via Hotz-Miller inversion, MPEC replaces it with constrained optimization, NNES approximates it with a neural network, and TD-CCP eliminates the need for transition probabilities entirely.
+\section{Source Papers}
 
-%% ============================================================
-\section{Model and Notation}
-%% ============================================================
+The primary source is Rust (1987), which formalized the bus-engine replacement
+problem and introduced nested fixed point maximum likelihood. The computational
+upgrade is Iskhakov, Rust, Schjerning, and Seo (2016), which recommends a
+successive-approximation plus Newton-Kantorovich inner loop. The identification
+lesson that matters for this validation is standard in dynamic discrete choice:
+the reward scale and location must be normalized, transitions must be handled
+separately from payoffs, and reward features must vary enough across actions to
+identify the structural parameters.
 
-\commonnotation
+\section{When to Use NFXP}
 
-An agent observes state $s_t$, chooses action $a_t$, and receives flow payoff $u(s_t, a_t; \theta) + \sigma\,\varepsilon_{t,a}$ where $\varepsilon_{t,a}$ is i.i.d.\ Type I extreme value. The choice-specific value function satisfies the Bellman equation
-\begin{equation}
-\label{eq:bellman}
-Q(s,a;\theta) \;=\; u(s,a;\theta) \;+\; \beta \sum_{s'} P(s' \mid s,a)\, V(s'),
-\end{equation}
-where the integrated value function is the log-sum-exp
-\begin{equation}
-\label{eq:value}
-V(s) \;=\; \sigma \log \sum_{a} \exp\!\bigl(Q(s,a;\theta)/\sigma\bigr).
-\end{equation}
-The optimal policy is the softmax $\pi(a \mid s;\theta) = \exp\!\bigl((Q(s,a) - V(s))/\sigma\bigr)$. Substituting~\eqref{eq:bellman} into~\eqref{eq:value} defines the soft Bellman operator $T$:
-\begin{equation}
-\label{eq:bellman_op}
-(TV)(s) \;=\; \sigma \log \sum_{a} \exp\!\Bigl(\bigl[u(s,a;\theta) + \beta \textstyle\sum_{s'} P(s'|s,a)\,V(s')\bigr]\big/\sigma\Bigr).
-\end{equation}
-The operator $T$ is a contraction with modulus $\beta$ under the sup norm, so $V = TV$ has a unique fixed point for each $\theta$.
+Use NFXP when the state space is tabular, the transition kernel is known or can
+be estimated in a first stage, the reward is parameterized by a low-dimensional
+vector, and exact dynamic programming is computationally feasible. NFXP is the
+right tool when the goal is publication-grade structural estimates, likelihood
+values, analytical scores, standard errors, and counterfactual policies from
+recovered primitives.
 
-%% ============================================================
-\section{Identification and Theory}
-%% ============================================================
+NFXP is usually the wrong tool for high-dimensional or continuous state spaces.
+For those cases, use NNES, SEES, GLADIUS, or TD-CCP depending on whether the
+goal is structural parameter recovery, value-function approximation, or
+transition-free estimation.
 
-Given panel data $\calD = \{(s_i, a_i)\}_{i=1}^N$, NFXP estimates $\theta$ by maximizing the conditional log-likelihood
-\begin{equation}
-\label{eq:mle}
-\hat\theta_{\text{NFXP}} \;=\; \argmax_\theta \;\ell(\theta) \;=\; \argmax_\theta \sum_{i=1}^{N} \log \pi(a_i \mid s_i; \theta).
-\end{equation}
+\section{Model}
 
-\begin{proposition}[MLE consistency, \citealt{rust1987}]
-Under additive separability, conditional independence, and i.i.d.\ Type I extreme value errors, if the feature matrix $\Phi \in \R^{|\calS||\calA| \times K}$ has full column rank and $\Theta$ is compact with $\theta_0$ interior, then $\hat\theta_{\text{NFXP}}$ is consistent and asymptotically efficient:
-$\sqrt{N}(\hat\theta - \theta_0) \xrightarrow{d} \mathcal{N}(0, I(\theta_0)^{-1})$
-where $I(\theta_0) = \E[\psi_i\psi_i^\top]$ is the Fisher information and $\psi_i$ is the score~\eqref{eq:score}.
-\end{proposition}
+The observed data are state-action-next-state trajectories
+\[
+\{(s_{it}, a_{it}, s_{i,t+1}) : i=1,\ldots,N,\ t=1,\ldots,T\}.
+\]
 
-The rank condition requires features that vary across actions. The discount factor $\beta$ is not identified without restrictions \citep{magnacThesmar2002} and must be fixed by the researcher. The scale $\sigma$ is normalized to 1.
+The flow payoff is linear in known features:
+\[
+u_\theta(s,a) = \phi(s,a)^\top \theta.
+\]
+The transition kernel is
+\[
+P_a(s,s') = \Pr(s_{t+1}=s' \mid s_t=s, a_t=a).
+\]
+The discount factor is $\beta$ and the i.i.d. type-I extreme-value shock scale
+is $\sigma$. The integrated value function solves the soft Bellman fixed point
+\[
+V_\theta(s)
+= \sigma \log \sum_a
+\exp\left(
+\frac{
+u_\theta(s,a)
++ \beta \sum_{s'} P_a(s,s') V_\theta(s')
+}{\sigma}
+\right).
+\]
+The choice-specific value is
+\[
+Q_\theta(s,a)
+= u_\theta(s,a) + \beta \sum_{s'} P_a(s,s')V_\theta(s'),
+\]
+and the implied conditional choice probability is
+\[
+\pi_\theta(a \mid s)
+=
+\frac{\exp(Q_\theta(s,a)/\sigma)}
+{\sum_b \exp(Q_\theta(s,b)/\sigma)}.
+\]
 
-For counterfactual analysis, the identified object $\hat\theta$ supports policy simulation under parameter perturbation. Changing $\theta$ while holding $P$ fixed produces a new policy by re-solving the Bellman equation. The parametric form $u = \theta^\top \phi$ resolves reward shaping ambiguity: the reward is pinned down by $\theta$ and $\phi$, so there is no free shaping potential.
+NFXP maximizes the conditional log-likelihood
+\[
+\hat{\theta}
+=
+\argmax_\theta
+\sum_{i,t} \log \pi_\theta(a_{it} \mid s_{it}).
+\]
 
-%% ============================================================
-\section{Estimation Algorithm}
-%% ============================================================
+\section{Estimator Mechanics}
 
-The gradient is computed analytically via the implicit function theorem, differentiating through the Bellman fixed point. The per-observation score is
-\begin{equation}
-\label{eq:score}
-\psi_i(\theta) \;=\; \frac{1}{\sigma}\Bigl[\nabla_\theta Q(s_i,a_i) - \sum_{a} \pi(a \mid s_i)\,\nabla_\theta Q(s_i,a)\Bigr],
-\end{equation}
-where $\nabla_\theta Q(s,a) = \phi(s,a) + \beta \sum_{s'} P(s'|s,a)\frac{\partial V}{\partial \theta}$ and the total derivative solves the linear system
-\begin{equation}
-\label{eq:implicit}
-(I - \beta P_\pi) \frac{\partial V}{\partial \theta} = \sum_{a} \pi(a|s)\,\phi(s,a).
-\end{equation}
-The BHHH outer optimizer approximates the Hessian with the outer product of scores $B_k = \frac{1}{N}\sum_i \psi_i \psi_i^\top$, which is guaranteed positive definite.
+For each candidate $\theta$, the inner loop solves $V=TV$. EconIRL supports
+successive approximation, Newton-Kantorovich, and a hybrid solver. The default
+known-truth validation uses the hybrid solver: safe successive approximation
+far from the fixed point and Newton-Kantorovich updates near the solution.
 
-\begin{algorithm}[H]
-\DontPrintSemicolon
-\caption{NFXP-NK \citep{rust1987,iskhakov2016}}
-\label{alg:nfxp}
-\KwIn{Panel $\calD = \{(s_i, a_i)\}_{i=1}^N$, features $\phi$, transitions $P$, discount $\beta$, scale $\sigma$}
-Initialize $\theta_0$ from data heuristic\;
-\For{$k = 0, 1, 2, \ldots$}{
-  \textbf{Inner loop:} solve $V = TV$ at $\theta_k$\;
-  \Begin(\tcp*[f]{SA phase: safe global convergence}){
-    \lFor{$j = 1, 2, \ldots$ \KwTo convergence}{$V \leftarrow TV$}
-  }
-  \Begin(\tcp*[f]{NK phase: quadratic local convergence}){
-    \For{$j = 1, 2, \ldots$}{
-      Solve $(I - \beta\nabla T)\delta = TV - V$; \quad $V \leftarrow V + \delta$\;
-      \lIf{$\|\delta\|_\infty < \varepsilon_{\text{inner}}$}{\textbf{break}}
-    }
-  }
-  Compute $Q(s,a)$ via~\eqref{eq:bellman}, $\pi(a|s)$ via softmax\;
-  \BlankLine
-  \textbf{Score:} solve~\eqref{eq:implicit} for $\partial V/\partial\theta$, compute $\psi_i$ via~\eqref{eq:score}\;
-  \BlankLine
-  \textbf{Outer update (BHHH):}\;
-  $B_k \leftarrow \frac{1}{N}\sum_i \psi_i \psi_i^\top + \lambda I$\;
-  $d_k \leftarrow B_k^{-1}(\frac{1}{N}\sum_i \psi_i)$\;
-  Line search: $\alpha_k$ via step-halving until $\ell(\theta_k + \alpha_k d_k) > \ell(\theta_k)$\;
-  $\theta_{k+1} \leftarrow \theta_k + \alpha_k d_k$\;
-  \lIf{$\|\nabla\ell\| < \varepsilon_{\text{outer}}$}{\textbf{break}}
-}
-\KwOut{$\hat\theta$, $V^*$, $\pi^*$, $B^{-1}$ (robust standard errors)}
-\end{algorithm}
+The analytical score differentiates through the fixed point. For observation
+$i$, the score has the logit form
+\[
+\psi_i(\theta)
+=
+\frac{1}{\sigma}
+\left[
+\nabla_\theta Q(s_i,a_i)
+-
+\sum_a \pi_\theta(a\mid s_i)\nabla_\theta Q(s_i,a)
+\right],
+\]
+with
+\[
+\nabla_\theta Q(s,a)
+=
+\phi(s,a)
++
+\beta \sum_{s'} P_a(s,s')\frac{\partial V(s')}{\partial \theta}.
+\]
+The total derivative solves
+\[
+(I-\beta P_\pi)\frac{\partial V}{\partial \theta}
+=
+\sum_a \pi_\theta(a\mid s)\phi(s,a).
+\]
 
-Default tolerances: $\varepsilon_{\text{switch}} = 10^{-3}$, $\varepsilon_{\text{inner}} = 10^{-12}$, $\varepsilon_{\text{outer}} = 10^{-6}$, $\lambda = 10^{-8}$. Code: \texttt{src/econirl/estimation/nfxp.py}, inner loop in \texttt{src/econirl/core/solvers.py}.
+The outer loop uses BHHH by default. It builds the positive semi-definite
+outer-product matrix from per-observation scores, applies damping when needed,
+and uses a line search to maintain likelihood improvement.
 
-%% ============================================================
-\section{Simulation}
-%% ============================================================
+\section{Identification Checks}
 
-\input{nfxp_results}
+The known-truth DGP must be identified before we judge the estimator.
+Rust-style NFXP handles this through three restrictions.
 
-NFXP recovers both parameters within one standard error of the true values. The operating cost estimate is \nfxpOC\ (true 0.001) and the replacement cost is \nfxpRC\ (true 3.0), both with analytical standard errors from the BHHH outer product. Policy accuracy is \nfxpAcc: the estimated policy assigns the same greedy action as the true policy at every state. Behavioral cloning matches the greedy policy at \bcAcc\ of states but cannot recover structural parameters or produce standard errors, confirming that NFXP is learning from MDP structure.
+\begin{enumerate}
+\item \textbf{Conditional independence.} The state transition is Markov in the
+observed state and action and does not depend on the current logit shock.
+\item \textbf{Transition separation.} The transition process is not estimated
+inside the payoff likelihood in this tutorial. The synthetic DGP supplies the
+true transition tensor exactly.
+\item \textbf{Reward normalization.} The shock scale is fixed at $\sigma=1$.
+The synthetic DGP uses an exit action and absorbing state as a zero-reward
+anchor, so payoff location is pinned down.
+\end{enumerate}
 
-NFXP's advantages over CCP and MPEC are threefold: the inner loop produces an exact fixed point so the likelihood surface is smooth, the analytical score~\eqref{eq:implicit} gives exact gradients at negligible cost, and the BHHH outer product produces valid robust standard errors without bootstrap. The limitation is computational scaling: the inner loop costs $O(|\calS|^2)$ per contraction and the NK step costs $O(|\calS|^3)$. For state spaces above a few thousand, NNES, TD-CCP, and SEES scale better.
+The practical identification failure to watch for is action support. If one
+action is almost never chosen, the likelihood cannot pin down that action's
+payoff. The second failure is state-only reward variation copied across
+actions. That collapses action-specific payoff differences and makes a
+structural theta recovery test ill posed.
 
-\paragraph{Code.}
-\texttt{nfxp\_run.py} generates Table~\ref{tab:nfxp_results}. Estimator: \texttt{src/econirl/estimation/nfxp.py}.
-\begin{verbatim}
-.venv/bin/python papers/econirl_package/primers/nfxp/nfxp_run.py
-\end{verbatim}
+\section{Known-Truth DGP}
 
-\bibliographystyle{plainnat}
-\bibliography{references}
+The canonical NFXP validation cell is \texttt{canonical\_low\_action}. It is
+small enough to solve exactly and large enough to expose rank, support, and
+normalization failures.
+
+\begin{table}[H]
+\centering\small
+\caption{Canonical NFXP DGP.}
+\begin{tabular}{lr}
+\toprule
+Quantity & Value \\
+\midrule
+Regular states & 20 \\
+Absorbing states & 1 \\
+Total states & 21 \\
+Actions & 3 \\
+Exit action & 2 \\
+Discount factor & 0.95 \\
+Shock scale & 1.0 \\
+Reward mode & action-dependent \\
+Reward dimension & low \\
+State mode & low-dimensional \\
+Simulated individuals & 2,000 \\
+Periods per individual & 80 \\
+Observations & 160,000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The action-dependent features are
+\[
+\phi(s,a)
+=
+\begin{cases}
+(1, x_s, 0, 0) & a = 0,\\
+(0, 0, 1, x_s) & a = 1,\\
+(0, 0, 0, 0) & a = 2.
+\end{cases}
+\]
+The exit action has zero reward and sends the process to the absorbing state.
+The true parameter vector is:
+
+\begin{table}[H]
+\centering\small
+\caption{True reward parameters.}
+\begin{tabular}{lr}
+\toprule
+Parameter & Truth \\
+\midrule
+\texttt{action\_0\_intercept} & 0.10 \\
+\texttt{action\_0\_progress} & 0.50 \\
+\texttt{action\_1\_intercept} & 0.00 \\
+\texttt{action\_1\_progress} & -0.20 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Pre-Estimation Diagnostics}
+
+Run diagnostics before fitting. If these checks fail, the problem is usually
+the DGP or feature design, not the optimizer.
+
+\begin{lstlisting}
+from experiments.known_truth import (
+    SimulationConfig,
+    build_known_truth_dgp,
+    get_cell,
+    run_pre_estimation_diagnostics,
+    simulate_known_truth_panel,
+)
+
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(
+    dgp,
+    SimulationConfig(n_individuals=2000, n_periods=80, seed=42),
+)
+diagnostics = run_pre_estimation_diagnostics(dgp, panel)
+
+assert diagnostics.passed
+assert diagnostics.feature_rank == diagnostics.num_features
+assert diagnostics.is_action_dependent
+\end{lstlisting}
+
+\begin{table}[H]
+\centering\small
+\caption{Pre-estimation checks from the medium-scale run.}
+\begin{tabular}{lrl}
+\toprule
+Check & Value & Status \\
+\midrule
+Feature rank & 4 / 4 & pass \\
+Feature condition number & 4.512 & pass \\
+Transition row error & $2.42\times 10^{-8}$ & pass \\
+Observed states & 21 / 21 & pass \\
+State-action coverage & 1.000 & pass \\
+Action shares & 0.345, 0.330, 0.325 & pass \\
+Minimum action share & 0.325 & pass \\
+Exit/absorbing anchor & true & pass \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Run the Tutorial}
+
+From the repository root:
+
+\begin{lstlisting}
+PYTHONPATH=src:. python -m experiments.known_truth \
+    --estimator NFXP \
+    --cell-id canonical_low_action \
+    --output-dir outputs/known_truth \
+    --show-progress \
+    --verbose
+\end{lstlisting}
+
+The command builds the DGP, solves the true Bellman problem, simulates the
+panel with \texttt{tqdm} progress, runs pre-estimation diagnostics, fits NFXP,
+evaluates reward/value/Q/policy recovery, solves Type A/B/C counterfactual
+oracles, writes one \texttt{result.json}, and raises if any non-smoke hard gate
+fails. NFXP itself does not need a GPU on this tabular cell, but the same module
+command is suitable for RunPod workers so the estimator validation interface is
+shared across methods.
+
+Direct estimator usage:
+
+\begin{lstlisting}
+from experiments.known_truth import (
+    build_known_truth_dgp,
+    get_cell,
+    known_truth_initial_params,
+    simulate_known_truth_panel,
+)
+from econirl.estimation.nfxp import NFXPEstimator
+
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(dgp, cell.simulation_config)
+
+estimator = NFXPEstimator(
+    optimizer="BHHH",
+    inner_solver="hybrid",
+    inner_tol=1e-12,
+    inner_max_iter=100_000,
+    outer_max_iter=500,
+    compute_hessian=True,
+    verbose=True,
+)
+
+summary = estimator.estimate(
+    panel=panel,
+    utility=dgp.utility(),
+    problem=dgp.problem,
+    transitions=dgp.transitions,
+    initial_params=known_truth_initial_params(dgp),
+)
+\end{lstlisting}
+
+\section{Estimation Results}
+
+The medium-scale validation run used 2,000 individuals, 80 periods per
+individual, and 160,000 observations.
+
+\begin{table}[H]
+\centering\small
+\caption{Run summary.}
+\begin{tabular}{lr}
+\toprule
+Quantity & Value \\
+\midrule
+Converged & true \\
+Outer iterations & 12 \\
+Log-likelihood & -174875.7719 \\
+Estimation time & 5.28 seconds \\
+Function evaluations & 80 \\
+Total inner iterations & 11259 \\
+Final inner iterations & 139 \\
+Inner solver & hybrid \\
+Outer optimizer & BHHH \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\caption{Parameter recovery.}
+\begin{tabular}{lrrrr}
+\toprule
+Parameter & Truth & Estimate & SE & Error \\
+\midrule
+\texttt{action\_0\_intercept} & 0.100000 & 0.083894 & 0.029335 & -0.016106 \\
+\texttt{action\_0\_progress} & 0.500000 & 0.528522 & 0.035889 & 0.028522 \\
+\texttt{action\_1\_intercept} & 0.000000 & -0.014461 & 0.036733 & -0.014461 \\
+\texttt{action\_1\_progress} & -0.200000 & -0.200511 & 0.052502 & -0.000511 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\caption{Recovery metrics.}
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Parameter RMSE & 0.017904 \\
+Parameter relative RMSE & 0.065378 \\
+Parameter cosine similarity & 0.998867 \\
+Reward RMSE & 0.009694 \\
+Value RMSE & 0.019445 \\
+Q RMSE & 0.022438 \\
+Policy KL & $9.21\times 10^{-5}$ \\
+Policy total variation & 0.005697 \\
+Policy max state L1 & 0.018905 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\caption{Hard gates.}
+\begin{tabular}{llrl}
+\toprule
+Gate & Threshold & Value & Status \\
+\midrule
+Converged & true & true & pass \\
+Parameter cosine & $\geq 0.98$ & 0.998867 & pass \\
+Parameter relative RMSE & $\leq 0.15$ & 0.065378 & pass \\
+Policy TV & $\leq 0.03$ & 0.005697 & pass \\
+Value RMSE & $\leq 0.10$ & 0.019445 & pass \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The estimates are not equal to truth because the panel is finite. The validation
+target is recovery within strict tolerances, not exact equality in one finite
+sample.
+
+\section{Counterfactuals}
+
+The tutorial evaluates three post-estimation counterfactuals.
+
+\begin{table}[H]
+\centering\small
+\caption{Counterfactual types.}
+\begin{tabular}{lll}
+\toprule
+Type & Intervention & Purpose \\
+\midrule
+Type A & Shift reward, hold transitions fixed & Payoff counterfactual \\
+Type B & Change transitions, hold reward fixed & State-dynamics counterfactual \\
+Type C & Disable one non-anchor action & Action-set/design counterfactual \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For each intervention, the harness solves the true counterfactual oracle. It
+then solves the same intervention using the reward recovered by NFXP and
+evaluates the resulting policy in the true counterfactual environment.
+
+\begin{table}[H]
+\centering\small
+\caption{Counterfactual recovery.}
+\begin{tabular}{lrrrr}
+\toprule
+Counterfactual & Policy TV & Policy KL & Value RMSE & Regret \\
+\midrule
+Type A & 0.005109 & $7.56\times 10^{-5}$ & 0.000238 & 0.000213 \\
+Type B & 0.005457 & $8.20\times 10^{-5}$ & 0.000363 & 0.000362 \\
+Type C & 0.003548 & $3.56\times 10^{-5}$ & 0.000114 & 0.000086 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These regrets are small because the recovered reward is close enough to the
+true reward that re-solving the intervened model produces almost the same
+policy as the oracle.
+
+\section{Debugging Gaps}
+
+If NFXP fails to recover truth, debug in this order.
+
+\begin{enumerate}
+\item \textbf{Feature rank.} If rank is below the number of reward parameters,
+$\theta$ is not identified.
+\item \textbf{Action support.} If one action is rarely observed, its payoff is
+weakly identified.
+\item \textbf{Normalization.} If the exit/absorbing anchor is invalid, reward
+levels can drift.
+\item \textbf{State-only rewards.} The canonical NFXP theta validation needs
+action-dependent features.
+\item \textbf{Transition tensor.} NFXP needs stochastic transition rows and the
+right action-state-next-state orientation.
+\item \textbf{Inner tolerance.} Use a tight tolerance such as $10^{-10}$ to
+$10^{-12}$ for structural validation.
+\item \textbf{High beta.} Use \texttt{inner\_solver="hybrid"} near $\beta=1$;
+pure value iteration is intentionally slow there.
+\item \textbf{Soft gates.} Do not accept a non-smoke run that only warns.
+Known-truth validation should pass hard gates or raise.
+\end{enumerate}
+
+\section{Practical Defaults}
+
+Recommended non-smoke validation settings:
+
+\begin{lstlisting}
+NFXPEstimator(
+    optimizer="BHHH",
+    inner_solver="hybrid",
+    inner_tol=1e-12,
+    inner_max_iter=100_000,
+    switch_tol=1e-3,
+    outer_tol=1e-6,
+    outer_max_iter=500,
+    compute_hessian=True,
+)
+\end{lstlisting}
+
+Use smoke settings only for code-path tests. A smoke test shows that the
+estimator runs and returns finite objects; it is not evidence of recovery.
+
+\section{Implementation Paths}
+
+\begin{itemize}
+\item Estimator: \texttt{src/econirl/estimation/nfxp.py}
+\item Known-truth harness: \texttt{experiments/known\_truth.py}
+\item Fast validation tests: \texttt{tests/test\_known\_truth.py}
+\item Master plan: \texttt{papers/econirl\_package\_jss/plans/README.md}
+\item NFXP alignment audit: \texttt{papers/econirl\_package\_jss/plans/alignment/02\_nfxp.md}
+\end{itemize}
+
+\section{References}
+
+Rust, J. (1987). Optimal Replacement of GMC Bus Engines: An Empirical Model of
+Harold Zurcher. \emph{Econometrica}, 55(5), 999--1033.
+
+Iskhakov, F., Lee, J., Rust, J., Schjerning, B., and Seo, K. (2016). Comment on
+``Constrained Optimization Approaches to Estimation of Structural Models.''
+\emph{Econometrica}, 84(1), 365--370.
 
 \end{document}

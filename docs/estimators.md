@@ -1,6 +1,9 @@
 # Estimators
 
-All notation follows Rust and Rawat (2026). For code examples, see the [examples](examples/index.rst).
+Estimator pages are the active RTD surface. Each page gives a short operational
+summary and links to its reference/tutorial PDF when a full known-truth
+validation write-up exists. Historical examples and tutorials live under the
+documentation archive and are not part of the current RTD navigation.
 
 ```{toctree}
 :maxdepth: 1
