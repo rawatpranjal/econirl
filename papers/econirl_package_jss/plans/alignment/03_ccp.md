@@ -1,6 +1,14 @@
 ## Estimator: CCP (Conditional Choice Probability)
-## Paper(s): Hotz & Miller 1993 (CCP inversion theorem); Aguirregabiria & Mira 2002 (NPL iterations); Arcidiacono & Miller 2011 (CCP with unobserved heterogeneity, used by AIRL-Het not directly here). All at `papers/foundational/hotz_miller_1993_ccp.md`, `papers/foundational/AguirregabiriaMira_ECMA2002.pdf`, `papers/foundational/arcidiacono_miller_2011_ccp_unobserved.md`.
+## Paper(s): Hotz & Miller 1993 (CCP inversion theorem); Aguirregabiria & Mira 2002 (NPL iterations); Arcidiacono & Miller 2011 (CCP with unobserved heterogeneity, used by AIRL-Het not directly here). All at `papers/foundational/hotz_miller_1993_ccp.md`, `papers/foundational/AguirregabiriaMira_ECMA2002.md`, `papers/foundational/AguirregabiriaMira_ECMA2002.pdf`, and `papers/foundational/arcidiacono_miller_2011_ccp_unobserved.md`.
 ## Code: `src/econirl/estimation/ccp.py`
+
+### Known-truth migration status
+
+- Migrated to the shared synthetic DGP in `papers/econirl_package/primers/ccp/ccp_run.py`.
+- RTD front door is `docs/estimators/ccp.md`; reference PDF source is `papers/econirl_package/primers/ccp/ccp.tex`.
+- Main validation cell is `canonical_low_action`: 2,000 individuals, 80 periods, 21 states, 3 actions, known transitions, and action-dependent reward features.
+- Hard gates are now active in `experiments/known_truth.py` for K=10 NPL: finite standard errors, parameter recovery, policy/value/Q recovery, and Type A/B/C counterfactual regret.
+- CCP reports values in the package's soft-Bellman convention by evaluating the recovered policy under the recovered reward. The Hotz-Miller Euler-constant value representation is used internally, not as the reported value object.
 
 ### Loss / objective
 

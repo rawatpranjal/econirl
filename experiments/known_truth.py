@@ -1118,7 +1118,10 @@ ESTIMATOR_CONTRACTS: dict[str, EstimatorContract] = {
     "CCP": EstimatorContract(
         name="CCP",
         code_path="src/econirl/estimation/ccp.py",
-        paper_paths=("papers/foundational/hotz_miller_1993_ccp.md",),
+        paper_paths=(
+            "papers/foundational/hotz_miller_1993_ccp.md",
+            "papers/foundational/AguirregabiriaMira_ECMA2002.md",
+        ),
         required_reward_modes=("action_dependent",),
         required_state_modes=("low_dim",),
         requires_transitions=True,
@@ -1391,7 +1394,8 @@ def make_estimator(
         return CCPEstimator(
             num_policy_iterations=3 if smoke else 10,
             outer_max_iter=50 if smoke else 500,
-            compute_hessian=False,
+            se_method="asymptotic" if smoke else "robust",
+            compute_hessian=not smoke,
             verbose=verbose,
         )
     if estimator_name == "MPEC":
@@ -1593,6 +1597,40 @@ def recovery_gates(
 
     if smoke:
         return []
+    if estimator_name == "CCP":
+        se_available = summary.standard_errors is not None and bool(
+            jnp.all(jnp.isfinite(jnp.asarray(summary.standard_errors)))
+        )
+        checks = [
+            _numeric_gate(
+                "npl_iterations",
+                float(summary.num_iterations),
+                ">=",
+                5.0,
+            ),
+            _bool_gate("standard_errors_finite", se_available, True),
+            _numeric_gate(
+                "parameter_cosine",
+                metrics["parameters"].cosine_similarity,
+                ">=",
+                0.98,
+            ),
+            _numeric_gate(
+                "parameter_relative_rmse",
+                metrics["parameters"].relative_rmse,
+                "<=",
+                0.15,
+            ),
+            _numeric_gate("policy_tv", metrics["policy"].tv, "<=", 0.03),
+            _numeric_gate("value_rmse", metrics["value_rmse"], "<=", 0.10),
+            _numeric_gate("q_rmse", metrics["q_rmse"], "<=", 0.10),
+        ]
+        for kind, cf_metrics in sorted(metrics["counterfactuals"].items()):
+            checks.append(
+                _numeric_gate(f"{kind}_regret", cf_metrics.regret, "<=", 0.05)
+            )
+        return checks
+
     if estimator_name != "NFXP":
         raise NotImplementedError(
             f"No hard non-smoke recovery gates are implemented for {estimator_name}"

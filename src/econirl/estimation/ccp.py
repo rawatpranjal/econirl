@@ -662,9 +662,22 @@ class CCPEstimator(BaseEstimator):
         )
         final_policy = self._update_ccps_from_values(v, problem.scale_parameter)
 
-        # Compute value function V(s) = σ·log(Σ_a exp(v(a,s)/σ))
+        # Report value in the package's soft-Bellman convention. The CCP
+        # inversion uses the Euler-constant emax correction internally; directly
+        # applying logsumexp to those CCP choice-specific values returns the
+        # same policy but a value level shifted by that representation. For
+        # diagnostics and known-truth comparisons, evaluate the recovered policy
+        # under the recovered flow reward without the Euler-constant offset.
         sigma = problem.scale_parameter
-        V = sigma * jax.scipy.special.logsumexp(v / sigma, axis=1)
+        recovered_reward = utility.compute(current_params).astype(jnp.float64)
+        policy_eval = final_policy.astype(jnp.float64)
+        transitions_eval = transitions.astype(jnp.float64)
+        clipped_policy = jnp.clip(policy_eval, 1e-12, 1.0)
+        reward_pi = jnp.sum(policy_eval * recovered_reward, axis=1)
+        entropy_pi = -sigma * jnp.sum(policy_eval * jnp.log(clipped_policy), axis=1)
+        transition_pi = jnp.einsum("sa,ast->st", policy_eval, transitions_eval)
+        lhs = jnp.eye(problem.num_states, dtype=jnp.float64) - beta * transition_pi
+        V = jnp.linalg.solve(lhs, reward_pi + entropy_pi).astype(jnp.float32)
 
         # Compute final log-likelihood
         final_ll = self._compute_log_likelihood(

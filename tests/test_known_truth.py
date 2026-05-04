@@ -22,6 +22,7 @@ from experiments.known_truth import (
     known_truth_initial_params,
     make_estimator,
     policy_divergence,
+    recovery_gates,
     run_estimator,
     run_pre_estimation_diagnostics,
     simulate_known_truth_panel,
@@ -293,6 +294,57 @@ def test_nfxp_smoke_fit_produces_known_truth_metrics():
         assert cf_metrics.policy.tv >= 0.0
         assert math.isfinite(cf_metrics.value_rmse)
         assert math.isfinite(cf_metrics.regret)
+
+
+def test_ccp_smoke_fit_produces_known_truth_metrics_and_gates():
+    dgp = build_known_truth_dgp(
+        KnownTruthDGPConfig(
+            state_mode="low_dim",
+            reward_mode="action_dependent",
+            reward_dim="low",
+            heterogeneity="none",
+            num_regular_states=5,
+            transition_noise=0.02,
+            seed=312,
+        )
+    )
+    panel = simulate_known_truth_panel(
+        dgp,
+        SimulationConfig(n_individuals=20, n_periods=8, seed=313),
+    )
+
+    result = run_estimator("CCP", dgp, panel, smoke=True)
+
+    assert result.compatibility.compatible
+    assert result.summary.policy.shape == (dgp.problem.num_states, dgp.problem.num_actions)
+    assert result.summary.value_function.shape == (dgp.problem.num_states,)
+    assert result.summary.metadata["num_policy_iterations"] == 3
+    assert result.summary.metadata["npl_converged"] in {True, False}
+
+    metrics = result.metrics
+    assert metrics["parameters"] is not None
+    assert math.isfinite(metrics["parameters"].rmse)
+    assert math.isfinite(metrics["reward_rmse"])
+    assert math.isfinite(metrics["value_rmse"])
+    assert math.isfinite(metrics["q_rmse"])
+    assert metrics["policy"].tv >= 0.0
+
+    gate_names = {
+        gate.name
+        for gate in recovery_gates("CCP", result.summary, metrics, smoke=False)
+    }
+    assert {
+        "npl_iterations",
+        "standard_errors_finite",
+        "parameter_cosine",
+        "parameter_relative_rmse",
+        "policy_tv",
+        "value_rmse",
+        "q_rmse",
+        "type_a_regret",
+        "type_b_regret",
+        "type_c_regret",
+    }.issubset(gate_names)
 
 
 def test_nfxp_failed_non_smoke_recovery_raises_hard_gate():

@@ -1,192 +1,389 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
+\usepackage[left=0.85in,right=0.85in,top=0.8in,bottom=0.85in]{geometry}
 \input{../notation}
-\usepackage[ruled,lined]{algorithm2e}
+\hypersetup{hypertexnames=false}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
+\setlength{\parskip}{0.45em}
 \setlength{\parindent}{0em}
 
-\title{Primer: CCP-NPL Estimation\\[3pt]
-\large Hotz and Miller (1993), Aguirregabiria and Mira (2002)}
+\title{CCP Reference and Known-Truth Validation Tutorial\\[3pt]
+\large Hotz-Miller Inversion and Nested Pseudo-Likelihood}
 \author{econirl package documentation}
-\date{}
+\date{May 2026}
 
 \begin{document}
 \maketitle
 
+\begin{center}
+\small
+\textbf{RTD page:}
+\url{https://econirl.readthedocs.io/en/latest/estimators/ccp.html}
+\quad
+\textbf{Source:}
+\url{https://github.com/rawatpranjal/EconIRL/tree/main}
+\end{center}
 
-%% ============================================================
-\section{Problem and Motivation}
-%% ============================================================
+\section{Purpose}
 
-The Nested Fixed Point (NFXP) estimator of \citet{rust1987} is statistically efficient but requires solving the Bellman equation at every outer optimization step. The inner loop anchors gradient computation: you cannot evaluate the log-likelihood without first computing the value function. This creates a fundamental asymmetry between estimation and identification --- even a researcher who only wants a quick, consistent preliminary estimate must invoke the full dynamic programming machinery.
+CCP, the conditional choice probability estimator, is the structural dynamic
+discrete choice estimator that replaces repeated Bellman fixed-point solves
+with first-stage policy inversion. Instead of solving the dynamic programming
+problem for every candidate payoff vector, CCP first estimates
+\(\hat\pi(a\mid s)\) from observed choices and uses the Hotz-Miller inversion
+to recover continuation values. Aguirregabiria and Mira's NPL algorithm then
+iterates this mapping until it approximates the MLE fixed point.
 
-\citet{hotzMiller1993} showed this is unnecessary. Under additive separability and IID private shocks, the observed choice probabilities $P(a|s)$ contain all the information needed to recover continuation values without solving any fixed point. Their inversion lemma maps CCPs directly to value functions via a single matrix solve, replacing the inner loop with one $O(|\mathcal{S}|^3)$ matrix inversion. A first-step consistent estimator follows immediately from empirical choice frequencies.
+This document is a known-truth validation tutorial. It does not use real data.
+The synthetic DGP supplies the true reward, transition law, value function,
+policy, and Type A/B/C counterfactual oracle objects. The validation question
+is whether the CCP/NPL implementation recovers these known objects on a
+medium-scale finite panel.
 
-\citet{aguirregabiriaMira2002} showed how to recover full MLE efficiency from this starting point. Iterating the Hotz-Miller mapping in CCP space --- the Nested Pseudo-Likelihood (NPL) algorithm --- converges geometrically to the MLE fixed point. Five NPL iterations suffice in practice. This paper established the zero Jacobian property: at the NPL fixed point, the estimator is first-order insensitive to CCP estimation error, delivering the same asymptotic efficiency as NFXP without its structural starting requirement.
+\section{Source Papers}
 
-CCP estimation is the only method in the EconIRL package that extends naturally to dynamic games. NFXP requires computing Nash equilibria in the inner loop and is therefore infeasible for games with more than two players.
+The primary source is Hotz and Miller (1993), which showed that conditional
+choice probabilities can invert the dynamic choice problem under additive
+separability, conditional independence, and type-I extreme-value shocks.
+Aguirregabiria and Mira (2002) introduced nested pseudo-likelihood, or NPL:
+given a policy, estimate payoffs; given payoffs, update the policy; repeat.
+Their sequence nests the one-step Hotz-Miller estimator at \(K=1\) and the
+NFXP/MLE fixed point in the limit. Magnac and Thesmar (2002) are the
+identification warning: the discount factor, scale, and reward location need
+normalization or exclusion restrictions.
 
+\section{When to Use CCP}
 
-%% ============================================================
-\section{Model and Notation}
-%% ============================================================
+Use CCP when the state and action spaces are tabular, transitions are known or
+first-stage estimated, empirical action support is strong, and a full NFXP
+inner solve at every outer step is too expensive. CCP is especially useful as a
+structural workhorse when a nonparametric first-stage policy can be estimated
+well.
 
-\commonnotation
+Do not use CCP as a recovery benchmark when many states are rarely observed or
+one action is almost never chosen. The first-stage empirical CCPs are the
+estimator's foundation; if they are poorly supported, the Hotz-Miller inversion
+amplifies the noise.
 
-We work within the DDC framework of \citet{rust1987}. An agent in state $s \in \mathcal{S}$ chooses action $a \in \mathcal{A}$ to maximize discounted expected utility. Flow utility is $u(s,a;\theta) + \sigma\epsilon_a$ where $\epsilon_a$ is Type I extreme value with scale $\sigma > 0$. Transitions follow $P(s'|s,a)$ with discount factor $\beta \in [0,1)$.
+\section{Model}
 
-The key objects are as follows.
+The observed data are state-action-next-state trajectories
+\[
+\{(s_{it}, a_{it}, s_{i,t+1}) : i=1,\ldots,N,\ t=1,\ldots,T\}.
+\]
+
+Flow payoff is linear in known features:
+\[
+u_\theta(s,a) = \phi(s,a)^\top \theta.
+\]
+Transitions are
+\[
+P_a(s,s') = \Pr(s_{t+1}=s' \mid s_t=s, a_t=a),
+\]
+the discount factor is \(\beta\), and the type-I extreme-value shock scale is
+\(\sigma\).
+
+Given a policy \(\pi\), define the policy-weighted transition matrix
+\[
+F_\pi(s,s') = \sum_a \pi(a\mid s)P_a(s,s')
+\]
+and the logit emax correction
+\[
+e_\pi(s,a) = \gamma_{\mathrm{Euler}} - \log \pi(a\mid s).
+\]
+
+Hotz-Miller inversion writes the integrated value under policy \(\pi\) as
+\[
+\bar V_\pi
+=
+(I-\beta F_\pi)^{-1}
+\sum_a \pi(a\mid s)\{u_\theta(s,a)+e_\pi(s,a)\}.
+\]
+For linear rewards, this separates into augmented features:
+\[
+\bar V_\pi(s)
+=
+W_\phi(s)^\top\theta + W_e(s),
+\]
+where
+\[
+W_\phi = (I-\beta F_\pi)^{-1}\sum_a \pi(a\mid s)\phi(s,a),
+\qquad
+W_e = (I-\beta F_\pi)^{-1}\sum_a \pi(a\mid s)e_\pi(s,a).
+\]
+The choice-specific value used in the pseudo-likelihood is
+\[
+\tilde Q_\theta(s,a;\pi)
+=
+\phi(s,a)^\top\theta
++ \beta \sum_{s'}P_a(s,s')\{W_\phi(s')^\top\theta+W_e(s')\}.
+\]
+
+The \(K\)-stage CCP/NPL estimator is
+\[
+\hat\theta_K
+=
+\argmax_\theta
+\sum_{i,t}
+\log
+\frac{\exp(\tilde Q_\theta(s_{it},a_{it};\hat\pi^{K-1})/\sigma)}
+{\sum_b\exp(\tilde Q_\theta(s_{it},b;\hat\pi^{K-1})/\sigma)}.
+\]
+
+\section{Estimator Mechanics}
+
+The implementation follows five steps.
+
+\begin{enumerate}
+\item Estimate empirical CCPs with Laplace smoothing:
+\[
+\hat\pi_0(a\mid s)
+=
+\frac{N(s,a)+\delta}{N(s)+|\mathcal A|\delta}.
+\]
+\item Compute \(F_{\hat\pi}\), \(e_{\hat\pi}\), \(W_\phi\), and \(W_e\) once
+per NPL step.
+\item Build augmented features and maximize a standard multinomial logit
+pseudo-likelihood in \(\theta\).
+\item Update CCPs from the fitted choice-specific values.
+\item Repeat for \(K\) NPL iterations, then compute standard errors from the
+full Bellman-constrained likelihood Hessian.
+\end{enumerate}
+
+The important implementation detail is the cost shift. NFXP solves a Bellman
+fixed point inside every likelihood evaluation. CCP pays one matrix inversion
+per NPL step, then each optimizer step is just a logit gradient on augmented
+features. In EconIRL, the augmented-feature logit kernel is JIT-compiled once
+and reused across NPL steps.
+
+\section{Identification Checks}
+
+CCP inherits the same payoff identification restrictions as NFXP and adds
+first-stage support requirements.
+
+\begin{enumerate}
+\item \textbf{Reward rank.} The action-dependent feature matrix must have full
+column rank after dropping zero rows.
+\item \textbf{Action support.} Every action must have enough empirical mass.
+Near-zero CCPs make \(e_\pi(s,a)=\gamma-\log \pi(a\mid s)\) unstable.
+\item \textbf{State coverage.} The policy is nonparametrically estimated by
+state. Sparse states should be pooled, smoothed, or excluded from a main
+validation claim.
+\item \textbf{Normalization.} The reward scale is fixed at \(\sigma=1\), and
+the synthetic DGP uses an exit action and absorbing state as a zero-reward
+anchor.
+\item \textbf{Transition separation.} This tutorial supplies the true
+transition tensor, so the validation isolates the CCP payoff estimator rather
+than transition-estimation error.
+\end{enumerate}
+
+\section{Known-Truth DGP}
+
+The canonical CCP validation cell is \texttt{canonical\_low\_action}. It is the
+same low-dimensional action-dependent structural benchmark used for NFXP.
 
 \begin{table}[H]
 \centering\small
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
+\caption{Canonical CCP DGP.}
+\begin{tabular}{lr}
 \toprule
-Symbol & Name & Definition \\
+Quantity & Value \\
 \midrule
-$e(a,s)$ & Emax correction & $\gamma_{\text{Euler}} - \log \pi(a|s)$, where $\gamma_{\text{Euler}} \approx 0.5772$ \\
-$F_\pi$ & Policy-weighted transitions & $F_\pi[s,s'] = \sum_a \pi(a|s)\, P(s'|s,a)$ \\
-$W_\phi$ & Augmented feature matrix & $(I - \beta F_\pi)^{-1} \sum_a \pi(a) \odot \phi(a)$, shape $(|\mathcal{S}|, K)$ \\
-$W_e$ & Augmented emax vector & $(I - \beta F_\pi)^{-1} \sum_a \pi(a) \odot e(a)$, shape $(|\mathcal{S}|,)$ \\
-$\tilde\phi(s,a)$ & Augmented features & $\phi(s,a) + \beta \sum_{s'} P(s'|s,a)\, W_\phi(s')$ \\
-$\tilde{e}(s,a)$ & Augmented emax & $\beta \sum_{s'} P(s'|s,a)\, W_e(s')$ \\
+Regular states & 20 \\
+Absorbing states & 1 \\
+Total states & 21 \\
+Actions & 3 \\
+Exit action & 2 \\
+Discount factor & 0.95 \\
+Shock scale & 1.0 \\
+Reward mode & action-dependent \\
+Reward dimension & low \\
+State mode & low-dimensional \\
+Simulated individuals & 2,000 \\
+Periods per individual & 80 \\
+Observations & 160,000 \\
 \bottomrule
-\end{tabular*}
+\end{tabular}
 \end{table}
 
+The action-dependent features are
+\[
+\phi(s,a)
+=
+\begin{cases}
+(1, x_s, 0, 0) & a = 0,\\
+(0, 0, 1, x_s) & a = 1,\\
+(0, 0, 0, 0) & a = 2.
+\end{cases}
+\]
+The exit action has zero reward and sends the process to the absorbing state.
+The true parameter vector is:
 
-%% ============================================================
-\section{Core Theory}
-%% ============================================================
+\begin{table}[H]
+\centering\small
+\caption{True reward parameters.}
+\begin{tabular}{lr}
+\toprule
+Parameter & Truth \\
+\midrule
+\texttt{action\_0\_intercept} & 0.10 \\
+\texttt{action\_0\_progress} & 0.50 \\
+\texttt{action\_1\_intercept} & 0.00 \\
+\texttt{action\_1\_progress} & -0.20 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\subsection{The Hotz-Miller Inversion Lemma}
+\section{Pre-Estimation Diagnostics}
 
-Under additive separability (AS), conditional independence (CI), and IID extreme value errors (EV), the integrated value function at state $s$ under policy $\pi$ can be written as
-\begin{equation}
-\label{eq:ccp_value}
-\bar{v}(s) = \sum_a \pi(a|s) \bigl[u(s,a;\theta) + e(a,s)\bigr] + \beta \sum_{s'} F_\pi(s,s')\, \bar{v}(s').
-\end{equation}
-The emax correction $e(a,s) = \gamma_{\text{Euler}} - \log \pi(a|s)$ is entirely determined by the CCPs and the known distributional assumption on $\epsilon$. No knowledge of $\theta$ or $V$ is needed to compute it.
+Run diagnostics before fitting. For CCP, support diagnostics are not optional:
+the estimator starts from empirical CCPs.
 
-Rearranging Equation~\eqref{eq:ccp_value} in matrix form gives
-\begin{equation}
-\label{eq:ccp_matrix}
-\bar{v} = (I - \beta\, F_\pi)^{-1} \left[\sum_a \pi(a) \odot \bigl(u(a;\theta) + e(a)\bigr)\right].
-\end{equation}
-The matrix $(I - \beta F_\pi)$ is invertible because $\beta < 1$ and $F_\pi$ is stochastic. This is the Hotz-Miller inversion: the continuation value is recovered by a single matrix inversion without any iteration.
+\begin{lstlisting}
+from experiments.known_truth import (
+    SimulationConfig,
+    build_known_truth_dgp,
+    get_cell,
+    run_pre_estimation_diagnostics,
+    simulate_known_truth_panel,
+)
 
-\subsection{Choice-Specific Values from CCPs}
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(
+    dgp,
+    SimulationConfig(n_individuals=2000, n_periods=80, seed=42),
+)
+diagnostics = run_pre_estimation_diagnostics(dgp, panel)
 
-For linear utility $u(s,a;\theta) = \theta^\top \phi(s,a)$, the choice-specific value function separates into
-\begin{equation}
-\label{eq:csv_decomp}
-v(s,a;\theta) = \theta^\top \tilde{\phi}(s,a) + \tilde{e}(s,a).
-\end{equation}
-The augmented features $\tilde\phi(s,a)$ and emax correction $\tilde{e}(s,a)$ depend only on the current CCPs $\pi$, not on $\theta$. This separation is the implementation key: given fixed CCPs, the matrices $W_\phi$ and $W_e$ are computed \emph{once} per NPL step, after which the pseudo-likelihood optimization in $\theta$ is a standard logit on augmented features with no further matrix inversion.
+assert diagnostics.passed
+assert diagnostics.feature_rank == diagnostics.num_features
+assert diagnostics.is_action_dependent
+assert diagnostics.state_action_coverage == 1.0
+\end{lstlisting}
 
-\subsection{NPL Convergence (Aguirregabiria-Mira 2002)}
+\section{Run the Tutorial}
 
-\citet{aguirregabiriaMira2002} define the NPL mapping $\Psi: \pi \mapsto \pi'$ as follows. Given CCPs $\pi^{(k)}$, compute augmented features $\tilde\phi, \tilde{e}$, maximize the pseudo-log-likelihood
-\begin{equation}
-\label{eq:pseudo_ll}
-\hat\theta^{(k)} = \argmax_\theta \sum_{i=1}^N \log \frac{\exp\bigl(v(s_i, a_i;\, \theta, \pi^{(k)})/\sigma\bigr)}{\sum_{a'} \exp\bigl(v(s_i, a';\, \theta, \pi^{(k)})/\sigma\bigr)},
-\end{equation}
-then update $\pi^{(k+1)}(a|s) = \text{softmax}\bigl(v(s,a;\, \hat\theta^{(k)}, \pi^{(k)})/\sigma\bigr)$. A fixed point of $\Psi$ is an NPL equilibrium.
+From the repository root:
 
-The \textbf{zero Jacobian property} ensures that at the fixed point, the estimator is first-order insensitive to CCP estimation error. This means the NPL fixed point achieves the same asymptotic distribution as NFXP-MLE, despite starting from noisy empirical CCPs.
+\begin{lstlisting}
+PYTHONPATH=src:. python -m experiments.known_truth \
+    --estimator CCP \
+    --cell-id canonical_low_action \
+    --output-dir outputs/known_truth \
+    --show-progress \
+    --verbose
+\end{lstlisting}
 
-\subsection{Identification}
+The command builds the DGP, simulates the panel with \texttt{tqdm} progress,
+runs pre-estimation diagnostics, fits K=10 CCP/NPL with finite standard
+errors, evaluates reward/value/Q/policy recovery, solves Type A/B/C
+counterfactual oracles, writes one \texttt{result.json}, and raises if any
+non-smoke hard gate fails.
 
-CCP estimation inherits the same identification structure as NFXP. The parametric restriction $u = \theta^\top \phi(s,a)$ with $K < |\mathcal{S}|(|\mathcal{A}|-1)$ resolves reward shaping ambiguity. The discount factor $\beta$ and scale $\sigma$ are typically fixed; \citet{magnacThesmar2002} showed that $\beta$ and the reward level are not jointly identified without further restrictions.
+Direct estimator usage:
 
+\begin{lstlisting}
+from experiments.known_truth import (
+    build_known_truth_dgp,
+    get_cell,
+    simulate_known_truth_panel,
+)
+from econirl.estimation.ccp import CCPEstimator
 
-%% ============================================================
-\section{Estimation Algorithm}
-%% ============================================================
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(dgp, cell.simulation_config)
 
-\begin{algorithm}[H]
-\DontPrintSemicolon
-\caption{CCP-NPL Estimation \citep{hotzMiller1993, aguirregabiriaMira2002}}
-\label{alg:ccp}
-\KwIn{Panel $\mathcal{D} = \{(s_i, a_i)\}_{i=1}^N$, features $\phi(s,a)$, transitions $P(s'|s,a)$, discount $\beta$, scale $\sigma$, NPL iterations $K$}
-\BlankLine
+estimator = CCPEstimator(
+    num_policy_iterations=10,
+    ccp_min_count=1,
+    ccp_smoothing=1e-6,
+    outer_tol=1e-6,
+    outer_max_iter=500,
+    se_method="robust",
+    compute_hessian=True,
+    verbose=True,
+)
 
-\tcp{Step 1: Estimate CCPs from data (non-parametric first step)}
-\For{each state $s$}{
-    $\hat\pi^{(0)}(a|s) = N(s,a) / N(s)$ \tcp*{frequency estimator}
-    \lIf{$N(s) < n_{\min}$}{$\hat\pi^{(0)}(a|s) = 1/|\mathcal{A}|$} \tcp*{fallback to uniform}
-}
-Apply Laplace smoothing: $\hat\pi^{(0)} \leftarrow (\hat\pi^{(0)} + \delta) / (1 + |\mathcal{A}|\delta)$\;
-\BlankLine
+summary = estimator.estimate(
+    panel=panel,
+    utility=dgp.utility(),
+    problem=dgp.problem,
+    transitions=dgp.transitions,
+)
+\end{lstlisting}
 
-\tcp{Step 2: NPL loop}
-\For{$k = 0, 1, \ldots, K-1$}{
-    \BlankLine
-    \tcp{2a. Compute emax corrections and policy-weighted transitions}
-    $e^{(k)}(a,s) = \gamma_{\text{Euler}} - \log \hat\pi^{(k)}(a|s)$\;
-    $F_\pi^{(k)}[s,s'] = \sum_a \hat\pi^{(k)}(a|s)\, P(s'|s,a)$\;
-    \BlankLine
-    \tcp{2b. ONE matrix inversion per NPL step --- the implementation key}
-    $W_\phi = (I - \beta F_\pi^{(k)})^{-1} \sum_a \hat\pi^{(k)}(a) \odot \phi(a)$\;
-    $W_e = (I - \beta F_\pi^{(k)})^{-1} \sum_a \hat\pi^{(k)}(a) \odot e^{(k)}(a)$\;
-    \BlankLine
-    \tcp{2c. Augmented features --- fixed for this NPL step}
-    \For{each $(s,a)$}{
-        $\tilde\phi(s,a) = \phi(s,a) + \beta \sum_{s'} P(s'|s,a)\, W_\phi(s')$\;
-        $\tilde{e}(s,a) = \beta \sum_{s'} P(s'|s,a)\, W_e(s')$\;
-    }
-    \BlankLine
-    \tcp{2d. Pseudo-LL maximization: standard logit on $\tilde\phi$, no further inversion}
-    $v(s,a;\theta) = \theta^\top \tilde\phi(s,a) + \tilde{e}(s,a)$\;
-    $\hat\theta^{(k)} = \argmax_\theta \sum_{i=1}^N \log\,\text{softmax}\bigl(v(s_i, \cdot;\, \theta)/\sigma\bigr)_{a_i}$ \tcp*{L-BFGS-B}
-    \BlankLine
-    \tcp{2e. Update CCPs}
-    $\hat\pi^{(k+1)}(a|s) = \text{softmax}\bigl(v(s,a;\, \hat\theta^{(k)})/\sigma\bigr)$\;
-    \BlankLine
-    \lIf{$\|\hat\theta^{(k)} - \hat\theta^{(k-1)}\| < \varepsilon$}{\textbf{break}}
-}
-\BlankLine
-
-\tcp{Step 3: Standard errors}
-Compute numerical Hessian $H$ at $\hat\theta$ via the full Bellman-constrained log-likelihood\;
-$\text{SE}(\hat\theta) = \sqrt{\text{diag}((-H)^{-1})}$\;
-\BlankLine
-
-\KwOut{$\hat\theta$, $V^*$, $\hat\pi$, standard errors}
-\end{algorithm}
-
-\paragraph{Implementation notes.}
-The econirl implementation caches $W_\phi$ and $W_e$ at the start of each NPL step and passes the precomputed augmented features $\tilde\phi$, $\tilde{e}$ to the logit optimizer. This means each gradient evaluation in Step 2d costs $O(N \cdot |\mathcal{A}| \cdot K)$ rather than $O(|\mathcal{S}|^3)$, reducing per-gradient cost by orders of magnitude for large $|\mathcal{S}|$. The full matrix inversion cost $O(|\mathcal{S}|^3)$ is paid exactly once per NPL step. The numerical Hessian in Step 3 uses the full Bellman-constrained log-likelihood rather than the pseudo-likelihood with fixed CCPs, because the pseudo-likelihood Hessian is locally flat in directions that primarily affect CCPs, producing spurious rank deficiency.
-
-
-%% ============================================================
-\section{Results}
-%% ============================================================
-
-% Auto-generated results from ccp_results.py — both tables below
 \input{ccp_results}
 
-\paragraph{NPL convergence to MLE (Table~\ref{tab:ccp_vs_nfxp}).}
-Starting from pure empirical choice frequencies (K=1, Hotz-Miller), the LL gap to NFXP is \hmLLgap\ nats --- consistent but not efficient. By K=3 the gap has collapsed to under 0.2 nats and the parameter estimates are essentially recovered. At K=5 the gap is 0.0004, which is machine precision relative to the problem scale. This is the zero Jacobian property in action: each NPL iteration removes the first-order sensitivity to CCP estimation noise, and five steps suffice to eliminate it entirely.
+\section{Debugging Gaps}
 
-K=1 also runs in \hmTime s versus NFXP's \nfxpTime s on the same problem, a roughly 2.5$\times$ advantage. The gain is structural: NFXP must solve the Bellman equation at every outer gradient evaluation, while K=1 pays one $O(|\mathcal{S}|^3)$ matrix inversion followed by a plain logit. For large state spaces the per-gradient cost gap widens further.
+If CCP fails to recover truth, debug in this order.
 
-\paragraph{Initialization robustness (Table~\ref{tab:init_robustness}).}
-The second table exposes a qualitative difference between the two estimators. NFXP requires a parametric starting point $\theta_0$; from a well-specified start (near the truth) it converges in \initNFXPMinNit\ outer iterations, but from a misspecified start (e.g.\ $RC=50$) it requires \initNFXPMaxNit\ outer iterations --- each involving a full inner Bellman solve. The researcher must either guess a reasonable $\theta_0$ or run a preliminary screening pass.
+\begin{enumerate}
+\item \textbf{First-stage support.} Check observed states, state-action
+coverage, minimum action share, and minimum positive CCP.
+\item \textbf{One-action states.} If a state has only one observed action,
+Hotz-Miller inversion is extrapolating that state's counterfactual action
+values.
+\item \textbf{Smoothing.} Too little smoothing makes logs unstable; too much
+smoothing biases the first-stage policy toward uniform choice.
+\item \textbf{Feature rank.} If rank is below the number of reward parameters,
+\(\theta\) is not identified.
+\item \textbf{Normalization.} If the exit/absorbing anchor is invalid, reward
+levels can drift.
+\item \textbf{NPL iterations.} A K=1 one-step estimator can be consistent, but
+the validation claim uses K=10 and hard gates.
+\item \textbf{Value convention.} CCP inversion includes the Euler-constant
+emax correction internally. EconIRL reports values in the package's soft
+Bellman convention by evaluating the recovered policy under the recovered
+reward, so known-truth value comparisons are meaningful.
+\item \textbf{Soft gates.} Do not accept a non-smoke run that only warns.
+Known-truth validation should pass hard gates or raise.
+\end{enumerate}
 
-CCP K=5 is invariant to $\theta_0$ by construction. Step 1 reads CCPs directly from empirical frequencies; the logit in Step 2d is convex and converges to the same global optimum regardless of where it starts. Across all five starting points the NPL fixed point is identical to seven decimal places (Table~\ref{tab:init_robustness}). This means CCP does not require a preliminary screening pass or a good initial guess --- it is self-initializing.
+\section{Practical Defaults}
 
+Recommended non-smoke validation settings:
 
-\paragraph{Code.}
-\texttt{ccp\_run.py} generates Tables~\ref{tab:ccp_vs_nfxp}~and~\ref{tab:init_robustness}. Estimator: \texttt{src/econirl/estimation/ccp.py}. Behavioral cloning achieves \bcAcc\ policy accuracy (log-likelihood \bcLL), confirming that CCP learns from MDP structure beyond empirical action frequencies.
-\begin{verbatim}
-.venv/bin/python papers/econirl_package/primers/ccp/ccp_run.py
-\end{verbatim}
+\begin{lstlisting}
+CCPEstimator(
+    num_policy_iterations=10,
+    ccp_min_count=1,
+    ccp_smoothing=1e-6,
+    convergence_tol=1e-6,
+    outer_tol=1e-6,
+    outer_max_iter=500,
+    se_method="robust",
+    compute_hessian=True,
+)
+\end{lstlisting}
 
+Use smoke settings only for code-path tests. A smoke test shows that the
+estimator runs and returns finite objects; it is not evidence of recovery.
 
-\bibliographystyle{plainnat}
-\bibliography{references}
+\section{Implementation Paths}
+
+\begin{itemize}
+\item Estimator: \texttt{src/econirl/estimation/ccp.py}
+\item Known-truth harness: \texttt{experiments/known\_truth.py}
+\item Fast validation tests: \texttt{tests/test\_known\_truth.py}
+\item Master plan: \texttt{papers/econirl\_package\_jss/plans/README.md}
+\item CCP alignment audit: \texttt{papers/econirl\_package\_jss/plans/alignment/03\_ccp.md}
+\end{itemize}
+
+\section{References}
+
+Hotz, V. Joseph, and Robert A. Miller (1993). Conditional Choice Probabilities
+and the Estimation of Dynamic Models. \emph{The Review of Economic Studies},
+60(3), 497--529.
+
+Aguirregabiria, Victor, and Pedro Mira (2002). Swapping the Nested Fixed Point
+Algorithm: A Class of Estimators for Discrete Markov Decision Models.
+\emph{Econometrica}, 70(4), 1519--1543.
+
+Magnac, Thierry, and David Thesmar (2002). Identifying Dynamic Discrete
+Decision Processes. \emph{Econometrica}, 70(2), 801--816.
 
 \end{document}

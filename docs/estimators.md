@@ -5,7 +5,7 @@ the estimator-specific reference PDF. The PDFs are built from dedicated TeX
 files and use the shared known-truth synthetic DGP harness rather than real
 data examples.
 
-NFXP is the first fully migrated estimator page and PDF. The remaining
+NFXP and CCP are fully migrated estimator pages and PDFs. The remaining
 estimator pages are kept compact while their known-truth PDFs are migrated.
 
 ```{toctree}
