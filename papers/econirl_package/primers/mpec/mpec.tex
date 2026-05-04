@@ -1,169 +1,385 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.75in,bottom=0.75in]{geometry}
+\usepackage[left=0.85in,right=0.85in,top=0.8in,bottom=0.85in]{geometry}
 \input{../notation}
-\usepackage[ruled,lined]{algorithm2e}
+\hypersetup{hypertexnames=false}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
+\setlength{\parskip}{0.45em}
 \setlength{\parindent}{0em}
 
-\title{Primer: MPEC for Dynamic Discrete Choice\\[3pt]
-\large Su and Judd (2012)}
+\title{MPEC Reference and Known-Truth Validation Tutorial\\[3pt]
+\large Mathematical Programming with Equilibrium Constraints}
 \author{econirl package documentation}
-\date{}
+\date{May 2026}
 
 \begin{document}
 \maketitle
-\vspace{-0.8em}
 
-%% ============================================================
-\section{Context and Problem}
-%% ============================================================
+\begin{center}
+\small
+\textbf{RTD page:}
+\url{https://econirl.readthedocs.io/en/latest/estimators/mpec.html}
+\quad
+\textbf{Source:}
+\url{https://github.com/rawatpranjal/EconIRL/tree/main}
+\end{center}
 
-Rust's NFXP algorithm \citep{rust1987} estimates DDC parameters by nesting the Bellman solve inside the likelihood maximization.
-At each candidate $\theta$, the inner loop iterates the contraction mapping $V^{k+1} = T(V^k;\theta)$ until $\|V^{k+1} - V^k\|_\infty < \epsilon$.
-When the discount factor $\beta$ is close to 1, the contraction rate approaches unity and convergence slows.
-At $\beta = 0.9999$, successive approximation (SA) theoretically requires
-$\lceil \log(\epsilon)/\log(\beta) \rceil = \lceil \log(10^{-10})/\log(0.9999) \rceil = 230{,}258$
-inner iterations per outer likelihood evaluation.
-In the logit model, the softmax policy depends on value \emph{differences} which converge faster than absolute levels, so truncated SA can still produce correct MLE estimates.
-But each outer step still pays the cost of hundreds of SA iterations, and the SA-then-NK polyalgorithm of \citet{iskhakovRustSchjerning2016} replaces each SA call with a handful of Newton steps that cost $O(|\calS|^3)$ each.
+\section{Purpose}
 
-\citet{suJudd2012} eliminate the inner loop entirely by reframing estimation as a single constrained optimization problem.
-The value function $V$ becomes an explicit decision variable and the Bellman equation $V = T(V;\theta)$ is imposed as a constraint.
-The constraint is enforced via SQP or an augmented Lagrangian penalty, producing the same MLE in a fraction of the time because zero inner Bellman iterations are needed regardless of $\beta$.
+MPEC estimates the same structural dynamic discrete choice likelihood as
+NFXP, but it changes the numerical problem. NFXP eliminates the value function
+by solving the Bellman fixed point inside every likelihood evaluation. MPEC
+keeps the value function as an optimizer variable and imposes the Bellman
+fixed point as an equality constraint.
 
-%% ============================================================
-\section{Model and Notation}
-%% ============================================================
+This document is a known-truth validation tutorial. It does not use real data.
+The synthetic DGP supplies the true reward, transition law, value function,
+policy, and Type A/B/C counterfactual oracle objects. The validation question
+is whether the MPEC implementation recovers these known objects on a
+medium-scale finite panel while satisfying the Bellman constraints.
 
-The agent observes state $s_t \in \calS$ with $|\calS| = n$, chooses action $a_t \in \calA$, and receives flow utility $u(s_t, a_t;\theta) + \epsilon_{t,a}$ where $\epsilon$ is Type I extreme value with scale $\sigma = 1$.
-The state transitions according to $P(s'|s,a)$ and future payoffs are discounted at rate $\beta$.
+\section{Source Papers}
 
-\commonnotation
+The primary source is Su and Judd (2012), which formulates structural dynamic
+estimation as constrained optimization. Their core contribution is to solve
+for \((\theta,V)\) jointly:
+\[
+\max_{\theta,V} \ell(\theta,V)
+\quad\text{subject to}\quad
+V = T_\theta V.
+\]
+The constraint is the equilibrium condition. At any feasible point, MPEC and
+NFXP evaluate the same likelihood.
 
-\noindent MPEC introduces $\lambda \in \R^n$ (Lagrange multipliers for the Bellman constraint) and $\rho > 0$ (augmented Lagrangian penalty weight, increasing across outer iterations).
-\FloatBarrier
+Iskhakov, Rust, Schjerning, and Seo (2016) give the caution. MPEC is elegant
+and easy to specify, but the constrained problem has dimension
+\(|\theta|+|\mathcal S|\) and can become less robust than specialized NFXP-NK
+as the fixed-point dimension grows or \(\beta\) approaches one. In this
+package, MPEC is treated as a structural estimator for manageable tabular
+state spaces, not as a universal large-state solver.
 
-%% ============================================================
-\section{MPEC Formulation}
-%% ============================================================
+\section{When to Use MPEC}
 
-\paragraph{NFXP (nested).}
-\begin{equation}
-\label{eq:nfxp}
-\max_\theta \; \mathcal{L}(\theta) \quad \text{where } V(\theta) \text{ solves } V = T(V;\theta) \text{ by contraction.}
-\end{equation}
+Use MPEC when the state space is tabular, transitions are known or first-stage
+estimated, the Bellman constraint dimension is moderate, and you want a direct
+constrained-optimization formulation of the structural likelihood. It is also
+useful for auditing NFXP because both estimators target the same MLE but reach
+it through different numerical geometry.
 
-\paragraph{MPEC (joint).}
-\begin{equation}
-\label{eq:mpec}
-\max_{\theta, V} \; \mathcal{L}(\theta, V) \quad \text{subject to} \quad V = T(V;\theta).
-\end{equation}
+Do not use MPEC as the main recovery tool for large state spaces, nearly
+singular Bellman Jacobians, or high-discount problems unless the constraint
+solver has been stress-tested. The relevant failure mode is not an inner
+Bellman loop failing; it is an optimizer reporting success while constraint
+violation, stationarity, or standard errors are not credible. The known-truth
+gates below check those objects directly.
 
-The feasible set is identical: any $(\theta^*, V^*)$ satisfying the constraint achieves the same log-likelihood value as the NFXP solution.
-The difference is computational: MPEC optimizes over $(\theta, V) \in \mathbb{R}^{p+n}$ jointly with the constraint enforced by a penalty, rather than eliminating $V$ via a slow fixed-point iteration.
+\section{Model}
 
-\paragraph{Augmented Lagrangian.}
-The constraint~\eqref{eq:mpec} is handled by the augmented Lagrangian
-\begin{equation}
-\label{eq:al}
-\mathcal{L}_\rho(\theta, V, \lambda)
-= -\mathcal{L}(\theta, V)
-+ \lambda^\top [V - T(V;\theta)]
-+ \tfrac{\rho}{2} \|V - T(V;\theta)\|^2.
-\end{equation}
-Each inner subproblem $\min_{\theta,V} \mathcal{L}_\rho$ is solved by L-BFGS-B.
-The penalty $\rho$ grows by factor $\gamma_\rho$ each outer iteration until the Bellman residual $\|V - T(V;\theta)\|_\infty < \epsilon_c$.
+The observed data are state-action-next-state trajectories
+\[
+\{(s_{it}, a_{it}, s_{i,t+1}) : i=1,\ldots,N,\ t=1,\ldots,T\}.
+\]
 
-%% ============================================================
-\section{Algorithm}
-%% ============================================================
+Flow payoff is linear in known features:
+\[
+u_\theta(s,a) = \phi(s,a)^\top \theta.
+\]
+Transitions are
+\[
+P_a(s,s') = \Pr(s_{t+1}=s' \mid s_t=s, a_t=a),
+\]
+the discount factor is \(\beta\), and the type-I extreme-value shock scale is
+\(\sigma\). Given \(V\), the choice-specific value is
+\[
+Q_\theta(s,a;V)
+=
+u_\theta(s,a)
++ \beta\sum_{s'}P_a(s,s')V(s').
+\]
+The logit policy implied by \((\theta,V)\) is
+\[
+\pi_{\theta,V}(a\mid s)
+=
+\frac{\exp(Q_\theta(s,a;V)/\sigma)}
+{\sum_b \exp(Q_\theta(s,b;V)/\sigma)}.
+\]
 
-\begin{algorithm}[h!]
-\DontPrintSemicolon
-\caption{MPEC via SQP \citep{suJudd2012}}
-\label{alg:mpec}
-\KwIn{Data $\mathcal{D}$, transitions $P$, discount $\beta$, initial $\theta_0$}
-\BlankLine
-\textbf{Warm start:} solve $V_0 = T(V_0;\theta_0)$ by value iteration to get feasible $(\theta_0, V_0)$\;
-\BlankLine
-\For{$k = 0, 1, \ldots, K_{\text{outer}}$}{
-  \tcp{Quadratic subproblem: linearize constraint around current iterate}
-  Compute $\nabla_{(\theta,V)} \mathcal{L}$ and Jacobian $J = \nabla_{(\theta,V)} [V - T(V;\theta)]$\;
-  Solve KKT system for SQP step $d^k$ and multipliers $\mu^k$:\;
-  \Indp
-  $\begin{bmatrix} B^k & J^\top \\ J & 0 \end{bmatrix}
-   \begin{bmatrix} d^k \\ \mu^k \end{bmatrix} =
-   \begin{bmatrix} -\nabla \mathcal{L} \\ -(V - T(V;\theta)) \end{bmatrix}$\;
-  \Indm
-  Line search on $\mathcal{L}(\theta + \alpha d^k_\theta,\, V + \alpha d^k_V)$; \quad $(\theta^{k+1}, V^{k+1}) \leftarrow (\theta^k, V^k) + \alpha d^k$\;
-  \lIf{$\|V^{k+1} - T(V^{k+1};\theta^{k+1})\|_\infty < \epsilon_c$}{\textbf{break}}
-}
-\BlankLine
-Compute standard errors via implicit function theorem at $(\theta^*, V^*)$\;
-\KwOut{$\theta^*$, $V^*$, standard errors}
-\end{algorithm}
-\FloatBarrier
+The soft Bellman operator is
+\[
+T_\theta V(s)
+=
+\sigma \log \sum_a
+\exp\left(
+\frac{u_\theta(s,a)+\beta\sum_{s'}P_a(s,s')V(s')}{\sigma}
+\right).
+\]
 
-\noindent\textbf{Implementation notes.}
-The warm start (line 1) initializes $V_0$ at the Bellman fixed point of the starting $\theta_0$, giving the SQP a feasible interior point.
-$B^k$ is a BFGS approximation to the Lagrangian Hessian, updated each outer iteration.
-Gradients of $\mathcal{L}$ and the constraint Jacobian $J$ are computed by JAX automatic differentiation.
-In practice, the outer SQP uses scipy SLSQP with JAX-supplied gradients.
+\section{MPEC Estimator}
 
-%% ============================================================
-\section{Identification}
-%% ============================================================
+NFXP solves
+\[
+\hat\theta_{\mathrm{NFXP}}
+=
+\argmax_\theta
+\sum_{i,t}\log\pi_\theta(a_{it}\mid s_{it}),
+\quad
+\text{where } V_\theta = T_\theta V_\theta.
+\]
 
-MPEC and NFXP solve the same MLE problem.
-At convergence, the constraint $V^* = T(V^*;\theta^*)$ is satisfied exactly (up to feasibility tolerance), so $\mathcal{L}(\theta^*, V^*) = \mathcal{L}_{\text{NFXP}}(\theta^*)$ and both estimators recover the same population parameter vector.
-Identification requires the same rank condition on the feature matrix $\phi(s,a)$ as NFXP: the matrix $\Phi$ formed by stacking $\phi(s,a)$ rows must have full column rank.
-Scale is normalized by fixing $\sigma = 1$ (logit scale); level is normalized by resetting mileage to 0 on replacement, which anchors $RC$ in the same utility units as the operating cost $\theta_c$.
-Standard errors are obtained by the observed information formula, evaluating the Hessian at $(\theta^*, V^*)$ with the implicit derivative $dV/d\theta = (I - \beta \nabla_V T)^{-1} \nabla_\theta T$ from the implicit function theorem.
+MPEC solves the constrained problem
+\[
+(\hat\theta,\hat V)
+=
+\argmax_{\theta,V}
+\sum_{i,t}\log\pi_{\theta,V}(a_{it}\mid s_{it})
+\quad
+\text{subject to}\quad
+c(\theta,V)=V-T_\theta V=0.
+\]
 
-%% ============================================================
-\section{Simulation}
-%% ============================================================
+The implementation uses scipy SLSQP with JAX-supplied objective gradients and
+constraint Jacobians. It initializes \(V\) at the Bellman fixed point of the
+initial \(\theta\), which gives SLSQP a feasible starting point. Each SQP step
+works with the joint variable \(x=(\theta,V)\) and the stacked equality
+constraint \(c(x)\in\mathbb R^{|\mathcal S|}\). There is no nested Bellman
+solve inside the likelihood objective.
+
+At convergence, standard errors use the same implicit score as NFXP. The
+Bellman derivative is
+\[
+\left(I-\beta P_\pi\right)\frac{\partial V}{\partial\theta}
+=
+\sum_a \pi(a\mid s)\phi(s,a),
+\]
+where \(P_\pi(s,s')=\sum_a\pi(a\mid s)P_a(s,s')\). The package uses the
+outer product of per-observation scores for robust standard errors in the
+known-truth validation run.
+
+\section{Identification Checks}
+
+MPEC and NFXP share the same structural identification requirements, with one
+additional numerical requirement from constrained optimization.
+
+\begin{enumerate}
+\item \textbf{Reward rank.} The action-dependent feature matrix must have full
+column rank after dropping zero rows.
+\item \textbf{Action support.} Each action must appear in the finite panel so
+the likelihood can discipline payoff differences.
+\item \textbf{State coverage.} The canonical tabular validation observes every
+state in the regular state space.
+\item \textbf{Normalization.} The reward scale is fixed at \(\sigma=1\), and
+the synthetic DGP uses an exit action and absorbing state as a zero-reward
+anchor.
+\item \textbf{Constraint qualification.} The Bellman constraint Jacobian must
+be numerically well behaved at the solution. The generated run reports the
+final Bellman residual and gates on it.
+\end{enumerate}
+
+\section{Known-Truth DGP}
+
+The canonical MPEC validation cell is \texttt{canonical\_low\_action}. It is
+the same low-dimensional action-dependent structural benchmark used for NFXP
+and CCP.
+
+\begin{table}[H]
+\centering\small
+\caption{Canonical MPEC DGP.}
+\begin{tabular}{lr}
+\toprule
+Quantity & Value \\
+\midrule
+Regular states & 20 \\
+Absorbing states & 1 \\
+Total states & 21 \\
+Actions & 3 \\
+Exit action & 2 \\
+Discount factor & 0.95 \\
+Shock scale & 1.0 \\
+Reward mode & action-dependent \\
+Reward dimension & low \\
+State mode & low-dimensional \\
+Simulated individuals & 2,000 \\
+Periods per individual & 80 \\
+Observations & 160,000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The action-dependent features are
+\[
+\phi(s,a)
+=
+\begin{cases}
+(1, x_s, 0, 0) & a = 0,\\
+(0, 0, 1, x_s) & a = 1,\\
+(0, 0, 0, 0) & a = 2.
+\end{cases}
+\]
+The exit action has zero reward and sends the process to the absorbing state.
+The true parameter vector is:
+
+\begin{table}[H]
+\centering\small
+\caption{True reward parameters.}
+\begin{tabular}{lr}
+\toprule
+Parameter & Truth \\
+\midrule
+\texttt{action\_0\_intercept} & 0.10 \\
+\texttt{action\_0\_progress} & 0.50 \\
+\texttt{action\_1\_intercept} & 0.00 \\
+\texttt{action\_1\_progress} & -0.20 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Pre-Estimation Diagnostics}
+
+Run diagnostics before fitting. For MPEC, the estimator is structural, so the
+rank and normalization checks are not optional.
+
+\begin{lstlisting}
+from experiments.known_truth import (
+    SimulationConfig,
+    build_known_truth_dgp,
+    get_cell,
+    run_pre_estimation_diagnostics,
+    simulate_known_truth_panel,
+)
+
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(
+    dgp,
+    SimulationConfig(n_individuals=2000, n_periods=80, seed=42),
+)
+diagnostics = run_pre_estimation_diagnostics(dgp, panel)
+
+assert diagnostics.passed
+assert diagnostics.feature_rank == diagnostics.num_features
+assert diagnostics.is_action_dependent
+assert diagnostics.state_action_coverage == 1.0
+\end{lstlisting}
+
+\section{Run the Tutorial}
+
+From the repository root:
+
+\begin{lstlisting}
+PYTHONPATH=src:. python -m experiments.known_truth \
+    --estimator MPEC \
+    --cell-id canonical_low_action \
+    --output-dir outputs/known_truth \
+    --show-progress \
+    --verbose
+\end{lstlisting}
+
+The command builds the DGP, simulates the panel with \texttt{tqdm} progress,
+runs pre-estimation diagnostics, fits MPEC with finite robust standard errors,
+evaluates reward/value/Q/policy recovery, solves Type A/B/C counterfactual
+oracles, writes one \texttt{result.json}, and raises if any non-smoke hard
+gate fails.
+
+Direct estimator usage:
+
+\begin{lstlisting}
+from experiments.known_truth import (
+    build_known_truth_dgp,
+    get_cell,
+    simulate_known_truth_panel,
+)
+from econirl.estimation.mpec import MPECConfig, MPECEstimator
+
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(dgp, cell.simulation_config)
+
+estimator = MPECEstimator(
+    config=MPECConfig(
+        solver="sqp",
+        outer_max_iter=200,
+        tol=1e-8,
+        constraint_tol=1e-6,
+    ),
+    se_method="robust",
+    compute_hessian=True,
+    verbose=True,
+)
+
+summary = estimator.estimate(
+    panel=panel,
+    utility=dgp.utility(),
+    problem=dgp.problem,
+    transitions=dgp.transitions,
+)
+\end{lstlisting}
 
 \input{mpec_results}
 
-\textbf{Setting.}
-We use the Rust bus engine with $n = \mpecNStates$ mileage bins, true parameters $\theta_c = 0.001$, $RC = 3.0$, and discount factor $\beta = \mpecBetaVal$.
-Expert data: \mpecNObs{} observations (500 buses $\times$ 100 periods).
-At $\beta = \mpecBetaVal$, successive approximation theoretically requires \mpecSANeeded{} inner iterations per outer likelihood call to reach tolerance $10^{-10}$; we cap NFXP-SA at \mpecSABudget{} to benchmark each method under the same setting.
+\section{Debugging Gaps}
 
-\textbf{Results.}
-All three estimators recover the same MLE: OC $= \mpecOC$ and RC $= \mpecRC$ (Bellman residual \mpecCV{}).
-The logit gradient's level-invariance in $V$ means truncated SA still finds the correct optimum, so all methods converge.
-The difference is speed.
-MPEC-SQP enforces the Bellman equation as an equality constraint in a single outer optimisation over $(\theta, V) \in \mathbb{R}^{p+n}$, running no inner iterations, and converges in \mpecMPECTime{}.
-NFXP-SA takes \mpecNFXPTime{} (\mpecSpeedup{} slower).
-NFXP-NK \citep{iskhakovRustSchjerning2016} takes \mpecNKTime{} (\mpecNKSpeedup{} slower).
-MPEC does zero inner Bellman iterations regardless of $\beta$, which is the source of the speedup.
+If MPEC fails to recover truth, debug in this order.
 
-Behavioral cloning achieves \mpecBCacc{} policy accuracy (LL $= \mpecBCLL$), confirming the data are informative but that BC cannot recover replacement costs without exploiting the MDP structure.
+\begin{enumerate}
+\item \textbf{Constraint violation.} Check
+\texttt{metadata["final\_constraint\_violation"]}. A good likelihood value is
+not enough if \(V\neq T_\theta V\).
+\item \textbf{Solver success.} Check both \texttt{summary.converged} and the
+underlying SLSQP success flag.
+\item \textbf{Feature rank.} If rank is below the number of reward parameters,
+\(\theta\) is not identified.
+\item \textbf{Action support.} If one action is rare or missing, the
+likelihood has weak information about payoff differences.
+\item \textbf{Standard errors.} Non-finite standard errors mean the score
+outer product or implied information matrix is singular. Do not publish that
+run as a full structural validation.
+\item \textbf{Initialization.} MPEC is sensitive to feasible starts. The
+implementation initializes \(V\) at the Bellman fixed point of the initial
+\(\theta\).
+\item \textbf{Scale and anchor.} If the logit scale or exit-action anchor is
+changed, reward levels can drift.
+\item \textbf{Soft gates.} Do not accept a non-smoke run that only warns.
+Known-truth validation should pass hard gates or raise.
+\end{enumerate}
 
-\textbf{Code.}
+\section{Practical Defaults}
+
+Recommended non-smoke validation settings:
+
 \begin{lstlisting}
-from econirl.environments.rust_bus import RustBusEnvironment
-from econirl.estimation.mpec import MPECEstimator, MPECConfig
-from econirl.preferences.linear import LinearUtility
-
-env = RustBusEnvironment(num_mileage_bins=90, discount_factor=0.9999)
-panel = env.generate_panel(n_individuals=500, n_periods=100)
-utility = LinearUtility(env.feature_matrix, env.parameter_names)
-
-mpec = MPECEstimator(MPECConfig(solver="sqp"))
-result = mpec.estimate(panel, utility, env.problem_spec, env.transition_matrices)
-print(result.parameters)   # [OC, RC] in ~0.6s
+MPECEstimator(
+    config=MPECConfig(
+        solver="sqp",
+        outer_max_iter=200,
+        tol=1e-8,
+        constraint_tol=1e-6,
+    ),
+    se_method="robust",
+    compute_hessian=True,
+)
 \end{lstlisting}
 
-Run \texttt{python mpec\_run.py} in this folder to regenerate all results.
-Estimator source: \texttt{src/econirl/estimation/mpec.py}.
+Use smoke settings only for code-path tests. A smoke test shows that the
+estimator runs and returns finite objects; it is not evidence of recovery.
 
-\bibliographystyle{plainnat}
-\bibliography{references}
+\section{Implementation Paths}
+
+\begin{itemize}
+\item Estimator: \texttt{src/econirl/estimation/mpec.py}
+\item Known-truth harness: \texttt{experiments/known\_truth.py}
+\item Fast validation tests: \texttt{tests/test\_known\_truth.py}
+\item Master plan: \texttt{papers/econirl\_package\_jss/plans/README.md}
+\item MPEC alignment audit: \texttt{papers/econirl\_package\_jss/plans/alignment/04\_mpec.md}
+\end{itemize}
+
+\section{References}
+
+Su, Che-Lin, and Kenneth L. Judd (2012). Constrained Optimization Approaches
+to Estimation of Structural Models. \emph{Econometrica}, 80(5), 2213--2230.
+
+Iskhakov, Fedor, John Rust, Bertel Schjerning, and Kyoungwon Seo (2016).
+Comment on ``Constrained Optimization Approaches to Estimation of Structural
+Models.'' \emph{Econometrica}, 84(1), 365--370.
 
 \end{document}

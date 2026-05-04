@@ -1,265 +1,332 @@
 #!/usr/bin/env python3
-"""
-MPEC Primer -- Companion simulation (Su & Judd 2012).
+"""Generate MPEC primer results from the known-truth DGP harness.
 
-Core finding: at beta=0.9999, MPEC eliminates the inner Bellman loop entirely
-by treating V as a decision variable and enforcing Bellman as a constraint.
-All three estimators (NFXP-SA, MPEC-SQP, NFXP-NK) recover the same MLE, but
-MPEC is 7-12x faster because it does zero inner iterations regardless of beta.
+The MPEC primer uses the same canonical synthetic DGP as the estimator
+validation harness. No real data are used. The main run is a hard-gated
+Su-Judd constrained-likelihood validation with SLSQP, Bellman equality
+constraints, and robust standard errors.
 
 Usage:
-    cd papers/econirl_package/primers/mpec
-    python mpec_run.py
-    pdflatex mpec.tex && bibtex mpec && pdflatex mpec.tex && pdflatex mpec.tex
+    cd /path/to/econirl
+    PYTHONPATH=src:. python papers/econirl_package/primers/mpec/mpec_run.py
 """
 
-import json
+from __future__ import annotations
+
+import argparse
 import sys
-import time
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
-
-import jax.numpy as jnp
 import numpy as np
 
-from econirl.environments.rust_bus import RustBusEnvironment
-from econirl.estimation.mpec import MPECEstimator, MPECConfig
-from econirl.estimation.nfxp import NFXPEstimator
-from econirl.estimation.behavioral_cloning import BehavioralCloningEstimator
-from econirl.preferences.linear import LinearUtility
-from econirl.core.bellman import SoftBellmanOperator
-from econirl.core.solvers import policy_iteration
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[3]
+TEX_OUT = HERE / "mpec_results.tex"
+DEFAULT_OUTPUT_DIR = Path("/tmp/econirl_mpec_primer_known_truth")
+CELL_ID = "canonical_low_action"
+ESTIMATOR = "MPEC"
 
-TRUE_OC = 0.001
-TRUE_RC = 3.0
-N_BINS = 90
-BETA = 0.9999
-N_INDIVIDUALS = 500
-N_PERIODS = 100
-SEED = 42
+for path in (ROOT, ROOT / "src"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-# At beta=0.9999, SA needs log(1e-10)/log(0.9999) = 230,258 iterations.
-# We cap at 500 to expose the failure mode.
-SA_BUDGET = 500
-SA_NEEDED = 230258  # theoretical iterations at tol=1e-10
+from experiments.known_truth import (  # noqa: E402
+    build_known_truth_dgp,
+    get_cell,
+    run_estimator,
+    simulate_known_truth_panel,
+    stable_hash,
+    write_json,
+)
 
 
-def build_env():
-    return RustBusEnvironment(
-        num_mileage_bins=N_BINS,
-        operating_cost=TRUE_OC,
-        replacement_cost=TRUE_RC,
-        discount_factor=BETA,
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cell-id", default=CELL_ID)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--show-progress", action="store_true", default=True)
+    parser.add_argument("--quiet-progress", action="store_false", dest="show_progress")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
+
+    print("MPEC primer: running known-truth validation")
+    print(f"  cell: {args.cell_id}")
+    print(f"  estimator: {ESTIMATOR}")
+    print(f"  output_dir: {args.output_dir}")
+
+    cell = get_cell(args.cell_id)
+    dgp = build_known_truth_dgp(cell.dgp_config)
+    simulation_config = replace(
+        cell.simulation_config,
+        show_progress=args.show_progress,
+    )
+    panel = simulate_known_truth_panel(dgp, simulation_config)
+
+    main_run = run_estimator(
+        ESTIMATOR,
+        dgp,
+        panel,
+        smoke=False,
+        verbose=args.verbose,
     )
 
-
-def run_experiment(env):
-    """Run NFXP-SA (budget), MPEC, and NFXP-NK on Rust bus at beta=0.9999."""
-    panel = env.generate_panel(
-        n_individuals=N_INDIVIDUALS, n_periods=N_PERIODS, seed=SEED
-    )
-    transitions = env.transition_matrices
-    problem = env.problem_spec
-    utility = LinearUtility(
-        feature_matrix=env.feature_matrix,
-        parameter_names=env.parameter_names,
-    )
-
-    results = {
-        "n_states": N_BINS,
-        "beta": BETA,
-        "n_obs": panel.num_observations,
-        "sa_budget": SA_BUDGET,
-        "sa_iterations_needed": SA_NEEDED,
+    payload = {
+        "cell": cell,
+        "simulation": simulation_config,
+        "estimator": ESTIMATOR,
+        "diagnostics": main_run.diagnostics,
+        "compatibility": main_run.compatibility,
+        "summary": main_run.summary,
+        "metrics": main_run.metrics,
+        "gates": main_run.gates,
     }
-
-    # --- NFXP-SA (budget-limited, exposes failure at high beta) ---
-    print(f"\n[1/3] NFXP-SA  (inner_max_iter={SA_BUDGET}, needs {SA_NEEDED:,})")
-    t0 = time.time()
-    nfxp_sa = NFXPEstimator(
-        inner_solver="value",
-        inner_max_iter=SA_BUDGET,
-        inner_tol=1e-10,
+    run_hash = stable_hash(
+        {
+            "cell": cell.dgp_config.to_dict(),
+            "simulation": simulation_config,
+            "estimator": ESTIMATOR,
+            "primer": "mpec",
+        }
     )
-    sa_result = nfxp_sa.estimate(panel, utility, problem, transitions)
-    sa_time = time.time() - t0
-    results["nfxp_value"] = {
-        "oc": float(sa_result.parameters[0]),
-        "rc": float(sa_result.parameters[1]),
-        "ll": float(sa_result.log_likelihood),
-        "time_s": sa_time,
-        "converged": bool(sa_result.converged),
-    }
-    print(
-        f"  OC={sa_result.parameters[0]:.6f}  RC={sa_result.parameters[1]:.4f}  "
-        f"LL={sa_result.log_likelihood:.2f}  t={sa_time:.1f}s  conv={sa_result.converged}"
-    )
+    run_dir = args.output_dir / f"{args.cell_id}_mpec_primer_{run_hash}"
+    write_json(run_dir / "result.json", payload)
 
-    # --- MPEC ---
-    print("\n[2/3] MPEC  (SLSQP + JAX gradients, outer_max_iter=200)")
-    t0 = time.time()
-    mpec = MPECEstimator(
-        MPECConfig(
-            solver="sqp",
-            outer_max_iter=200,
-            tol=1e-8,
-            constraint_tol=1e-6,
+    tex = render_results_tex(payload, dgp)
+    TEX_OUT.write_text(tex, encoding="utf-8")
+
+    print(f"  result: {run_dir / 'result.json'}")
+    print(f"  wrote: {TEX_OUT}")
+
+
+def render_results_tex(payload: dict[str, Any], dgp: Any) -> str:
+    summary = payload["summary"]
+    diagnostics = payload["diagnostics"]
+    metrics = payload["metrics"]
+    gates = payload["gates"]
+    simulation = payload["simulation"]
+
+    names = list(summary.parameter_names)
+    estimates = np.asarray(summary.parameters, dtype=float)
+    standard_errors = np.asarray(summary.standard_errors, dtype=float)
+    truth = np.asarray(dgp.homogeneous_parameters, dtype=float)
+    errors = estimates - truth
+    metadata = summary.metadata
+
+    lines: list[str] = []
+    add = lines.append
+
+    add("% Auto-generated by mpec_run.py. Do not edit by hand.")
+    add("% Known-truth DGP cell: canonical_low_action")
+    add("")
+    add(r"\section{Generated Validation Results}")
+    add(
+        "This section is generated by \\texttt{mpec\\_run.py} from the "
+        "\\texttt{experiments.known\\_truth} harness and the canonical "
+        "known-truth DGP."
+    )
+    add("")
+
+    add(r"\subsection{Pre-Estimation Checks}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Pre-estimation checks from the known-truth MPEC run.}")
+    add(r"\begin{tabular}{lrl}")
+    add(r"\toprule")
+    add(r"Check & Value & Status \\")
+    add(r"\midrule")
+    add(
+        f"Feature rank & {diagnostics.feature_rank} / "
+        f"{diagnostics.num_features} & {status(not diagnostics.errors)} \\\\"
+    )
+    add(f"Feature condition number & {fmt(diagnostics.condition_number, 3)} & pass \\\\")
+    add(
+        "Transition row error & "
+        f"${sci(diagnostics.max_transition_row_error)}$ & pass \\\\"
+    )
+    add(
+        f"Observed states & {diagnostics.observed_states} / "
+        f"{diagnostics.num_states} & pass \\\\"
+    )
+    add(
+        f"State-action coverage & {fmt(diagnostics.state_action_coverage, 3)} "
+        "& pass \\\\"
+    )
+    shares = ", ".join(fmt(value, 3) for value in diagnostics.action_shares)
+    add(f"Action shares & {shares} & pass \\\\")
+    add(f"Minimum action share & {fmt(diagnostics.min_action_share, 3)} & pass \\\\")
+    add(f"Exit/absorbing anchor & {tf(diagnostics.anchor_valid)} & pass \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\subsection{Estimator Fit}")
+    add(
+        "The medium-scale validation run uses "
+        f"{int(simulation.n_individuals):,} individuals, "
+        f"{int(simulation.n_periods):,} periods per individual, and "
+        f"{int(summary.num_observations):,} observations."
+    )
+    add("")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Known-truth MPEC run summary.}")
+    add(r"\begin{tabular}{lr}")
+    add(r"\toprule")
+    add(r"Quantity & Value \\")
+    add(r"\midrule")
+    add(f"Converged & {tf(summary.converged)} \\\\")
+    add(f"SQP iterations & {int(summary.num_iterations)} \\\\")
+    add(f"Log-likelihood & {fmt(summary.log_likelihood, 4)} \\\\")
+    add(f"Estimation time & {fmt(summary.estimation_time, 2)} seconds \\\\")
+    add(f"Solver & {tex_text(metadata['method'])} \\\\")
+    add(f"SciPy success & {tf(metadata['scipy_success'])} \\\\")
+    add(
+        "Final Bellman constraint violation & "
+        f"${sci(metadata['final_constraint_violation'])}$ \\\\"
+    )
+    add(f"Standard errors finite & {tf(np.isfinite(standard_errors).all())} \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Parameter recovery.}")
+    add(r"\begin{tabular}{lrrrr}")
+    add(r"\toprule")
+    add(r"Parameter & Truth & Estimate & SE & Error \\")
+    add(r"\midrule")
+    for name, true_value, estimate, se, error in zip(
+        names, truth, estimates, standard_errors, errors, strict=True
+    ):
+        add(
+            f"{tt(name)} & {fmt(true_value, 6)} & {fmt(estimate, 6)} & "
+            f"{fmt(se, 6)} & {fmt(error, 6)} \\\\"
         )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    parameter_metrics = metrics["parameters"]
+    policy_metrics = metrics["policy"]
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Recovery metrics.}")
+    add(r"\begin{tabular}{lr}")
+    add(r"\toprule")
+    add(r"Metric & Value \\")
+    add(r"\midrule")
+    add(f"Parameter RMSE & {fmt(parameter_metrics.rmse, 6)} \\\\")
+    add(f"Parameter relative RMSE & {fmt(parameter_metrics.relative_rmse, 6)} \\\\")
+    add(
+        "Parameter cosine similarity & "
+        f"{fmt(parameter_metrics.cosine_similarity, 6)} \\\\"
     )
-    mpec_result = mpec.estimate(panel, utility, problem, transitions)
-    mpec_time = time.time() - t0
-    cv = float(mpec_result.metadata.get("final_constraint_violation", float("nan")))
-    results["mpec"] = {
-        "oc": float(mpec_result.parameters[0]),
-        "rc": float(mpec_result.parameters[1]),
-        "ll": float(mpec_result.log_likelihood),
-        "time_s": mpec_time,
-        "converged": bool(mpec_result.converged),
-        "constraint_violation": cv,
-    }
-    print(
-        f"  OC={mpec_result.parameters[0]:.6f}  RC={mpec_result.parameters[1]:.4f}  "
-        f"LL={mpec_result.log_likelihood:.2f}  t={mpec_time:.1f}s  "
-        f"conv={mpec_result.converged}  CV={cv:.1e}"
+    add(f"Reward RMSE & {fmt(metrics['reward_rmse'], 6)} \\\\")
+    add(f"Value RMSE & {fmt(metrics['value_rmse'], 6)} \\\\")
+    add(f"Q RMSE & {fmt(metrics['q_rmse'], 6)} \\\\")
+    add(f"Policy KL & ${sci(policy_metrics.kl)}$ \\\\")
+    add(f"Policy total variation & {fmt(policy_metrics.tv, 6)} \\\\")
+    add(f"Policy max state L1 & {fmt(policy_metrics.linf, 6)} \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Hard recovery gates.}")
+    add(r"\begin{tabular}{llrl}")
+    add(r"\toprule")
+    add(r"Gate & Threshold & Value & Status \\")
+    add(r"\midrule")
+    for gate in gates:
+        add(
+            f"{tex_text(gate.name)} & {gate_threshold(gate)} & "
+            f"{gate_value(gate.value)} & {status(gate.passed)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\subsection{Counterfactual Recovery}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Counterfactual recovery against known oracle objects.}")
+    add(r"\begin{tabular}{lrrrr}")
+    add(r"\toprule")
+    add(r"Counterfactual & Policy TV & Policy KL & Value RMSE & Regret \\")
+    add(r"\midrule")
+    for kind, label in (
+        ("type_a", "Type A"),
+        ("type_b", "Type B"),
+        ("type_c", "Type C"),
+    ):
+        cf = metrics["counterfactuals"][kind]
+        add(
+            f"{label} & {fmt(cf.policy.tv, 6)} & ${sci(cf.policy.kl)}$ & "
+            f"{fmt(cf.value_rmse, 6)} & {fmt(cf.regret, 6)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+
+    return "\n".join(lines) + "\n"
+
+
+def fmt(value: float | None, digits: int = 4) -> str:
+    if value is None:
+        return "---"
+    return f"{float(value):.{digits}f}"
+
+
+def sci(value: float) -> str:
+    mantissa, exponent = f"{float(value):.2e}".split("e")
+    return rf"{mantissa}\times 10^{{{int(exponent)}}}"
+
+
+def tf(value: bool) -> str:
+    return "true" if bool(value) else "false"
+
+
+def status(passed: bool) -> str:
+    return "pass" if bool(passed) else "fail"
+
+
+def tt(value: str) -> str:
+    return r"\texttt{" + tex_text(value) + "}"
+
+
+def tex_text(value: str) -> str:
+    return (
+        str(value)
+        .replace("\\", r"\textbackslash{}")
+        .replace("_", r"\_")
+        .replace("%", r"\%")
+        .replace("&", r"\&")
+        .replace("#", r"\#")
     )
 
-    # --- NFXP-NK (reference: Iskhakov et al. 2016) ---
-    print("\n[3/3] NFXP-NK  (hybrid SA->NK, reference)")
-    t0 = time.time()
-    nfxp_nk = NFXPEstimator(inner_solver="hybrid")
-    nk_result = nfxp_nk.estimate(panel, utility, problem, transitions)
-    nk_time = time.time() - t0
-    results["nfxp_nk"] = {
-        "oc": float(nk_result.parameters[0]),
-        "rc": float(nk_result.parameters[1]),
-        "ll": float(nk_result.log_likelihood),
-        "time_s": nk_time,
-        "converged": bool(nk_result.converged),
-    }
-    print(
-        f"  OC={nk_result.parameters[0]:.6f}  RC={nk_result.parameters[1]:.4f}  "
-        f"LL={nk_result.log_likelihood:.2f}  t={nk_time:.1f}s  conv={nk_result.converged}"
-    )
 
-    return results
+def gate_threshold(gate: Any) -> str:
+    if gate.operator == "is":
+        return tf(gate.threshold)
+    operator = r"$\leq$" if gate.operator == "<=" else r"$\geq$"
+    return f"{operator} {gate_value(gate.threshold)}"
 
 
-def run_bc_baseline(env):
-    """Compute BC baseline at the same beta."""
-    panel = env.generate_panel(n_individuals=N_INDIVIDUALS, n_periods=N_PERIODS, seed=SEED)
-    utility = LinearUtility(
-        feature_matrix=env.feature_matrix,
-        parameter_names=env.parameter_names,
-    )
-    operator = SoftBellmanOperator(
-        env.problem_spec,
-        jnp.asarray(env.transition_matrices, dtype=jnp.float64),
-    )
-    true_reward = jnp.asarray(
-        utility.compute(jnp.array([TRUE_OC, TRUE_RC], dtype=jnp.float32)),
-        dtype=jnp.float64,
-    )
-    true_result = policy_iteration(
-        operator, true_reward, tol=1e-10, max_iter=200, eval_method="matrix"
-    )
-    true_actions = np.argmax(np.array(true_result.policy), axis=1)
-    bc = BehavioralCloningEstimator(smoothing=1.0, verbose=False)
-    bc_res = bc.estimate(
-        panel, utility, env.problem_spec, jnp.asarray(env.transition_matrices)
-    )
-    bc_actions = np.argmax(np.array(bc_res.policy), axis=1)
-    return {
-        "ll": float(bc_res.log_likelihood),
-        "policy_acc": float(np.mean(bc_actions == true_actions)),
-    }
-
-
-OUT_DIR = Path(__file__).resolve().parent
-
-
-def write_results_tex(results, bc_result):
-    """Write LaTeX macros for auto-inclusion in mpec.tex."""
-    path = OUT_DIR / "mpec_results.tex"
-    n = results["nfxp_value"]
-    m = results["mpec"]
-    k = results["nfxp_nk"]
-
-    speedup_sa = n["time_s"] / m["time_s"] if m["time_s"] > 0 else 0
-    speedup_nk = k["time_s"] / m["time_s"] if m["time_s"] > 0 else 0
-    ll_gap = abs(m["ll"] - k["ll"])
-
-    lines = [
-        "% Auto-generated by mpec_run.py -- do not edit by hand\n",
-        f"\\newcommand{{\\mpecNFXPTime}}{{{n['time_s']:.0f}s}}\n",
-        f"\\newcommand{{\\mpecMPECTime}}{{{m['time_s']:.1f}s}}\n",
-        f"\\newcommand{{\\mpecNKTime}}{{{k['time_s']:.1f}s}}\n",
-        f"\\newcommand{{\\mpecSpeedup}}{{{speedup_sa:.0f}x}}\n",
-        f"\\newcommand{{\\mpecNKSpeedup}}{{{speedup_nk:.0f}x}}\n",
-        f"\\newcommand{{\\mpecOC}}{{{m['oc']:.6f}}}\n",
-        f"\\newcommand{{\\mpecRC}}{{{m['rc']:.4f}}}\n",
-        f"\\newcommand{{\\mpecNKOC}}{{{k['oc']:.6f}}}\n",
-        f"\\newcommand{{\\mpecNKRC}}{{{k['rc']:.4f}}}\n",
-        f"\\newcommand{{\\mpecSAOC}}{{{n['oc']:.6f}}}\n",
-        f"\\newcommand{{\\mpecSARC}}{{{n['rc']:.4f}}}\n",
-        f"\\newcommand{{\\mpecLLgap}}{{{ll_gap:.2f}}}\n",
-        f"\\newcommand{{\\mpecCV}}{{{m['constraint_violation']:.1e}}}\n",
-        f"\\newcommand{{\\mpecSAConv}}{{{str(n['converged']).lower()}}}\n",
-        f"\\newcommand{{\\mpecMPECConv}}{{{str(m['converged']).lower()}}}\n",
-        f"\\newcommand{{\\mpecBCacc}}{{{bc_result['policy_acc'] * 100:.1f}\\%}}\n",
-        f"\\newcommand{{\\mpecBCLL}}{{{bc_result['ll']:.2f}}}\n",
-        f"\\newcommand{{\\mpecNObs}}{{{results['n_obs']:,}}}\n",
-        f"\\newcommand{{\\mpecNStates}}{{{results['n_states']}}}\n",
-        f"\\newcommand{{\\mpecBetaVal}}{{{results['beta']}}}\n",
-        f"\\newcommand{{\\mpecSABudget}}{{{results['sa_budget']:,}}}\n",
-        f"\\newcommand{{\\mpecSANeeded}}{{{results['sa_iterations_needed']:,}}}\n",
-    ]
-    path.write_text("".join(lines))
-    print(f"\nMacros written to {path}")
-
-
-def main():
-    print("=" * 70)
-    print(f"MPEC Primer: Rust Bus Engine ({N_BINS} states, beta={BETA})")
-    print(f"True: OC={TRUE_OC}, RC={TRUE_RC}")
-    print(f"SA budget: {SA_BUDGET:,} / {SA_NEEDED:,} iterations needed at tol=1e-10")
-    print("=" * 70)
-
-    env = build_env()
-
-    print("\nComputing BC baseline...")
-    bc_result = run_bc_baseline(env)
-    print(f"  BC: LL={bc_result['ll']:.2f}, policy_acc={bc_result['policy_acc']:.2%}")
-
-    results = run_experiment(env)
-    results["bc"] = bc_result
-
-    n, m, k = results["nfxp_value"], results["mpec"], results["nfxp_nk"]
-    speedup = n["time_s"] / m["time_s"] if m["time_s"] > 0 else 0
-
-    print("\n" + "=" * 70)
-    print("SUMMARY")
-    print("=" * 70)
-    print(f"True params:       OC={TRUE_OC:.6f}  RC={TRUE_RC:.4f}")
-    print(
-        f"NFXP-SA ({SA_BUDGET}it):  OC={n['oc']:.6f}  RC={n['rc']:.4f}  "
-        f"LL={n['ll']:.2f}  t={n['time_s']:.1f}s  conv={n['converged']}"
-    )
-    print(
-        f"MPEC:              OC={m['oc']:.6f}  RC={m['rc']:.4f}  "
-        f"LL={m['ll']:.2f}  t={m['time_s']:.1f}s  conv={m['converged']}  "
-        f"CV={m['constraint_violation']:.1e}"
-    )
-    print(
-        f"NFXP-NK:           OC={k['oc']:.6f}  RC={k['rc']:.4f}  "
-        f"LL={k['ll']:.2f}  t={k['time_s']:.1f}s  conv={k['converged']}"
-    )
-    print(f"MPEC speedup over NFXP-SA: {speedup:.1f}x")
-
-    write_results_tex(results, bc_result)
-    (OUT_DIR / "mpec_results.json").write_text(json.dumps(results, indent=2))
-    print(f"JSON saved to {OUT_DIR / 'mpec_results.json'}")
-    print("\nDone.")
+def gate_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return tf(value)
+    if isinstance(value, (int, float)):
+        return fmt(value, 6)
+    return tex_text(str(value))
 
 
 if __name__ == "__main__":

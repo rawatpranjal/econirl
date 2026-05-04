@@ -2,6 +2,14 @@
 ## Paper(s): Su & Judd 2012 "Constrained Optimization Approaches to Estimation of Structural Models," Econometrica. Also Iskhakov, Rust, Schjerning 2016 (the comparison paper at `papers/foundational/iskhakov_rust_schjerning_2016_mpec_comment.md`).
 ## Code: `src/econirl/estimation/mpec.py`
 
+### Known-truth migration status
+
+- Migrated to the shared synthetic DGP in `papers/econirl_package/primers/mpec/mpec_run.py`.
+- RTD front door is `docs/estimators/mpec.md`; reference PDF source is `papers/econirl_package/primers/mpec/mpec.tex`.
+- Main validation cell is `canonical_low_action`: 2,000 individuals, 80 periods, 21 states, 3 actions, known transitions, and action-dependent reward features.
+- Hard gates are now active in `experiments/known_truth.py`: SLSQP convergence, Bellman constraint violation, finite standard errors, parameter recovery, policy/value/Q recovery, and Type A/B/C counterfactual regret.
+- The run uses Su-Judd's constrained likelihood with scipy SLSQP and JAX objective/constraint derivatives. The Iskhakov-Rust-Schjerning caution remains: MPEC is not the large-state/high-discount default.
+
 ### Loss / objective
 
 - Paper formula (Su-Judd 2012, eq. 2.4–2.6): instead of NFXP's nested approach, treat the value function `V` as a decision variable subject to the Bellman fixed-point as an equality constraint. Maximize the same conditional log-likelihood as NFXP
@@ -20,7 +28,7 @@
 
 - Code implementation: `mpec.py` ships two solvers selectable via `MPECConfig.solver`:
   - `"sqp"`: scipy SLSQP with JAX-JIT'd objective and constraint Jacobians (the recommended path per the codebase comment block).
-  - `"al"`: legacy augmented Lagrangian with manual penalty schedule.
+  - `"augmented_lagrangian"` / `"slsqp"`: legacy augmented Lagrangian aliases with manual penalty schedule.
 
   The pseudo-likelihood is the same conditional choice probability as NFXP; the constraint set is the per-state Bellman residual stacked into a single `S`-dimensional equality constraint vector.
 
@@ -60,6 +68,5 @@ Match: **yes**, matches Su-Judd 2012's recommended SLSQP settings for medium-sca
 
 ### Findings / fixes applied
 
-- **No code fixes required.** The audit confirms that `mpec.py` implements the Su-Judd 2012 formulation and that the SLSQP path is the recommended (and tested) one.
-
-- VALIDATION_LOG.md status: **Pending → Pass** (presumed to pass on Tier 4 ss-spine; verify on RunPod). The "high gamma" cell (ss-high-gamma, beta=0.999) is the stress test the IRS-2016 comment paper warns about; the cell expects a 3x runtime relative to NFXP and that is acceptable per the plan.
+- The estimator implementation already matched the Su-Judd constrained likelihood. The migration change was in the known-truth harness: MPEC now runs the full SLSQP path with robust standard errors and hard non-smoke recovery gates.
+- The old Rust-bus primer has been replaced with the shared known-truth DGP tutorial. No real-data estimation is published on RTD.
