@@ -29,15 +29,13 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-import numpy as np
+import equinox as eqx
 import jax
 import jax.numpy as jnp
-import equinox as eqx
+import numpy as np
 import optax
 
-from econirl.core.bellman import SoftBellmanOperator
 from econirl.core.optimizer import minimize_lbfgsb
-from econirl.core.solvers import value_iteration
 from econirl.core.types import DDCProblem, Panel
 from econirl.estimation.base import BaseEstimator, EstimationResult
 from econirl.inference.standard_errors import SEMethod, compute_numerical_hessian
@@ -254,11 +252,17 @@ class NNESNFXPEstimator(BaseEstimator):
         # Solve for EV components: ev_k = (I - beta * P_pi)^{-1} flow_k
         # Use float64 for numerical stability at high discount factors
         # (condition number of I - beta*P_pi ~ 1/(1-beta) ~ 10,000 at beta=0.9999)
-        I = jnp.eye(n_states, dtype=jnp.float64)
+        eye = jnp.eye(n_states, dtype=jnp.float64)
         try:
-            M = I - beta * P_pi.astype(jnp.float64)
-            ev_features = jnp.linalg.solve(M, flow_features.astype(jnp.float64)).astype(jnp.float32)  # (S, K)
-            ev_entropy = jnp.linalg.solve(M, entropy.astype(jnp.float64)).astype(jnp.float32)  # (S,)
+            M = eye - beta * P_pi.astype(jnp.float64)
+            ev_features = jnp.linalg.solve(
+                M,
+                flow_features.astype(jnp.float64),
+            ).astype(jnp.float32)
+            ev_entropy = jnp.linalg.solve(
+                M,
+                entropy.astype(jnp.float64),
+            ).astype(jnp.float32)
         except Exception:
             # Fallback: return small positive values
             return jnp.full((feature_matrix.shape[2],), 0.01)
@@ -325,7 +329,6 @@ class NNESNFXPEstimator(BaseEstimator):
             Tuple of (trained V-network, list of per-epoch average losses).
         """
         n_states = problem.num_states
-        n_actions = problem.num_actions
         sigma = problem.scale_parameter
         beta = problem.discount_factor
 
@@ -349,11 +352,8 @@ class NNESNFXPEstimator(BaseEstimator):
 
         # Get all transitions from data
         all_states = panel.get_all_states()
-        all_actions = panel.get_all_actions()
-        all_next_states = panel.get_all_next_states()
 
         feat_s = self._build_state_features(all_states, problem)
-        feat_sp = self._build_state_features(all_next_states, problem)
 
         # Compute flow utility at initial params
         feature_matrix = utility.feature_matrix  # (S, A, K)
@@ -581,7 +581,10 @@ class NNESNFXPEstimator(BaseEstimator):
         # for valid inference via the zero Jacobian property.
         hessian = None
         if self._compute_se:
-            self._log("Computing Hessian (WARNING: not semiparametrically efficient in NFXP variant)")
+            self._log(
+                "Computing Hessian "
+                "(WARNING: not semiparametrically efficient in NFXP variant)"
+            )
 
             def ll_fn(params):
                 return jnp.array(log_likelihood(params))
@@ -615,13 +618,33 @@ class NNESNFXPEstimator(BaseEstimator):
 EULER_GAMMA = 0.5772156649015329
 
 
+def _nnes_profiled_logit_neg_ll_mean(
+    params: jnp.ndarray,
+    z_tilde: jnp.ndarray,
+    e_tilde: jnp.ndarray,
+    all_states: jnp.ndarray,
+    all_actions: jnp.ndarray,
+    inv_sigma: jnp.ndarray,
+) -> jnp.ndarray:
+    """Mean profiled NPL negative log-likelihood for linear utility."""
+    theta = params.astype(z_tilde.dtype)
+    values = jnp.einsum("sak,k->sa", z_tilde, theta) + e_tilde
+    log_probs = jax.nn.log_softmax(values * inv_sigma, axis=1)
+    return -jnp.mean(log_probs[all_states, all_actions])
+
+
+_nnes_profiled_logit_neg_ll_mean_and_grad = jax.jit(
+    jax.value_and_grad(_nnes_profiled_logit_neg_ll_mean)
+)
+
+
 class NNESEstimator(BaseEstimator):
     """NNES with NPL Bellman (correct variant, Nguyen 2025).
 
-    Phase 1 trains V_phi on the NPL value function target using data CCPs
-    and the Hotz-Miller emax correction. Phase 2 plugs V_phi into a CCP
-    log-likelihood and optimizes over theta. Outer iterations update CCPs
-    from estimated theta and retrain V_phi.
+    Phase 1 trains V_phi on the NPL value function target using data CCPs.
+    Phase 2 profiles the NPL value representation and optimizes theta in
+    the one-step policy operator. Outer iterations update CCPs from estimated
+    theta and retrain V_phi.
 
     The zero Jacobian property of the NPL mapping guarantees Neyman
     orthogonality (Nguyen 2025, Propositions 3-4): first-order errors in
@@ -638,8 +661,10 @@ class NNESEstimator(BaseEstimator):
                 4. Train V_phi to approximate W via supervised regression
 
             Phase 2 (Structural MLE):
-                1. Q(s,a;theta) = u(s,a;theta) + beta * E[V_phi(s') | s, a]
-                2. Maximize CCP log-likelihood over theta
+                1. Compute W_z(P) and W_e(P) for the fixed CCP iterate P
+                2. Q(s,a;theta) = [z(s,a) + beta E W_z(s')] theta
+                   + beta E W_e(s')
+                3. Maximize CCP log-likelihood over theta
 
             Update CCPs from estimated theta for next iteration.
 
@@ -748,6 +773,74 @@ class NNESEstimator(BaseEstimator):
         state_counts = jnp.maximum(counts.sum(axis=1, keepdims=True), 1.0)
         return (counts + smoothing) / (state_counts + n_actions * smoothing)
 
+    def _compute_npl_components(
+        self,
+        ccps: jnp.ndarray,
+        transitions: jnp.ndarray,
+        feature_matrix: jnp.ndarray,
+        sigma: float,
+        beta: float,
+        n_states: int,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Compute profiled NPL value components for fixed CCPs.
+
+        The package's soft Bellman operator uses the social-surplus
+        convention V = sigma * logsumexp(Q / sigma), without adding the
+        Euler-constant level term. Under that convention,
+
+            W(P, theta) = W_z(P) theta + W_e(P)
+
+        where W_e contains sigma times the policy entropy.
+        """
+        dtype = jnp.float64
+        ccps64 = ccps.astype(dtype)
+        transitions64 = transitions.astype(dtype)
+        features64 = feature_matrix.astype(dtype)
+
+        F_pi = jnp.einsum("sa,ast->st", ccps64, transitions64)
+        expected_features = jnp.einsum("sa,sak->sk", ccps64, features64)
+
+        safe_ccps = jnp.maximum(ccps64, 1e-12)
+        expected_entropy = -jnp.einsum("sa,sa->s", ccps64, jnp.log(safe_ccps))
+
+        lhs = jnp.eye(n_states, dtype=dtype) - beta * F_pi
+        W_z = jnp.linalg.solve(lhs, expected_features)
+        W_e = jnp.linalg.solve(lhs, sigma * expected_entropy)
+        return W_z, W_e
+
+    def _profiled_choice_values(
+        self,
+        ccps: jnp.ndarray,
+        transitions: jnp.ndarray,
+        feature_matrix: jnp.ndarray,
+        params: jnp.ndarray,
+        sigma: float,
+        beta: float,
+        n_states: int,
+        n_actions: int,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Choice-specific values for the profiled one-step NPL operator."""
+        W_z, W_e = self._compute_npl_components(
+            ccps, transitions, feature_matrix, sigma, beta, n_states,
+        )
+        transitions64 = transitions.astype(jnp.float64)
+        E_W_z = jnp.stack(
+            [transitions64[a] @ W_z for a in range(n_actions)],
+            axis=1,
+        )
+        E_W_e = jnp.stack(
+            [transitions64[a] @ W_e for a in range(n_actions)],
+            axis=1,
+        )
+        z_tilde = feature_matrix.astype(jnp.float64) + beta * E_W_z
+        e_tilde = beta * E_W_e
+        values = jnp.einsum(
+            "sak,k->sa",
+            z_tilde,
+            params.astype(jnp.float64),
+        ) + e_tilde
+        return values, W_z, W_e, z_tilde, e_tilde
+
     def _compute_npl_target(
         self,
         ccps: jnp.ndarray,
@@ -761,35 +854,19 @@ class NNESEstimator(BaseEstimator):
     ) -> jnp.ndarray:
         """Compute NPL value function target W via matrix inversion.
 
-        W = (I - beta * F_pi)^{-1} * (expected_flow_theta + sigma * expected_emax)
+        W = W_z(P) theta + W_e(P), where W_e(P) is the entropy term under
+        the package's log-sum-exp Bellman convention.
 
         where:
             F_pi[s,s'] = sum_a pi(a|s) P(s'|s,a)
             expected_flow_theta[s] = sum_a pi(a|s) u(s,a;theta)
-            expected_emax[s] = sum_a pi(a|s) (gamma - log(pi(a|s)))
+            expected_entropy[s] = -sum_a pi(a|s) log(pi(a|s))
         """
-        # Policy-weighted transitions: F_pi[s,s'] = sum_a pi(a|s) P(s'|s,a)
-        F_pi = jnp.einsum("sa,ast->st", ccps, transitions)
-
-        # Expected flow utility under current CCPs and theta
-        flow_u = jnp.einsum("sak,k->sa", feature_matrix, params)
-        expected_flow = jnp.einsum("sa,sa->s", ccps, flow_u)
-
-        # Expected emax correction: sum_a pi(a|s) * (gamma - log(pi(a|s)))
-        safe_ccps = jnp.maximum(ccps, 1e-10)
-        emax = EULER_GAMMA - jnp.log(safe_ccps)  # (S, A)
-        expected_emax = jnp.einsum("sa,sa->s", ccps, emax)
-
-        # RHS of the NPL fixed point
-        rhs = expected_flow + sigma * expected_emax
-
-        # Solve W = (I - beta * F_pi)^{-1} * rhs
-        # Use float64 for numerical stability at high discount factors
-        I = jnp.eye(n_states, dtype=jnp.float64)
-        M = I - beta * F_pi.astype(jnp.float64)
-        W = jnp.linalg.solve(M, rhs.astype(jnp.float64)).astype(jnp.float32)
-
-        return W
+        W_z, W_e = self._compute_npl_components(
+            ccps, transitions, feature_matrix, sigma, beta, n_states,
+        )
+        W = W_z @ params.astype(jnp.float64) + W_e
+        return W.astype(jnp.float32)
 
     def _train_value_network_npl(
         self,
@@ -821,6 +898,8 @@ class NNESEstimator(BaseEstimator):
             ccps, transitions, feature_matrix, params,
             sigma, beta, n_states, n_actions,
         )
+        if self._anchor_state is not None:
+            W_target = W_target - W_target[self._anchor_state]
 
         # Build state features for all states
         all_state_feats = self._build_state_features(jnp.arange(n_states), problem)
@@ -915,11 +994,17 @@ class NNESEstimator(BaseEstimator):
         safe_ccps = jnp.maximum(ccps, 1e-10)
         entropy = -(ccps * jnp.log(safe_ccps)).sum(axis=1)
 
-        I = jnp.eye(n_states, dtype=jnp.float64)
+        eye = jnp.eye(n_states, dtype=jnp.float64)
         try:
-            M = I - beta * P_pi.astype(jnp.float64)
-            ev_features = jnp.linalg.solve(M, flow_features.astype(jnp.float64)).astype(jnp.float32)
-            ev_entropy = jnp.linalg.solve(M, entropy.astype(jnp.float64)).astype(jnp.float32)
+            M = eye - beta * P_pi.astype(jnp.float64)
+            ev_features = jnp.linalg.solve(
+                M,
+                flow_features.astype(jnp.float64),
+            ).astype(jnp.float32)
+            ev_entropy = jnp.linalg.solve(
+                M,
+                entropy.astype(jnp.float64),
+            ).astype(jnp.float32)
         except Exception:
             return jnp.full((feature_matrix.shape[2],), 0.01)
 
@@ -971,7 +1056,7 @@ class NNESEstimator(BaseEstimator):
         Each outer iteration:
             1. Compute CCPs (from data on first iter, from policy on subsequent)
             2. Phase 1: train V_phi on NPL target given CCPs and current theta
-            3. Phase 2: optimize theta given V_phi
+            3. Phase 2: optimize theta through the profiled NPL value V_{theta,P}
             4. Update CCPs from estimated theta
         """
         start_time = time.time()
@@ -985,6 +1070,12 @@ class NNESEstimator(BaseEstimator):
         all_state_feat = self._build_state_features(jnp.arange(n_states), problem)
         lower, upper = utility.get_parameter_bounds()
         bounds = list(zip(np.asarray(lower), np.asarray(upper)))
+        lower_b = jnp.array([b[0] for b in bounds], dtype=jnp.float64)
+        upper_b = jnp.array([b[1] for b in bounds], dtype=jnp.float64)
+        all_states_data = panel.get_all_states()
+        all_actions_data = panel.get_all_actions()
+        n_obs = int(panel.num_observations)
+        inv_sigma_f64 = jnp.float64(1.0 / sigma)
 
         if initial_params is None:
             initial_params = utility.get_initial_parameters()
@@ -1002,6 +1093,13 @@ class NNESEstimator(BaseEstimator):
         total_nit = 0
         total_nfev = 0
         last_result = None
+        last_ll_sum = float("nan")
+        last_z_tilde = None
+        last_e_tilde = None
+        last_profiled_values = None
+        last_profiled_W = None
+        ev_sa = jnp.zeros((n_states, n_actions), dtype=jnp.float32)
+        v_all = jnp.zeros((n_states,), dtype=jnp.float32)
         v_loss_per_outer: list[float] = []
         all_v_loss_history: list[list[float]] = []
 
@@ -1031,56 +1129,101 @@ class NNESEstimator(BaseEstimator):
                 ev_sa = ev_sa.at[:, a].set(transitions[a] @ v_all)
 
             # Phase 2: Structural MLE
-            self._log("  Phase 2: Structural MLE over theta")
+            self._log("  Phase 2: Profiled NPL MLE over theta")
 
-            _ev_sa = ev_sa
-            all_states_data = panel.get_all_states()
-            all_actions_data = panel.get_all_actions()
+            (
+                profiled_values,
+                W_z,
+                W_e,
+                z_tilde,
+                e_tilde,
+            ) = self._profiled_choice_values(
+                ccps,
+                transitions,
+                feature_matrix,
+                current_params,
+                sigma,
+                beta,
+                n_states,
+                n_actions,
+            )
 
-            def _neg_ll_npl(params):
-                flow_u = jnp.einsum("sak,k->sa", feature_matrix, params)
-                q_vals = flow_u + beta * _ev_sa
-                log_probs = jax.nn.log_softmax(q_vals / sigma, axis=1)
-                return -log_probs[all_states_data, all_actions_data].sum()
+            def _profiled_neg_ll_mean(params, z_arg, e_arg):
+                return _nnes_profiled_logit_neg_ll_mean_and_grad(
+                    params,
+                    z_arg,
+                    e_arg,
+                    all_states_data,
+                    all_actions_data,
+                    inv_sigma_f64,
+                )
 
-            _neg_ll_npl_jit = jax.jit(_neg_ll_npl)
-
-            def log_likelihood(params: jnp.ndarray) -> float:
-                return -float(_neg_ll_npl_jit(params))
-
-            lower_b = jnp.array([b[0] for b in bounds], dtype=jnp.float32)
-            upper_b = jnp.array([b[1] for b in bounds], dtype=jnp.float32)
             last_result = minimize_lbfgsb(
-                _neg_ll_npl_jit,
-                jnp.asarray(current_params, dtype=jnp.float32),
+                _profiled_neg_ll_mean,
+                jnp.asarray(current_params, dtype=jnp.float64),
                 bounds=(lower_b, upper_b),
                 maxiter=self._outer_max_iter,
                 tol=self._outer_tol,
                 verbose=self._verbose,
                 desc=f"NNES-NPL outer {outer_iter + 1}",
+                value_and_grad=True,
+                param_names=list(utility.parameter_names),
+                fun_args=(z_tilde, e_tilde),
             )
 
             current_params = jnp.array(last_result.x, dtype=jnp.float32)
             total_nit += last_result.nit
             total_nfev += last_result.nfev
-            self._log(f"  Params: {np.asarray(current_params)}, LL: {-last_result.fun:.2f}")
+            last_ll_sum = -float(last_result.fun) * n_obs
+            last_z_tilde = z_tilde
+            last_e_tilde = e_tilde
+            last_profiled_values = (
+                jnp.einsum(
+                    "sak,k->sa",
+                    z_tilde,
+                    current_params.astype(jnp.float64),
+                )
+                + e_tilde
+            )
+            last_profiled_W = W_z @ current_params.astype(jnp.float64) + W_e
+            self._log(f"  Params: {np.asarray(current_params)}, LL: {last_ll_sum:.2f}")
 
             # Update CCPs from estimated policy for next iteration
-            flow_u = jnp.einsum("sak,k->sa", feature_matrix, current_params)
-            q_vals = flow_u + beta * ev_sa
-            ccps = jax.nn.softmax(q_vals / sigma, axis=1)
+            ccps = jax.nn.softmax(last_profiled_values / sigma, axis=1)
+
+        def log_likelihood(params: jnp.ndarray) -> float:
+            values = (
+                jnp.einsum(
+                    "sak,k->sa",
+                    last_z_tilde,
+                    params.astype(jnp.float64),
+                )
+                + last_e_tilde
+            )
+            log_probs = jax.nn.log_softmax(values / sigma, axis=1)
+            return float(log_probs[all_states_data, all_actions_data].sum())
 
         # Store final ll function for Hessian
         self._ll_fn = log_likelihood
 
         params_opt = current_params
-        ll_opt = -last_result.fun
+        ll_opt = last_ll_sum
 
-        # Compute final policy and value function
+        # Compute final policy and value function. The V-network is anchored
+        # for numerical identification, so report the Bellman-level policy
+        # value for validation while keeping the anchored network values in
+        # metadata.
         flow_u = jnp.einsum("sak,k->sa", feature_matrix, params_opt)
-        q_vals = flow_u + beta * ev_sa
-        policy = jax.nn.softmax(q_vals / sigma, axis=1)
-        V = sigma * jax.scipy.special.logsumexp(q_vals / sigma, axis=1)
+        policy = ccps
+        safe_policy = jnp.maximum(policy, 1e-10)
+        reward_pi = jnp.sum(policy * flow_u, axis=1)
+        entropy_pi = -sigma * jnp.sum(policy * jnp.log(safe_policy), axis=1)
+        transition_pi = jnp.einsum("sa,ast->st", policy, transitions)
+        lhs = jnp.eye(n_states, dtype=jnp.float64) - beta * transition_pi.astype(jnp.float64)
+        V = jnp.linalg.solve(
+            lhs,
+            (reward_pi + entropy_pi).astype(jnp.float64),
+        ).astype(jnp.float32)
 
         # Hessian for standard errors.
         # By Nguyen (2025) Propositions 3-4, the NPL score is orthogonal to
@@ -1112,6 +1255,9 @@ class NNESEstimator(BaseEstimator):
             metadata={
                 "v_network_values": v_all,
                 "ev_sa": ev_sa,
+                "profile_mode": "exact_finite_state_npl",
+                "profiled_choice_values": last_profiled_values,
+                "profiled_value_function": last_profiled_W,
                 "n_outer_iterations": self._n_outer_iterations,
                 "v_loss_per_outer": v_loss_per_outer,
                 "v_loss_history": all_v_loss_history,

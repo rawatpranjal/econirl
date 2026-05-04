@@ -100,6 +100,19 @@ def test_state_only_and_high_dim_modes_are_distinct():
     assert high_dim_diag.is_action_dependent
 
 
+def test_canonical_high_dim_action_preset_is_well_conditioned():
+    cell = get_cell("canonical_high_action")
+    dgp = build_known_truth_dgp(cell.dgp_config)
+    diagnostics = run_pre_estimation_diagnostics(dgp)
+
+    assert dgp.state_features.shape == (81, 16)
+    assert dgp.feature_matrix.shape == (81, 3, 32)
+    assert diagnostics.passed
+    assert diagnostics.feature_rank == diagnostics.num_features
+    assert diagnostics.condition_number < 10.0
+    assert cell.simulation_config.n_individuals == 2_000
+
+
 def test_latent_segment_dgp_tracks_segment_truth():
     dgp = build_known_truth_dgp(
         KnownTruthDGPConfig(
@@ -440,6 +453,63 @@ def test_sees_smoke_fit_produces_known_truth_metrics_and_gates():
     assert {
         "bellman_violation",
         "standard_errors_finite",
+        "parameter_cosine",
+        "parameter_relative_rmse",
+        "reward_rmse",
+        "policy_tv",
+        "value_rmse",
+        "q_rmse",
+        "type_a_regret",
+        "type_b_regret",
+        "type_c_regret",
+    }.issubset(gate_names)
+
+
+def test_nnes_smoke_fit_produces_known_truth_metrics_and_gates():
+    dgp = build_known_truth_dgp(
+        KnownTruthDGPConfig(
+            state_mode="low_dim",
+            reward_mode="action_dependent",
+            reward_dim="low",
+            heterogeneity="none",
+            num_regular_states=5,
+            transition_noise=0.02,
+            seed=612,
+        )
+    )
+    panel = simulate_known_truth_panel(
+        dgp,
+        SimulationConfig(n_individuals=20, n_periods=8, seed=613),
+    )
+
+    result = run_estimator("NNES", dgp, panel, smoke=True)
+
+    assert result.compatibility.compatible
+    assert result.summary.policy.shape == (dgp.problem.num_states, dgp.problem.num_actions)
+    assert result.summary.value_function.shape == (dgp.problem.num_states,)
+    assert result.summary.metadata["n_outer_iterations"] == 1
+    assert len(result.summary.metadata["v_loss_per_outer"]) == 1
+    assert math.isfinite(result.summary.metadata["v_loss_per_outer"][-1])
+    assert result.summary.metadata["final_ccps"].shape == (
+        dgp.problem.num_states,
+        dgp.problem.num_actions,
+    )
+
+    metrics = result.metrics
+    assert metrics["parameters"] is not None
+    assert math.isfinite(metrics["parameters"].rmse)
+    assert math.isfinite(metrics["reward_rmse"])
+    assert math.isfinite(metrics["value_rmse"])
+    assert math.isfinite(metrics["q_rmse"])
+    assert metrics["policy"].tv >= 0.0
+
+    gate_names = {
+        gate.name
+        for gate in recovery_gates("NNES", result.summary, metrics, smoke=False)
+    }
+    assert {
+        "npl_outer_iterations",
+        "final_v_loss",
         "parameter_cosine",
         "parameter_relative_rmse",
         "reward_rmse",

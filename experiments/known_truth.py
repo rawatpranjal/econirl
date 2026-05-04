@@ -424,22 +424,55 @@ def _build_reward_features(
 
 
 def _expand_state_basis(state_features: np.ndarray, n_features: int) -> np.ndarray:
-    cols = [np.ones(state_features.shape[0])]
+    """Build a stable high-dimensional reward basis.
+
+    The high-dimensional DGP is meant to stress estimators with many reward
+    features, not to create near-collinearity. Raw powers and random waves of
+    the same one-dimensional progress variable can be full rank but extremely
+    ill-conditioned on the finite grid. We therefore generate an overcomplete
+    deterministic dictionary and take its orthogonal principal components on
+    the regular states.
+    """
+    n_states = state_features.shape[0]
+    regular_mask = np.linalg.norm(state_features, axis=1) > 1e-12
+    if int(regular_mask.sum()) < n_features:
+        regular_mask[:] = True
+
+    progress = state_features[:, 0]
+    dictionary: list[np.ndarray] = []
     for j in range(state_features.shape[1]):
-        cols.append(state_features[:, j])
-        if len(cols) >= n_features:
-            break
-        cols.append(state_features[:, j] ** 2)
-        if len(cols) >= n_features:
-            break
-    j = 0
-    while len(cols) < n_features:
-        cols.append(np.sin((j + 1) * state_features[:, j % state_features.shape[1]]))
-        j += 1
-    basis = np.column_stack(cols[:n_features])
-    scale = np.maximum(np.std(basis, axis=0, keepdims=True), 1e-8)
-    basis = (basis - basis.mean(axis=0, keepdims=True)) / scale
+        col = state_features[:, j]
+        dictionary.append(col)
+        dictionary.append(col**2)
+        dictionary.append(np.sin(np.pi * col))
+        dictionary.append(np.cos(np.pi * col))
+
+    freq = 1
+    while len(dictionary) < max(4 * n_features, n_features + 8):
+        dictionary.append(np.sin(freq * np.pi * progress))
+        dictionary.append(np.cos(freq * np.pi * progress))
+        freq += 1
+
+    raw = np.column_stack(dictionary)
+    raw_regular = raw[regular_mask]
+    raw_regular = raw_regular - raw_regular.mean(axis=0, keepdims=True)
+    scale = np.maximum(raw_regular.std(axis=0, keepdims=True), 1e-8)
+    raw_regular = raw_regular / scale
+
+    u, singular_values, _ = np.linalg.svd(raw_regular, full_matrices=False)
+    available = int(np.sum(singular_values > 1e-10))
+    needed = n_features - 1
+    use = min(available, needed)
+
+    basis = np.zeros((n_states, n_features), dtype=np.float64)
     basis[:, 0] = 1.0
+    if use:
+        basis[regular_mask, 1 : 1 + use] = (
+            u[:, :use] * np.sqrt(float(regular_mask.sum()))
+        )
+    if use < needed:
+        fallback = raw_regular[:, : needed - use]
+        basis[regular_mask, 1 + use :] = fallback
     return basis
 
 
@@ -1341,8 +1374,10 @@ def check_estimator_compatibility(
         errors.append("MPEC main validation requires a homogeneous DGP")
     if estimator_name == "SEES" and dgp.config.heterogeneity != "none":
         errors.append("SEES main validation requires a homogeneous DGP")
+    if estimator_name == "NNES" and dgp.config.heterogeneity != "none":
+        errors.append("NNES main validation requires a homogeneous DGP")
     if (
-        estimator_name in {"NFXP", "MPEC", "SEES"}
+        estimator_name in {"NFXP", "MPEC", "SEES", "NNES"}
         and diagnostics.min_action_share is not None
         and diagnostics.min_action_share < 0.05
     ):
@@ -1451,6 +1486,7 @@ def make_estimator(
             hidden_dim=16 if smoke else 32,
             v_epochs=20 if smoke else 500,
             outer_max_iter=30 if smoke else 200,
+            outer_tol=1e-4,
             n_outer_iterations=1 if smoke else 3,
             compute_se=False,
             verbose=verbose,
@@ -1553,7 +1589,7 @@ def run_estimator(
         raise ValueError(f"{estimator_name} is incompatible with this DGP: {joined}")
 
     estimator = make_estimator(estimator_name, dgp, smoke=smoke, verbose=verbose)
-    if initial_params is None and estimator_name == "NFXP":
+    if initial_params is None and estimator_name in {"NFXP", "NNES"}:
         initial_params = known_truth_initial_params(dgp)
     summary = estimator.estimate(
         panel=panel,
@@ -1716,6 +1752,40 @@ def recovery_gates(
             )
         return checks
 
+    if estimator_name == "NNES":
+        v_losses = summary.metadata.get("v_loss_per_outer", ())
+        final_v_loss = float(v_losses[-1]) if v_losses else float("inf")
+        checks = [
+            _numeric_gate(
+                "npl_outer_iterations",
+                float(summary.metadata.get("n_outer_iterations", 0)),
+                ">=",
+                3.0,
+            ),
+            _numeric_gate("final_v_loss", final_v_loss, "<=", 0.05),
+            _numeric_gate(
+                "parameter_cosine",
+                metrics["parameters"].cosine_similarity,
+                ">=",
+                0.95,
+            ),
+            _numeric_gate(
+                "parameter_relative_rmse",
+                metrics["parameters"].relative_rmse,
+                "<=",
+                0.30,
+            ),
+            _numeric_gate("reward_rmse", metrics["reward_rmse"], "<=", 0.08),
+            _numeric_gate("policy_tv", metrics["policy"].tv, "<=", 0.03),
+            _numeric_gate("value_rmse", metrics["value_rmse"], "<=", 0.20),
+            _numeric_gate("q_rmse", metrics["q_rmse"], "<=", 0.20),
+        ]
+        for kind, cf_metrics in sorted(metrics["counterfactuals"].items()):
+            checks.append(
+                _numeric_gate(f"{kind}_regret", cf_metrics.regret, "<=", 0.05)
+            )
+        return checks
+
     if estimator_name != "NFXP":
         raise NotImplementedError(
             f"No hard non-smoke recovery gates are implemented for {estimator_name}"
@@ -1865,6 +1935,7 @@ DEFAULT_CELLS: tuple[KnownTruthCell, ...] = (
             high_reward_features=32,
             seed=44,
         ),
+        simulation_config=SimulationConfig(n_individuals=2_000, n_periods=80, seed=44),
         description="Universal DGP preset: high-dimensional state and reward stress benchmark.",
     ),
     KnownTruthCell(

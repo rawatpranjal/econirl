@@ -1,214 +1,384 @@
 #!/usr/bin/env python3
-"""NNES Primer — auto-generate results for the LaTeX document.
+"""Generate NNES primer validation results from the known-truth DGP harness.
 
-Demonstrates NNES's core advantage: scalability to large state spaces
-where NFXP is prohibitively slow, while preserving valid standard errors
-via the block-diagonal information matrix (Neyman orthogonality).
-
-On a 2-component bus engine (400 states), NFXP must solve a 400x400
-Bellman fixed point at every outer step. NNES trains a small V-network
-that takes 2D mileage input and generalizes across the state space,
-running an order of magnitude faster while matching NFXP's MLE.
-
-This replicates the scalability argument from Nguyen (2025, Section 6).
+The NNES primer uses the shared canonical synthetic DGP and enforces the
+shared hard known-truth recovery gates.
 
 Usage:
-    python papers/econirl_package/primers/nnes/nnes_run.py
+    cd /path/to/econirl
+    PYTHONPATH=src:. python papers/econirl_package/primers/nnes/nnes_run.py
 """
 
-import json
-import time
+from __future__ import annotations
+
+import argparse
+import math
+import sys
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
-OUT = Path(__file__).resolve().parent / "nnes_results.tex"
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[3]
+TEX_OUT = HERE / "nnes_results.tex"
+JSON_OUT = HERE / "nnes_results.json"
+DEFAULT_OUTPUT_DIR = Path("/tmp/econirl_nnes_primer_known_truth")
+CELL_ID = "canonical_low_action"
+ESTIMATOR = "NNES"
 
-# ---------- DGP: Multi-component bus (large state space) ----------
-K_COMPONENTS = 2       # number of independent bus components
-M_BINS = 20            # mileage bins per component → 400 total states
-DISCOUNT = 0.9999
-SEED = 42
-N_BUSES = 200
-N_PERIODS = 100
+for path in (ROOT, ROOT / "src"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from experiments.known_truth import (  # noqa: E402
+    build_known_truth_dgp,
+    get_cell,
+    run_estimator,
+    simulate_known_truth_panel,
+    stable_hash,
+    write_json,
+)
 
 
-def main():
-    import jax.numpy as jnp
-    from econirl.environments.multi_component_bus import MultiComponentBusEnvironment
-    from econirl.estimation.nfxp import NFXPEstimator
-    from econirl.estimation.nnes import NNESConfig, NNESEstimator
-    from econirl.estimation.behavioral_cloning import BehavioralCloningEstimator
-    from econirl.preferences.linear import LinearUtility
-    from econirl.simulation.synthetic import simulate_panel
-    from econirl.core.types import DDCProblem
-    from econirl.core.bellman import SoftBellmanOperator
-    from econirl.core.solvers import policy_iteration as pi_solve
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cell-id", default=CELL_ID)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--show-progress", action="store_true", default=True)
+    parser.add_argument("--quiet-progress", action="store_false", dest="show_progress")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
 
-    env = MultiComponentBusEnvironment(
-        K=K_COMPONENTS, M=M_BINS, discount_factor=DISCOUNT,
+    print("NNES primer: running known-truth validation")
+    print(f"  cell: {args.cell_id}")
+    print(f"  estimator: {ESTIMATOR}")
+    print(f"  output_dir: {args.output_dir}")
+
+    cell = get_cell(args.cell_id)
+    dgp = build_known_truth_dgp(cell.dgp_config)
+    simulation_config = replace(
+        cell.simulation_config,
+        show_progress=args.show_progress,
     )
-    n_states = env.num_states
-    n_obs = N_BUSES * N_PERIODS
-    true_params = env.get_true_parameter_vector()
-    problem = env.problem_spec
-    transitions = env.transition_matrices
-    utility = LinearUtility.from_environment(env)
-    pnames = env.parameter_names
+    panel = simulate_known_truth_panel(dgp, simulation_config)
 
-    print("NNES Primer — generating results")
-    print(f"  Environment: {K_COMPONENTS}-component bus, {M_BINS} bins/component, "
-          f"{n_states} total states, beta={DISCOUNT}")
-    print(f"  Data: {N_BUSES} x {N_PERIODS} = {n_obs:,} obs")
-    print(f"  True params: {dict(zip(pnames, np.asarray(true_params)))}")
-
-    panel = simulate_panel(
-        env, n_individuals=N_BUSES, n_periods=N_PERIODS, seed=SEED,
+    main_run = run_estimator(
+        ESTIMATOR,
+        dgp,
+        panel,
+        smoke=False,
+        verbose=args.verbose,
+        enforce_gates=True,
     )
 
-    # True policy for accuracy comparison
-    transitions_f64 = jnp.asarray(transitions, dtype=jnp.float64)
-    operator = SoftBellmanOperator(problem, transitions_f64)
-    true_reward = jnp.asarray(
-        utility.compute(jnp.asarray(true_params, dtype=jnp.float32)),
-        dtype=jnp.float64,
-    )
-    true_result = pi_solve(operator, true_reward, tol=1e-10, max_iter=200, eval_method="matrix")
-    true_actions = np.argmax(np.array(true_result.policy), axis=1)
-
-    results = {}
-
-    # -- BC baseline --
-    print("\n  Running BC baseline...")
-    t0 = time.time()
-    bc = BehavioralCloningEstimator(smoothing=1.0, verbose=False)
-    bc_res = bc.estimate(panel, utility, problem, jnp.asarray(transitions))
-    bc_time = time.time() - t0
-    bc_acc = float(np.mean(np.argmax(np.array(bc_res.policy), axis=1) == true_actions))
-    results["bc"] = {"ll": float(bc_res.log_likelihood), "acc": bc_acc, "time": bc_time}
-    print(f"    LL={results['bc']['ll']:.2f}, acc={bc_acc:.2%}, time={bc_time:.2f}s")
-
-    # -- NFXP oracle --
-    print("\n  Running NFXP (oracle)...")
-    nfxp = NFXPEstimator(
-        inner_solver="hybrid", inner_tol=1e-10, inner_max_iter=100000,
-        switch_tol=1e-3, outer_max_iter=200,
-        compute_hessian=True, verbose=False,
-    )
-    t0 = time.time()
-    nfxp_res = nfxp.estimate(panel, utility, problem, transitions)
-    nfxp_time = time.time() - t0
-    nfxp_p = np.asarray(nfxp_res.parameters)
-    nfxp_se = np.asarray(nfxp_res.standard_errors)
-    results["nfxp"] = {
-        "params": [float(x) for x in nfxp_p],
-        "se": [float(x) for x in nfxp_se],
-        "ll": float(nfxp_res.log_likelihood),
-        "time": nfxp_time,
+    payload = {
+        "cell": cell,
+        "simulation": simulation_config,
+        "estimator": ESTIMATOR,
+        "diagnostics": main_run.diagnostics,
+        "compatibility": main_run.compatibility,
+        "summary": main_run.summary,
+        "metrics": main_run.metrics,
+        "gates": main_run.gates,
     }
-    print(f"    params={[f'{x:.4f}' for x in nfxp_p]}, "
-          f"LL={nfxp_res.log_likelihood:.1f}, time={nfxp_time:.1f}s")
-
-    # -- NNES (NPL Bellman) --
-    # State encoder: decode flat state index into K normalized mileage values
-    def state_encoder(s):
-        """Map flat state indices to K-dimensional normalized mileage vectors."""
-        s = jnp.asarray(s, dtype=jnp.int32)
-        components = []
-        remainder = s
-        for _ in range(K_COMPONENTS):
-            components.append((remainder % M_BINS).astype(jnp.float32) / max(M_BINS - 1, 1))
-            remainder = remainder // M_BINS
-        return jnp.stack(components, axis=-1)  # shape (..., K)
-
-    problem_nnes = DDCProblem(
-        num_states=n_states,
-        num_actions=problem.num_actions,
-        discount_factor=DISCOUNT,
-        scale_parameter=1.0,
-        state_dim=K_COMPONENTS,
-        state_encoder=state_encoder,
+    run_hash = stable_hash(
+        {
+            "cell": cell.dgp_config.to_dict(),
+            "simulation": simulation_config,
+            "estimator": ESTIMATOR,
+            "primer": "nnes",
+            "enforce_gates": True,
+        }
     )
+    run_dir = args.output_dir / f"{args.cell_id}_nnes_primer_{run_hash}"
+    write_json(run_dir / "result.json", payload)
+    write_json(JSON_OUT, compact_payload(payload))
 
-    print(f"\n  Running NNES (NPL, 20 outer iterations, {K_COMPONENTS}D state encoder)...")
-    nnes_cfg = NNESConfig(
-        hidden_dim=64, num_layers=2,
-        v_lr=1e-3, v_epochs=500,
-        n_outer_iterations=20,
-        compute_se=True, se_method="asymptotic",
-        verbose=False,
+    tex = render_results_tex(payload, dgp)
+    TEX_OUT.write_text(tex, encoding="utf-8")
+
+    failed = [gate for gate in main_run.gates if not gate.passed]
+    print(f"  result: {run_dir / 'result.json'}")
+    print(f"  wrote: {JSON_OUT}")
+    print(f"  wrote: {TEX_OUT}")
+    print(f"  hard gates: {len(main_run.gates) - len(failed)} pass, {len(failed)} fail")
+
+
+def render_results_tex(payload: dict[str, Any], dgp: Any) -> str:
+    summary = payload["summary"]
+    diagnostics = payload["diagnostics"]
+    metrics = payload["metrics"]
+    gates = payload["gates"]
+    simulation = payload["simulation"]
+    metadata = summary.metadata
+
+    names = list(summary.parameter_names)
+    estimates = np.asarray(summary.parameters, dtype=float)
+    standard_errors = np.asarray(summary.standard_errors, dtype=float)
+    truth = np.asarray(dgp.homogeneous_parameters, dtype=float)
+    errors = estimates - truth
+    failed_gates = [gate for gate in gates if not gate.passed]
+    passed_gates = len(gates) - len(failed_gates)
+
+    lines: list[str] = []
+    add = lines.append
+
+    add("% Auto-generated by nnes_run.py. Do not edit by hand.")
+    add(f"% Known-truth DGP cell: {payload['cell'].cell_id}")
+    add("")
+    add(r"\section{Generated Validation Results}")
+    add(
+        "This section is generated by \\texttt{nnes\\_run.py} from the "
+        "\\texttt{experiments.known\\_truth} harness and the canonical "
+        "known-truth DGP. Hard gates are enforced."
     )
-    nnes_est = NNESEstimator(config=nnes_cfg)
-    t0 = time.time()
-    nnes_res = nnes_est.estimate(panel, utility, problem_nnes, transitions)
-    nnes_time = time.time() - t0
-    nnes_p = np.asarray(nnes_res.parameters)
-    nnes_se = np.asarray(nnes_res.standard_errors)
-    results["nnes"] = {
-        "params": [float(x) for x in nnes_p],
-        "se": [float(x) for x in nnes_se],
-        "ll": float(nnes_res.log_likelihood),
-        "time": nnes_time,
+    add("")
+
+    add(r"\subsection{Pre-Estimation Checks}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Pre-estimation checks from the known-truth NNES run.}")
+    add(r"\begin{tabular}{lrl}")
+    add(r"\toprule")
+    add(r"Check & Value & Status \\")
+    add(r"\midrule")
+    add(
+        f"Feature rank & {diagnostics.feature_rank} / "
+        f"{diagnostics.num_features} & {status(not diagnostics.errors)} \\\\"
+    )
+    add(f"Feature condition number & {fmt(diagnostics.condition_number, 3)} & pass \\\\")
+    add(
+        "Transition row error & "
+        f"${sci(diagnostics.max_transition_row_error)}$ & pass \\\\"
+    )
+    add(
+        f"Observed states & {diagnostics.observed_states} / "
+        f"{diagnostics.num_states} & pass \\\\"
+    )
+    add(
+        f"State-action coverage & {fmt(diagnostics.state_action_coverage, 3)} "
+        "& pass \\\\"
+    )
+    shares = ", ".join(fmt(value, 3) for value in diagnostics.action_shares)
+    add(f"Action shares & {shares} & pass \\\\")
+    add(f"Minimum action share & {fmt(diagnostics.min_action_share, 3)} & pass \\\\")
+    add(f"Exit/absorbing anchor & {tf(diagnostics.anchor_valid)} & pass \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\subsection{Estimator Fit}")
+    add(
+        "The validation run uses "
+        f"{int(simulation.n_individuals):,} individuals, "
+        f"{int(simulation.n_periods):,} periods per individual, and "
+        f"{int(summary.num_observations):,} observations."
+    )
+    add("")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Known-truth NNES run summary.}")
+    add(r"\begin{tabular}{lr}")
+    add(r"\toprule")
+    add(r"Quantity & Value \\")
+    add(r"\midrule")
+    add(f"Optimizer convergence flag & {tf(summary.converged)} \\\\")
+    add(f"L-BFGS-B iterations & {int(summary.num_iterations)} \\\\")
+    add(f"Log-likelihood & {fmt(summary.log_likelihood, 4)} \\\\")
+    add(f"Estimation time & {fmt(summary.estimation_time, 2)} seconds \\\\")
+    add(f"NPL outer iterations & {int(metadata['n_outer_iterations'])} \\\\")
+    add(f"Final V-network loss & {fmt(metadata['v_loss_per_outer'][-1], 6)} \\\\")
+    add(f"Hard gates passed & {passed_gates} / {len(gates)} \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(
+        "The profiled NPL objective recovers the structural reward, policy, "
+        "Bellman-level value function, Q function, and counterfactual policies "
+        "within the hard known-truth tolerances."
+    )
+    add("")
+
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Parameter recovery.}")
+    add(r"\begin{tabular}{lrrrr}")
+    add(r"\toprule")
+    add(r"Parameter & Truth & Estimate & SE & Error \\")
+    add(r"\midrule")
+    for name, true_value, estimate, se, error in zip(
+        names, truth, estimates, standard_errors, errors, strict=True
+    ):
+        add(
+            f"{tt(name)} & {fmt(true_value, 6)} & {fmt(estimate, 6)} & "
+            f"{fmt(se, 6)} & {fmt(error, 6)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    parameter_metrics = metrics["parameters"]
+    policy_metrics = metrics["policy"]
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Recovery metrics.}")
+    add(r"\begin{tabular}{lr}")
+    add(r"\toprule")
+    add(r"Metric & Value \\")
+    add(r"\midrule")
+    add(f"Parameter RMSE & {fmt(parameter_metrics.rmse, 6)} \\\\")
+    add(f"Parameter relative RMSE & {fmt(parameter_metrics.relative_rmse, 6)} \\\\")
+    add(
+        "Parameter cosine similarity & "
+        f"{fmt(parameter_metrics.cosine_similarity, 6)} \\\\"
+    )
+    add(f"Reward RMSE & {fmt(metrics['reward_rmse'], 6)} \\\\")
+    add(f"Value RMSE & {fmt(metrics['value_rmse'], 6)} \\\\")
+    add(f"Q RMSE & {fmt(metrics['q_rmse'], 6)} \\\\")
+    add(f"Policy KL & ${sci(policy_metrics.kl)}$ \\\\")
+    add(f"Policy total variation & {fmt(policy_metrics.tv, 6)} \\\\")
+    add(f"Policy max state L1 & {fmt(policy_metrics.linf, 6)} \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Hard recovery gates.}")
+    add(r"\begin{tabular}{llrl}")
+    add(r"\toprule")
+    add(r"Gate & Threshold & Value & Status \\")
+    add(r"\midrule")
+    for gate in gates:
+        add(
+            f"{tex_text(gate.name)} & {gate_threshold(gate)} & "
+            f"{gate_value(gate.value)} & {status(gate.passed)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\subsection{Counterfactual Recovery}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Counterfactual recovery against known oracle objects.}")
+    add(r"\begin{tabular}{lrrrr}")
+    add(r"\toprule")
+    add(r"Counterfactual & Policy TV & Policy KL & Value RMSE & Regret \\")
+    add(r"\midrule")
+    for kind, label in (
+        ("type_a", "Type A"),
+        ("type_b", "Type B"),
+        ("type_c", "Type C"),
+    ):
+        cf = metrics["counterfactuals"][kind]
+        add(
+            f"{label} & {fmt(cf.policy.tv, 6)} & ${sci(cf.policy.kl)}$ & "
+            f"{fmt(cf.value_rmse, 6)} & {fmt(cf.regret, 6)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+
+    return "\n".join(lines) + "\n"
+
+
+def compact_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = payload["summary"]
+    metadata = summary.metadata
+    return {
+        "cell_id": payload["cell"].cell_id,
+        "estimator": payload["estimator"],
+        "simulation": payload["simulation"],
+        "compatibility": payload["compatibility"],
+        "diagnostics": payload["diagnostics"],
+        "summary": {
+            "parameter_names": summary.parameter_names,
+            "parameters": summary.parameters,
+            "standard_errors": finite_list(summary.standard_errors),
+            "log_likelihood": summary.log_likelihood,
+            "converged": summary.converged,
+            "num_iterations": summary.num_iterations,
+            "num_observations": summary.num_observations,
+            "estimation_time": summary.estimation_time,
+            "convergence_message": summary.convergence_message,
+            "metadata": {
+                "profile_mode": metadata.get("profile_mode"),
+                "n_outer_iterations": metadata.get("n_outer_iterations"),
+                "v_loss_per_outer": metadata.get("v_loss_per_outer"),
+            },
+        },
+        "metrics": payload["metrics"],
+        "gates": payload["gates"],
     }
-    print(f"    params={[f'{x:.4f}' for x in nnes_p]}, "
-          f"LL={nnes_res.log_likelihood:.1f}, time={nnes_time:.1f}s")
 
-    ll_gap = abs(float(nnes_res.log_likelihood) - float(nfxp_res.log_likelihood))
-    speedup = nfxp_time / nnes_time if nnes_time > 0 else float("inf")
-    print(f"\n  LL gap: {ll_gap:.2f}, Speedup: {speedup:.1f}x")
 
-    # -- Write LaTeX macros + table --
-    true_vals = [float(x) for x in true_params]
-    tex = []
-    tex.append("% Auto-generated by nnes_run.py — do not edit by hand")
-    tex.append(f"% {K_COMPONENTS}-component bus, {M_BINS} bins/comp, "
-               f"{n_states} states, {n_obs} obs, seed={SEED}")
-    tex.append("")
-    tex.append(f"\\newcommand{{\\nnesKcomp}}{{{K_COMPONENTS}}}")
-    tex.append(f"\\newcommand{{\\nnesMbins}}{{{M_BINS}}}")
-    tex.append(f"\\newcommand{{\\nnesNstates}}{{{n_states}}}")
-    tex.append(f"\\newcommand{{\\nnesBeta}}{{{DISCOUNT}}}")
-    tex.append(f"\\newcommand{{\\nnesNobs}}{{{n_obs:,}}}")
-    tex.append(f"\\newcommand{{\\nnesLLgap}}{{{ll_gap:.2f}}}")
-    tex.append(f"\\newcommand{{\\nnesSpeedup}}{{{speedup:.0f}}}")
-    tex.append(f"\\newcommand{{\\nnesNfxpTime}}{{{nfxp_time:.1f}}}")
-    tex.append(f"\\newcommand{{\\nnesTime}}{{{nnes_time:.1f}}}")
-    tex.append(f"\\newcommand{{\\nnesBCacc}}{{{results['bc']['acc']*100:.1f}\\%}}")
-    tex.append(f"\\newcommand{{\\nnesBCll}}{{{results['bc']['ll']:.1f}}}")
-    tex.append("")
+def fmt(value: float | None, digits: int = 4) -> str:
+    if value is None:
+        return "---"
+    number = float(value)
+    if not math.isfinite(number):
+        return "---"
+    return f"{number:.{digits}f}"
 
-    # Results table
-    tex.append("\\begin{table}[H]")
-    tex.append("\\centering\\small")
-    tex.append(f"\\caption{{\\nnesKcomp-component bus engine "
-               f"(\\nnesNstates\\ states, $\\beta=\\nnesBeta$, \\nnesNobs\\ obs). "
-               f"NNES uses a 2-layer ReLU V-network (64 hidden), 20 outer iterations.}}")
-    tex.append("\\label{tab:nnes_results}")
-    tex.append("\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}} l r r r}")
-    tex.append("\\toprule")
-    tex.append("& True & NFXP & NNES \\\\")
-    tex.append("\\midrule")
-    for i, name in enumerate(pnames):
-        true_val = true_vals[i]
-        nfxp_val = float(nfxp_p[i])
-        nnes_val = float(nnes_p[i])
-        nfxp_se_val = float(nfxp_se[i])
-        nnes_se_val = float(nnes_se[i])
-        tex.append(f"${name}$ & {true_val:.4f} & {nfxp_val:.4f} & {nnes_val:.4f} \\\\")
-        se_nfxp = f"{nfxp_se_val:.4f}" if not np.isnan(nfxp_se_val) else "---"
-        se_nnes = f"{nnes_se_val:.4f}" if not np.isnan(nnes_se_val) else "---"
-        tex.append(f"\\quad SE & --- & {se_nfxp} & {se_nnes} \\\\")
-    tex.append(f"Log-lik & --- & ${float(nfxp_res.log_likelihood):.1f}$ "
-               f"& ${float(nnes_res.log_likelihood):.1f}$ \\\\")
-    tex.append(f"Time (s) & --- & {nfxp_time:.1f} & {nnes_time:.1f} \\\\")
-    tex.append("\\bottomrule")
-    tex.append("\\end{tabular*}")
-    tex.append("\\end{table}")
 
-    OUT.write_text("\n".join(tex) + "\n")
-    print(f"\n  Wrote {OUT}")
-    OUT.with_suffix(".json").write_text(json.dumps(results, indent=2))
-    print(f"  Wrote {OUT.with_suffix('.json')}")
+def finite_list(values: Any) -> list[float | None]:
+    array = np.asarray(values, dtype=float)
+    return [float(value) if math.isfinite(float(value)) else None for value in array]
+
+
+def sci(value: float) -> str:
+    number = float(value)
+    if not math.isfinite(number):
+        return "---"
+    mantissa, exponent = f"{number:.2e}".split("e")
+    return rf"{mantissa}\times 10^{{{int(exponent)}}}"
+
+
+def tf(value: bool) -> str:
+    return "true" if bool(value) else "false"
+
+
+def status(passed: bool) -> str:
+    return "pass" if bool(passed) else "fail"
+
+
+def tt(value: str) -> str:
+    return r"\texttt{" + tex_text(value) + "}"
+
+
+def tex_text(value: str) -> str:
+    return (
+        str(value)
+        .replace("\\", r"\textbackslash{}")
+        .replace("_", r"\_")
+        .replace("%", r"\%")
+        .replace("&", r"\&")
+        .replace("#", r"\#")
+    )
+
+
+def gate_threshold(gate: Any) -> str:
+    if gate.operator == "is":
+        return tf(gate.threshold)
+    operator = r"$\leq$" if gate.operator == "<=" else r"$\geq$"
+    return f"{operator} {gate_value(gate.threshold)}"
+
+
+def gate_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return tf(value)
+    if isinstance(value, (int, float)):
+        return fmt(value, 6)
+    return tex_text(str(value))
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ adversarial module ships AIRL and AIRL-Het.
 | f-IRL         | done | no  | Pending (needs Tier 4 ss-spine) |
 | IQ-Learn      | done | no  | Pending (needs Tier 4 ss-spine) |
 | GLADIUS       | done | no  | Pass with caveat (structural bias on tabular) |
-| NNES          | done | no  | Pending (needs Tier 4 ss-neural-r) |
+| NNES          | done | yes | Fail (known-truth diagnostic) |
 | SEES          | done | no  | Pending (needs Tier 4 ss-spine) |
 | TD-CCP        | done | no  | Pass with caveat (cross-fitting variance fragile at high beta) |
 

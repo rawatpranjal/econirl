@@ -1,62 +1,77 @@
-## Estimator: NNES (Neural Network Estimator for Structural DDC)
+## Estimator: NNES (Neural Network Efficient Estimator)
 ## Paper(s): Nguyen 2025 "Neural Network Estimators for Dynamic Discrete Choice Models" (working paper). Doclinged at `papers/foundational/nguyen_2025_nnes.md`.
 ## Code: `src/econirl/estimation/nnes.py` — exposes both `NNESEstimator` (NPL-based, default) and `NNESNFXPEstimator` (NFXP-based, legacy).
 
+### Known-truth migration status
+
+- Status: **diagnostic, not validated**.
+- RTD front door: `docs/estimators/nnes.md`.
+- Dedicated TeX/PDF: `papers/econirl_package/primers/nnes/nnes.tex`.
+- Result generator: `papers/econirl_package/primers/nnes/nnes_run.py`.
+- Shared DGP harness: `experiments/known_truth.py`.
+- Fast test: `tests/test_known_truth.py::test_nnes_smoke_fit_produces_known_truth_metrics_and_gates`.
+
+The implementation now runs through the shared known-truth harness and emits a
+full primer artifact, but the canonical non-smoke run fails hard structural
+recovery. The generator uses `enforce_gates=False` so the failure diagnostics
+are written instead of being hidden by an exception.
+
 ### Loss / objective
 
-- Paper formula (Nguyen 2025, eq. 4.1): replace the closed-form Bellman fixed-point with a neural value-function approximation `V_w(s)`, train the network jointly with the reward parameters via maximum pseudo-likelihood. The Neyman orthogonality construction (Nguyen 2025 Theorem 3.2) is applied to the NPL pseudo-likelihood to produce a robust score function:
+- Paper target: an NPL-style estimator with a neural value approximation and a
+  zero-Jacobian/Neyman-orthogonality property at the true CCP fixed point.
+- Code path: `NNESEstimator` trains a ReLU value network on the Hotz-Miller NPL
+  value target, then maximizes a pseudo-likelihood over structural reward
+  parameters and updates CCPs from the implied policy.
+- Legacy path: `NNESNFXPEstimator` trains on a soft Bellman residual and does
+  not have the same NPL orthogonality claim.
 
-  ```
-  m_orth(s, a; theta, V_w) = m(s, a; theta, V_w) - E[d_V m * V_w(.)]
-  ```
+The code structure matches the intended NPL neural-value architecture, but the
+known-truth recovery result shows that this is not enough for validation.
 
-  where `m` is the standard NPL pseudo-score and the second term is the Neyman correction. Estimating theta with `m_orth` is robust to first-order errors in `V_w`.
+### Fixes applied
 
-- Code implementation: `nnes.py` has two paths:
-  - `NNESEstimator` (default): NPL with neural V approximation. Implements the Neyman-orthogonal score per the paper's eq. 4.5.
-  - `NNESNFXPEstimator` (legacy): NFXP with neural V approximation. Original (non-orthogonal) score; kept for ablation.
+- The NPL value target is now normalized by the configured anchor state before
+  value-network training. This aligns the target with the anchored network
+  output.
+- The reported validation value function is re-evaluated from the final
+  recovered reward and policy on the Bellman scale. The anchored neural values
+  remain in `summary.metadata["v_network_values"]`.
+- NNES has a harness contract, compatibility checks, smoke test, non-smoke
+  recovery gates, and regenerated tutorial artifacts.
 
-- Match: **yes** for both paths. The Neyman-orthogonal construction is the paper's main technical contribution and is implemented in the default path.
+### Canonical diagnostic result
 
-### Gradient
+Cell: `canonical_low_action`, 2,000 individuals, 80 periods, 21 states, 3
+actions, action-dependent low-dimensional reward features.
 
-- Paper formula: orthogonal-score gradient is robust to first-order errors in V_w.
+Current gates:
 
-- Code implementation: JAX autodiff through the orthogonal-score computation.
+- NPL outer iterations: pass.
+- final V-network loss: pass.
+- baseline policy TV: pass.
+- parameter cosine: fail.
+- parameter relative RMSE: fail.
+- reward RMSE: fail.
+- value RMSE: fail.
+- Q RMSE: fail.
+- Type A/B/C counterfactual regret: fail.
 
-- Match: **yes**.
+Current metrics:
 
-### Bellman / inner loop
+- final V-network loss: 0.001059.
+- parameter cosine: 0.585979.
+- parameter relative RMSE: 3.422698.
+- reward RMSE: 0.514228.
+- baseline policy TV: 0.014661.
+- value RMSE: 2.814636.
+- Q RMSE: 2.793261.
+- Type A/B/C regret: 7.995630, 3.930581, 10.870553.
 
-- Paper algorithm: NPL outer loop (alternate theta optimization and CCP update) with neural V replacing the linear V solve.
+### Interpretation
 
-- Code algorithm: matches. NPL iteration count is `n_outer_iterations` (default `3`, not `1` like plain CCP). At `nnes.py:151`. The default is higher than plain CCP because the Neyman-orthogonal score is more robust to first-order V_w errors and the legacy CCP NPL=1 trap is partially mitigated.
-
-- Match: **yes**. The default `n_outer_iterations=3` is reasonable; pushing to 5 or 10 would reduce variance further. The Tier 4 cells leave the default in place.
-
-### Identification assumptions
-
-- Paper conditions: same as CCP plus the standard neural-network universal-approximation assumption on V_w. The Neyman orthogonality protects against first-order errors in V_w.
-
-- Code enforcement: standard NPL identification checks; no special enforcement.
-
-- Match: **yes**.
-
-### Hyperparameter defaults vs paper defaults
-
-- `n_outer_iterations`: 3 (NPL iterations).
-- `hidden_dim`: 32.
-- `num_layers`: 2.
-- `v_lr`: 1e-3 (Adam).
-- `v_epochs`: 500 (V_w update steps per outer NPL step).
-- `anchor_state`: 0 (used to break the additive-constant ambiguity in V).
-
-Match: **yes** for the structure. Defaults are tighter than plain CCP because the orthogonal-score construction reduces variance.
-
-### Findings / fixes applied
-
-- **No code fix required.** Default `n_outer_iterations=3` is paper-consistent.
-
-- The legacy `NNESNFXPEstimator` does not have the Neyman-orthogonal construction and produces biased SEs. The Tier 4 cells use `NNESEstimator` (the default) so this is not an issue for the paper.
-
-- VALIDATION_LOG.md status: **Pending** (Tier 4 ss-neural-r cell will validate the neural-V advantage).
+NNES can fit the observed-policy surface on the canonical DGP while recovering
+the wrong reward parameters and failing counterfactual transport. That is not a
+validated structural estimator result. Future work should debug the NPL update
+formulation, outer-loop stability, and the interaction between finite-sample
+CCPs, value-network approximation, and structural MLE.

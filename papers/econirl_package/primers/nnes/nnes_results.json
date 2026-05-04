@@ -1,35 +1,200 @@
 {
-  "bc": {
-    "ll": -3849.177490234375,
-    "acc": 0.9975,
-    "time": 0.4105191230773926
+  "cell_id": "canonical_low_action",
+  "compatibility": {
+    "compatible": true,
+    "errors": [],
+    "estimator": "NNES",
+    "warnings": []
   },
-  "nfxp": {
-    "params": [
-      2.979313649435627,
-      -0.01509725440861901,
-      0.007744673309407061
+  "diagnostics": {
+    "action_shares": [
+      0.3451625,
+      0.329925,
+      0.3249125
     ],
-    "se": [
-      0.09450019896030426,
-      0.04519083350896835,
-      0.01837959885597229
-    ],
-    "ll": -3904.8989699324848,
-    "time": 179.7230372428894
+    "anchor_valid": true,
+    "condition_number": 4.512181117222974,
+    "errors": [],
+    "feature_rank": 4,
+    "is_action_dependent": true,
+    "max_transition_row_error": 2.421438694000244e-08,
+    "min_action_share": 0.3249125,
+    "min_positive_ccp": 0.15275590551181104,
+    "num_features": 4,
+    "num_states": 21,
+    "observed_states": 21,
+    "single_action_states": 0,
+    "state_action_coverage": 1.0,
+    "warnings": []
   },
-  "nnes": {
-    "params": [
-      2.977658987045288,
-      -0.012096819467842579,
-      0.04154973477125168
+  "estimator": "NNES",
+  "gates": [
+    {
+      "name": "npl_outer_iterations",
+      "operator": ">=",
+      "passed": true,
+      "threshold": 3.0,
+      "value": 3.0
+    },
+    {
+      "name": "final_v_loss",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.05,
+      "value": 0.0003994984270360631
+    },
+    {
+      "name": "parameter_cosine",
+      "operator": ">=",
+      "passed": true,
+      "threshold": 0.95,
+      "value": 0.9982397556304932
+    },
+    {
+      "name": "parameter_relative_rmse",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.3,
+      "value": 0.0651790127158165
+    },
+    {
+      "name": "reward_rmse",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.08,
+      "value": 0.010209567844867706
+    },
+    {
+      "name": "policy_tv",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.03,
+      "value": 0.00564560820338359
+    },
+    {
+      "name": "value_rmse",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.2,
+      "value": 0.019845455486253175
+    },
+    {
+      "name": "q_rmse",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.2,
+      "value": 0.0233699468610916
+    },
+    {
+      "name": "type_a_regret",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.05,
+      "value": 0.00022427010596255665
+    },
+    {
+      "name": "type_b_regret",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.05,
+      "value": 0.00033179297440636394
+    },
+    {
+      "name": "type_c_regret",
+      "operator": "<=",
+      "passed": true,
+      "threshold": 0.05,
+      "value": 5.469089622241882e-05
+    }
+  ],
+  "metrics": {
+    "counterfactuals": {
+      "type_a": {
+        "policy": {
+          "kl": 8.281658136633718e-05,
+          "l1": 0.010160513111000096,
+          "linf": 0.019540755878117322,
+          "tv": 0.005080256555500048
+        },
+        "regret": 0.00022427010596255665,
+        "value_rmse": 0.00027059798008221403
+      },
+      "type_b": {
+        "policy": {
+          "kl": 8.898990311848786e-05,
+          "l1": 0.011009626738780242,
+          "linf": 0.018617307869959077,
+          "tv": 0.005504813369390121
+        },
+        "regret": 0.00033179297440636394,
+        "value_rmse": 0.0003351526257866501
+      },
+      "type_c": {
+        "policy": {
+          "kl": 2.1339313583418753e-05,
+          "l1": 0.005389029604647623,
+          "linf": 0.011646942045936415,
+          "tv": 0.0026945148023238114
+        },
+        "regret": 5.469089622241882e-05,
+        "value_rmse": 7.603874886827599e-05
+      }
+    },
+    "parameters": {
+      "cosine_similarity": 0.9982397556304932,
+      "max_abs_error": 0.022873617708683014,
+      "relative_rmse": 0.0651790127158165,
+      "rmse": 0.017850005999207497
+    },
+    "policy": {
+      "kl": 9.810229540605409e-05,
+      "l1": 0.01129121640676718,
+      "linf": 0.02021358444444077,
+      "tv": 0.00564560820338359
+    },
+    "q_rmse": 0.0233699468610916,
+    "reward_rmse": 0.010209567844867706,
+    "value_rmse": 0.019845455486253175
+  },
+  "simulation": {
+    "n_individuals": 2000,
+    "n_periods": 80,
+    "seed": 42,
+    "show_progress": false
+  },
+  "summary": {
+    "converged": true,
+    "convergence_message": "NNES-NPL (3 outer iters): Converged",
+    "estimation_time": 37.77201318740845,
+    "log_likelihood": -174875.80929267284,
+    "metadata": {
+      "n_outer_iterations": 3,
+      "profile_mode": "exact_finite_state_npl",
+      "v_loss_per_outer": [
+        0.0009738181465301473,
+        0.0003232877405919143,
+        0.0003994984270360631
+      ]
+    },
+    "num_iterations": 10,
+    "num_observations": 160000,
+    "parameter_names": [
+      "action_0_intercept",
+      "action_0_progress",
+      "action_1_intercept",
+      "action_1_progress"
     ],
-    "se": [
-      0.08205488463204418,
-      0.2133411787191673,
-      0.10387818877595754
+    "parameters": [
+      0.08879014849662781,
+      0.5214610695838928,
+      -0.022873617708683014,
+      -0.18715281784534454
     ],
-    "ll": -3904.793863255393,
-    "time": 29.34408402442932
+    "standard_errors": [
+      null,
+      null,
+      null,
+      null
+    ]
   }
 }

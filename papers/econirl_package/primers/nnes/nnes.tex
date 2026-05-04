@@ -1,200 +1,199 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
+\usepackage[left=0.85in,right=0.85in,top=0.8in,bottom=0.85in]{geometry}
 \input{../notation}
+\hypersetup{hypertexnames=false}
 \usepackage[ruled,lined]{algorithm2e}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
+\setlength{\parskip}{0.45em}
 \setlength{\parindent}{0em}
 
-\newcommand{\calC}{\mathcal{C}}
-
-\title{Primer: Neural Network Efficient Estimator (NNES)}
+\title{NNES Reference and Known-Truth Validation Tutorial\\[3pt]
+\large Neural Network Efficient Estimator}
 \author{econirl package documentation}
-\date{}
+\date{May 2026}
 
 \begin{document}
 \maketitle
 
+\begin{center}
+\small
+\textbf{RTD page:}
+\url{https://econirl.readthedocs.io/en/latest/estimators/nnes.html}
+\quad
+\textbf{Source:}
+\url{https://github.com/rawatpranjal/EconIRL/tree/main}
+\end{center}
 
-%% ============================================================
-\section{Problem and Motivation}
-%% ============================================================
+\section{Purpose}
 
-Sieve methods like SEES \citep{luoSang2024} approximate the value function with deterministic basis functions. This works when the value function is smooth and low-dimensional, but the number of basis terms needed grows exponentially in the state dimension. Neural networks are universal approximators that do not suffer from this curse of dimensionality, but plugging a neural network into a structural estimation framework creates a new problem: the approximation error in the value function contaminates the parameter estimates and invalidates the standard errors.
+NNES estimates dynamic discrete choice models with a neural approximation to
+the integrated value function. The motivation is the same structural target as
+NFXP, CCP, MPEC, and SEES: recover reward parameters, the implied policy, the
+value function, and counterfactual policies. The difference is that NNES uses a
+neural value function inside an NPL-style policy iteration step, so it can in
+principle scale beyond low-dimensional tabular state spaces.
 
-\citet{nguyen2025} introduces the Neural Network Efficient Estimator (NNES), which solves this problem by embedding the neural value function approximation inside the Nested Pseudo-Likelihood (NPL) framework of \citet{aguirregabiriaMira2002}. The critical insight is that the NPL policy-iteration operator has a \emph{zero Jacobian property}: at the true conditional choice probabilities (CCPs), the derivative of the operator with respect to the value function vanishes. This means first-order approximation errors in the neural V-network drop out of the likelihood score, producing \emph{Neyman orthogonality}. The estimator is $\sqrt{n}$-consistent and achieves the semiparametric efficiency bound without bias correction or cross-fitting.
+This document is a known-truth validation tutorial. It does not use real data.
+The synthetic DGP supplies the true reward, transition law, value function,
+policy, and Type A/B/C counterfactual oracle objects. The package
+implementation runs on this DGP and must pass the hard structural recovery
+gates before the generated results are written.
 
+\section{Source Paper}
 
-%% ============================================================
-\section{Model and Notation}
-%% ============================================================
+The source paper is \citet{nguyen2025}. The paper embeds a neural value
+function approximation in the Nested Pseudo-Likelihood framework of
+\citet{aguirregabiriaMira2002}. The key theoretical result is a zero-Jacobian
+or Neyman-orthogonality property: at the true conditional choice
+probabilities, first-order value-network approximation error drops out of the
+structural score.
+
+Under the paper's regularity conditions, if the neural value approximation
+converges faster than \(n^{-1/4}\), the structural parameter estimator is
+\(\sqrt n\)-consistent and efficient. The orthogonality result is powerful,
+but it is not a finite-sample guarantee. The implementation still has to put
+the neural value function, policy update, reward parameters, and Bellman level
+on a mutually consistent point of the model.
+
+\section{When to Use NNES}
+
+Use NNES when the model is structural, transitions are known or first-stage
+estimated, the reward is parametric, and the state space is large enough that
+exact tabular value iteration or full MPEC constraints are impractical. NNES is
+not a behavioral cloning shortcut: matching observed choices is insufficient
+unless the recovered reward and counterfactual policies also match the
+structural model.
+
+Use the generated results below as the package-level recovery check for the
+finite-state known-truth benchmark. The shared harness checks more than the
+training loss or in-sample choice fit: it verifies parameter, reward, policy,
+value, Q, and counterfactual recovery.
+
+\section{Model}
 
 \commonnotation
 
-The agent observes continuous state $x \in \calS \subset \R^d$ and chooses discrete action $a \in \calA = \{1, \ldots, J\}$ to maximize discounted expected utility with additive Type I extreme value shocks.
-
-\begin{table}[H]
-\centering\small
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
-\toprule
-Symbol & Name & Definition \\
-\midrule
-$e(a,x)$ & Emax correction & $\gamma_{\mathrm{Euler}} - \log P(a|x)$ (Hotz-Miller) \\
-$\phi_\theta[P]$ & Evaluation operator & Value function implied by CCPs $P$ at parameter $\theta$ \\
-$\Lambda_\theta[V]$ & Improvement operator & CCPs implied by value function $V$ at parameter $\theta$ \\
-$\Psi_\theta = \Lambda_\theta \circ \phi_\theta$ & Policy iteration & Fixed point: $P^* = \Psi_{\theta_0}(P^*)$ \\
-$V_\gamma(x)$ & Neural V-network & $G(x;\gamma) - G(x_0;\gamma)$ (anchored at $x_0$) \\
-$\omega_n$ & Bellman penalty & Enforces $V_\gamma \approx \phi_\theta[P]$ \\
-\bottomrule
-\end{tabular*}
-\end{table}
-
-The Hotz-Miller inversion expresses the value function as a linear operator on the CCPs. Given any admissible CCP vector $P$, the evaluation operator solves
-\begin{equation}
-\label{eq:evaluation}
-\phi_\theta[P](x) = (I - \beta T_P)^{-1}\bigl(\textstyle\sum_a P(a|x)\, u_a(x;\theta) + \sigma \sum_a P(a|x)\, e(a,x)\bigr),
-\end{equation}
-where $T_P$ is the policy-weighted transition operator $(T_P f)(x) = \sum_a P(a|x) \E[f(x') | x, a]$ and $e(a,x) = \gamma_{\mathrm{Euler}} - \log P(a|x)$ is the Hotz-Miller emax correction. The improvement operator then recovers CCPs via the logit formula $\Lambda_\theta[V](a|x) = \exp(Q_a/\sigma) / \sum_{a'} \exp(Q_{a'}/\sigma)$.
-
-The neural V-network is anchored at a fixed state $x_0$ via $V_\gamma(x) = G(x;\gamma) - G(x_0;\gamma)$, which enforces $V_\gamma(x_0) = 0$ for all $\gamma$. This removes the unidentified level of the value function and stabilizes optimization.
-
-
-%% ============================================================
-\section{Core Results}
-%% ============================================================
-
-\paragraph{Proposition 1 (Zero Jacobian).}
-Under additive separability and conditional independence (Assumptions 1--2), the Jacobian of the policy-iteration operator $\Psi_\theta$ with respect to $P$ vanishes at the fixed point:
+The observed data are state-action-next-state trajectories
 \[
-\frac{\partial \Psi_{\theta_0}(P)}{\partial P}\bigg|_{P = P^*} = 0.
+\{(s_{it}, a_{it}, s_{i,t+1}) : i=1,\ldots,N,\ t=1,\ldots,T\}.
 \]
-This extends Proposition 2 of \citet{aguirregabiriaMira2002} from finite to continuous state spaces. At the optimum, it is not possible to increase expected utility by changing choice probabilities, so the Jacobian is zero.
-
-\paragraph{Proposition 3 (Value function orthogonality).}
-The derivative of the evaluation operator with respect to the value function also vanishes at the fixed point:
+Flow payoff is linear in known features,
 \[
-\frac{\partial \phi_{\theta_0}(P,V)}{\partial V}\bigg|_{V = V^*} = 0.
+u_\theta(s,a)=\phi(s,a)^\top\theta,
 \]
-Any small first-stage error in approximating $V$ affects the likelihood score at second order only.
-
-\paragraph{Proposition 4 (Neyman Orthogonality).}
-The G\^ateaux derivative of the expected score with respect to $V$ in any direction $(V - V^*)$ is zero:
+with transition law \(P_a(s,s')\), discount factor \(\beta\), and type-I
+extreme-value scale \(\sigma\). Given a continuation value \(V\),
 \[
-\frac{d}{dt}\, \E[\psi(W;\theta_0, V^* + t(V - V^*))]\bigg|_{t=0} = 0.
+Q_\theta(s,a;V)=u_\theta(s,a)+\beta\sum_{s'}P_a(s,s')V(s'),
 \]
-This means the NNES score function is automatically orthogonal to V-network estimation error, without requiring an explicit bias correction term \citep{chernozhukov2018}.
-
-\paragraph{Theorem 4.3 (Asymptotic Normality and Efficiency).}
-If $\|V_\gamma - V^*\|_2 = o_p(n^{-1/4})$, the NNES estimator satisfies
+and the implied logit policy is
 \[
-\sqrt{n}(\hat\theta - \theta_0) \xrightarrow{d} N\bigl(0,\; I_{\theta_0}^{-1}\bigr),
+\pi_{\theta,V}(a\mid s)
+=
+\frac{\exp(Q_\theta(s,a;V)/\sigma)}
+{\sum_b \exp(Q_\theta(s,b;V)/\sigma)}.
 \]
-achieving the semiparametric efficiency bound. The information matrix is \emph{block-diagonal} between $\theta$ and the V-network parameters, so standard errors from the pseudo-likelihood Hessian are valid without the Schur complement marginalization that SEES requires.
 
-\paragraph{Contrast with SEES.}
-\citet{luoSang2024} show that SEES is also asymptotically efficient, but its information matrix is not block-diagonal. SEES standard errors require the Schur complement (Corollary 3.1), which involves inverting the full Hessian over $(\theta, \alpha)$. NNES avoids this because the zero Jacobian makes the information matrix block-diagonal by construction.
+\section{NNES Estimator}
 
-
-%% ============================================================
-\section{Estimation Algorithm}
-%% ============================================================
+Given conditional choice probabilities \(P(a\mid s)\), the finite-state NPL
+evaluation step profiles the value representation as
+\[
+W_\theta[P]=W_z[P]\theta+W_e[P],
+\]
+where \(W_z[P]\) is the expected discounted feature valuation and \(W_e[P]\)
+is the expected discounted logit entropy term under the fixed CCP iterate.
+The implementation trains a ReLU MLP \(V_\gamma(s)\) by supervised regression
+on \(W_\theta[P]\) as the NNES value approximation, then optimizes the
+structural parameters through the profiled one-step NPL likelihood rather than
+freezing the continuation value at the previous \(\theta\). The reported
+validation value function is re-evaluated from the final recovered reward and
+policy on the Bellman scale.
 
 \begin{algorithm}[H]
 \DontPrintSemicolon
-\caption{NNES with NPL Bellman \citep{nguyen2025}}
-\label{alg:nnes}
-\KwIn{Panel $\{(x_i, a_i)\}_{i=1}^N$, features $u_a(x;\theta)$, transitions $f(x'|x,a)$, discount $\beta$, network architecture $(L, W)$, penalty $\omega_n$, anchor $x_0$}
-\BlankLine
-
-\tcp{Step 0: Initialize CCPs}
-Estimate initial CCPs $\hat P_0(a|x)$ from data frequencies (tabular) or neural classifier (continuous)\;
-\BlankLine
-
-\For{$k = 1, 2, \ldots, K$ (outer iterations)}{
-    \BlankLine
-    \tcp{Phase 1: Train V-network on NPL target}
-    Compute emax corrections: $e(a,x) = \gamma_{\mathrm{Euler}} - \log P_{k-1}(a|x)$\;
-    Compute policy-weighted transitions: $F_\pi[x,x'] = \sum_a P_{k-1}(a|x)\, f(x'|x,a)$\;
-    Solve NPL target: $W = (I - \beta F_\pi)^{-1}(E_{\text{flow}} + \sigma\, E_{\text{emax}})$\;
-    \BlankLine
-    Train $V_\gamma$ via supervised regression:\;
-    \Indp
-    $\hat\gamma \leftarrow \arg\min_\gamma \frac{1}{M} \sum_{m=1}^M (V_\gamma(x_m) - W(x_m))^2 + \omega_n \cdot \rho_n(\gamma, \theta)$\;
-    \Indm
-    where $\rho_n$ is the Bellman residual penalty on a grid\;
-    Implied CCPs: $P_\gamma(a|x) = \Lambda_\theta[V_\gamma](a|x)$\;
-    \BlankLine
-
-    \tcp{Phase 2: Structural MLE}
-    Profile log-likelihood: $\ell(\theta) = \sum_{i=1}^N \log P_\gamma(a_i | x_i; \theta)$\;
-    $\hat\theta \leftarrow \arg\max_\theta \ell(\theta)$ via L-BFGS-B\;
-    \BlankLine
-
-    \tcp{Outer update}
-    Update CCPs from estimated policy: $P_k \leftarrow \Lambda_{\hat\theta}[V_{\hat\gamma}]$\;
+\caption{NNES with NPL value regression}
+\KwIn{Panel data, reward features, transitions, discount \(\beta\), initial CCPs, anchor state}
+Estimate initial CCPs from empirical state-action frequencies\;
+\For{outer iteration \(k=1,\ldots,K\)}{
+  Compute the NPL value target \(W_\theta[P_{k-1}]\)\;
+  Normalize the target by the anchor state\;
+  Train \(V_\gamma\) to predict the anchored target over all states\;
+  Maximize the profiled pseudo-likelihood over \(\theta\) through \(W_z[P]\theta+W_e[P]\)\;
+  Update CCPs from the implied logit policy\;
 }
-\BlankLine
-
-\tcp{Standard errors (valid by Neyman orthogonality)}
-$H_\theta \leftarrow$ Hessian of $\ell(\hat\theta)$ at the final $\hat\theta$\;
-$\text{SE}(\hat\theta) \leftarrow \sqrt{\text{diag}(-H_\theta^{-1})}$\;
-\BlankLine
-
-\KwOut{$\hat\theta$, $V_{\hat\gamma}$, $\pi^*$, $\text{SE}(\hat\theta)$, log-likelihood}
+Evaluate the final policy value on the Bellman scale\;
+\KwOut{\(\hat\theta\), value function, policy, log likelihood, diagnostics}
 \end{algorithm}
 
-\paragraph{Implementation notes.}
-The V-network is a ReLU MLP with $L$ hidden layers of width $W$ (defaults: $L=2$, $W=32$). Anchoring enforces $V_\gamma(x_0) = 0$ by subtracting $G(x_0;\gamma)$ from all outputs. Phase 1 uses Adam with gradient clipping. Phase 2 uses L-BFGS-B on the pseudo-likelihood. The number of outer iterations controls how many times Phases 1 and 2 alternate. The paper shows that one iteration is sufficient for $\sqrt{n}$-consistency, but finite-sample performance improves with additional iterations that progressively align the V-network with model-consistent CCPs.
+\paragraph{Comparison with SEES.}
+SEES \citep{luoSang2024} approximates \(V\) with deterministic basis functions
+and penalizes the Bellman residual in a joint optimization problem. NNES uses a
+neural value approximation and NPL orthogonality instead. In principle, this
+avoids the Schur-complement information matrix needed by SEES. In the
+finite-state validation harness, the profiled NPL step gives an exact
+policy-evaluation specialization of the paper's neural approximation idea.
 
-\paragraph{NPL vs NFXP Bellman.}
-The NPL variant (Algorithm~\ref{alg:nnes}) uses the Hotz-Miller emax correction to construct the V-target. The NFXP variant instead trains $V_\gamma$ to minimize the soft Bellman residual $\|V_\gamma - T_\sigma(V_\gamma;\theta)\|^2$. Only the NPL variant has the zero Jacobian property. The NFXP variant lacks Neyman orthogonality, so V-approximation errors feed directly into the score and standard errors are unreliable.
+\section{Known-Truth DGP}
 
-
-%% ============================================================
-\section{Results}
-%% ============================================================
-
-\input{nnes_results}
-
-We run NNES and NFXP on a \nnesKcomp-component bus engine with \nnesNstates\ total states (\nnesMbins\ mileage bins per component), discount $\beta = \nnesBeta$, and \nnesNobs\ observations. NNES uses a 2-layer ReLU V-network with 64 hidden units that takes a \nnesKcomp-dimensional normalized mileage vector as input, 500 V-network epochs per outer iteration, and 20 outer iterations. This environment tests the scalability argument from \citet{nguyen2025}: with $|\calS| = \nnesNstates$, NFXP must solve a $\nnesNstates \times \nnesNstates$ Bellman fixed point at each parameter guess, while NNES trains a small network that generalizes across the \nnesKcomp-dimensional state space.
-
-NNES achieves a log-likelihood within \nnesLLgap\ nats of NFXP while running \nnesSpeedup$\times$ faster (\nnesTime s vs \nnesNfxpTime s). The speedup comes from replacing the $O(|\calS|^2)$ inner Bellman contraction with neural regression on the state features. Behavioral cloning achieves \nnesBCacc\ policy accuracy (LL $= \nnesBCll$) but recovers no structural parameters.
-
-\paragraph{Code.}
-The companion script \texttt{nnes\_run.py} in this folder generates Table~\ref{tab:nnes_results}. Estimator: \texttt{src/econirl/estimation/nnes.py}. To regenerate:
-\begin{verbatim}
-.venv/bin/python papers/econirl_package/primers/nnes/nnes_run.py
-\end{verbatim}
-
-
-%% ============================================================
-\section{Comparison to Other Estimators}
-%% ============================================================
+The validation cell is \texttt{canonical\_low\_action}, the same
+low-dimensional action-dependent structural benchmark used for NFXP, CCP,
+MPEC, and SEES.
 
 \begin{table}[H]
 \centering\small
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l c c c c c}
+\caption{Canonical NNES validation DGP.}
+\begin{tabular}{lr}
 \toprule
- & NFXP & CCP & SEES & NNES & TD-CCP \\
+Quantity & Value \\
 \midrule
-V-approximation & Exact & None & Sieve & Neural & Neural \\
-Inner loop & VI/NK & None & None & SGD & SGD \\
-Neyman orthogonal & N/A & Yes & No & Yes (NPL) & Yes \\
-Block-diagonal $I(\theta)$ & Yes & Yes & No & Yes & Yes \\
-Requires $P(s'|s,a)$ & Yes & Yes & Yes & Yes & No \\
-Scales to $d > 10$ & No & No & Limited & Yes & Yes \\
+Regular states & 20 \\
+Absorbing states & 1 \\
+Total states & 21 \\
+Actions & 3 \\
+Exit action & 2 \\
+Discount factor & 0.95 \\
+Shock scale & 1.0 \\
+Reward mode & action-dependent \\
+Reward dimension & low \\
+State mode & low-dimensional \\
+Simulated individuals & 2,000 \\
+Periods per individual & 80 \\
+Observations & 160,000 \\
 \bottomrule
-\end{tabular*}
-\caption{NNES in context. Only NPL-based methods (CCP, NNES, TD-CCP) have Neyman orthogonality.}
-\label{tab:nnes_comparison}
+\end{tabular}
 \end{table}
 
-NNES inherits the statistical elegance of NPL (zero Jacobian, block-diagonal information, automatic orthogonality) while using neural networks to overcome the curse of dimensionality. TD-CCP \citep{adusumilliEckardt2025} achieves similar properties without requiring transition densities, but uses temporal-difference learning instead of supervised regression, which can be less stable.
+The validation gates check parameter recovery, reward recovery, baseline
+policy recovery, Bellman-level value and Q recovery, and Type A/B/C
+counterfactual regret. The NNES generator runs with enforced gates, so this
+section is generated only when all checks pass.
 
-The main practical limitation of NNES relative to NFXP is sensitivity to initialization and the number of outer iterations. NFXP solves the Bellman equation exactly, which pins down the value function as a deterministic function of $\theta$. NNES must learn this mapping through alternating optimization, and insufficient iterations can leave the V-network on a different point of the identification manifold.
+\input{nnes_results}
 
+\section{Interpretation}
+
+The validation run confirms that the NNES implementation recovers the same
+structural objects checked for the other validated estimators: reward
+parameters, policy, Bellman-level values, Q values, and counterfactual
+policies. The key implementation detail is that the structural MLE step
+profiles policy evaluation through \(\theta\), matching the source paper's
+one-step NPL construction.
+
+\section{Reproduce}
+
+From the repository root:
+\begin{verbatim}
+PYTHONPATH=src:. python papers/econirl_package/primers/nnes/nnes_run.py
+\end{verbatim}
+
+The script writes \texttt{nnes\_results.tex},
+\texttt{nnes\_results.json}, and a full JSON copy under:
+\begin{verbatim}
+/tmp/econirl_nnes_primer_known_truth
+\end{verbatim}
 
 \bibliographystyle{plainnat}
 \bibliography{references}
