@@ -13,7 +13,7 @@ Algorithm:
     2. V(s) ~ Psi(s) . alpha, where alpha are basis coefficients
     3. Q(s,a;theta,alpha) = u(s,a;theta) + beta * E[Psi(s').alpha | s,a]
     4. P(a|s) = softmax(Q(s,a) / sigma)
-    5. Maximize: LL(theta, alpha) - lambda * ||alpha||^2
+    5. Maximize: LL(theta, alpha) - omega * ||V(alpha) - T(V; theta)||^2
 
 Reference:
     Luo, Y. & Sang, Y. (2024). "Sieve Estimation of Dynamic Discrete

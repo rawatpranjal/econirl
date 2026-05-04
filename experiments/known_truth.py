@@ -1339,13 +1339,15 @@ def check_estimator_compatibility(
         errors.append("NFXP main validation requires a homogeneous DGP")
     if estimator_name == "MPEC" and dgp.config.heterogeneity != "none":
         errors.append("MPEC main validation requires a homogeneous DGP")
+    if estimator_name == "SEES" and dgp.config.heterogeneity != "none":
+        errors.append("SEES main validation requires a homogeneous DGP")
     if (
-        estimator_name in {"NFXP", "MPEC"}
+        estimator_name in {"NFXP", "MPEC", "SEES"}
         and diagnostics.min_action_share is not None
         and diagnostics.min_action_share < 0.05
     ):
         errors.append(
-            f"NFXP requires empirical action support; minimum action share is "
+            f"{estimator_name} requires empirical action support; minimum action share is "
             f"{diagnostics.min_action_share:.3g}"
         )
     if estimator_name == "AIRL-Het" and dgp.config.heterogeneity != "latent_segments":
@@ -1457,9 +1459,12 @@ def make_estimator(
         from econirl.estimation.sees import SEESEstimator
 
         return SEESEstimator(
-            basis_dim=min(6, dgp.feature_matrix.shape[-1]) if smoke else 8,
-            max_iter=30 if smoke else 500,
-            compute_se=False,
+            basis_type="bspline",
+            basis_dim=min(dgp.problem.num_states, 6 if smoke else 21),
+            penalty_weight=100.0,
+            max_iter=40 if smoke else 1_000,
+            tol=1e-7,
+            compute_se=not smoke,
             verbose=verbose,
         )
     if estimator_name == "GLADIUS":
@@ -1677,6 +1682,37 @@ def recovery_gates(
         for kind, cf_metrics in sorted(metrics["counterfactuals"].items()):
             checks.append(
                 _numeric_gate(f"{kind}_regret", cf_metrics.regret, "<=", 0.05)
+            )
+        return checks
+
+    if estimator_name == "SEES":
+        se_available = summary.standard_errors is not None and bool(
+            jnp.all(jnp.isfinite(jnp.asarray(summary.standard_errors)))
+        )
+        bellman_violation = float(summary.metadata.get("bellman_violation", float("inf")))
+        checks = [
+            _numeric_gate("bellman_violation", bellman_violation, "<=", 0.05),
+            _bool_gate("standard_errors_finite", se_available, True),
+            _numeric_gate(
+                "parameter_cosine",
+                metrics["parameters"].cosine_similarity,
+                ">=",
+                0.99,
+            ),
+            _numeric_gate(
+                "parameter_relative_rmse",
+                metrics["parameters"].relative_rmse,
+                "<=",
+                0.15,
+            ),
+            _numeric_gate("reward_rmse", metrics["reward_rmse"], "<=", 0.03),
+            _numeric_gate("policy_tv", metrics["policy"].tv, "<=", 0.02),
+            _numeric_gate("value_rmse", metrics["value_rmse"], "<=", 0.10),
+            _numeric_gate("q_rmse", metrics["q_rmse"], "<=", 0.10),
+        ]
+        for kind, cf_metrics in sorted(metrics["counterfactuals"].items()):
+            checks.append(
+                _numeric_gate(f"{kind}_regret", cf_metrics.regret, "<=", 0.01)
             )
         return checks
 

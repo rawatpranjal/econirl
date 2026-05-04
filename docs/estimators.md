@@ -5,8 +5,9 @@ the estimator-specific reference PDF. The PDFs are built from dedicated TeX
 files and use the shared known-truth synthetic DGP harness rather than real
 data examples.
 
-NFXP, CCP, and MPEC are fully migrated estimator pages and PDFs. The remaining
-estimator pages are kept compact while their known-truth PDFs are migrated.
+NFXP, CCP, MPEC, and SEES are fully migrated estimator pages and PDFs. The
+remaining estimator pages are kept compact while their known-truth PDFs are
+migrated.
 
 ```{toctree}
 :caption: Structural Econometrics

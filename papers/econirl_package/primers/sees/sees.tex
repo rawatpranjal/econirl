@@ -1,163 +1,403 @@
 \documentclass[10pt]{article}
-\usepackage[left=0.8in,right=0.8in,top=0.8in,bottom=0.8in]{geometry}
+\usepackage[left=0.85in,right=0.85in,top=0.8in,bottom=0.85in]{geometry}
 \input{../notation}
-\usepackage[ruled,lined]{algorithm2e}
+\hypersetup{hypertexnames=false}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-\setlength{\parskip}{0.3em}
+\setlength{\parskip}{0.45em}
 \setlength{\parindent}{0em}
 
-\title{Primer: Sieve Estimation of Structural Models (SEES)}
+\title{SEES Reference and Known-Truth Validation Tutorial\\[3pt]
+\large Sieve Estimation of Economic Structural Models}
 \author{econirl package documentation}
-\date{}
+\date{May 2026}
 
 \begin{document}
 \maketitle
 
+\begin{center}
+\small
+\textbf{RTD page:}
+\url{https://econirl.readthedocs.io/en/latest/estimators/sees.html}
+\quad
+\textbf{Source:}
+\url{https://github.com/rawatpranjal/EconIRL/tree/main}
+\end{center}
 
-%% ============================================================
-\section{Problem and Motivation}
-%% ============================================================
+\section{Purpose}
 
-The nested fixed point algorithm (NFXP) of \citet{rust1987} solves the Bellman equation to machine precision at every candidate parameter vector, costing $O(|\calS|^2)$ per inner iteration. The CCP estimator of \citet{hotzMiller1993} eliminates the inner loop but requires an $O(|\calS|^3)$ matrix inversion. Both methods scale with the full state space. When $|\calS|$ reaches hundreds or thousands of states, as in multi-component replacement models or empirical games, the computational cost becomes prohibitive.
+SEES estimates structural dynamic discrete choice models by approximating the
+integrated value function with deterministic sieve basis functions. NFXP solves
+the Bellman fixed point inside every likelihood evaluation. MPEC treats the
+value function as a free optimizer vector and imposes the Bellman equation as
+an equality constraint. SEES keeps the joint-optimization idea but replaces the
+full value vector \(V\in\mathbb R^{|\calS|}\) with
+\[
+V_K(s;\alpha) = \psi_K(s)^\top \alpha,
+\]
+and penalizes Bellman residuals instead of imposing exact equality.
 
-\citet{luoSang2024} propose the Sieve-based Efficient Estimator for Structural models (SEES). The value function is approximated by a small set of deterministic basis functions, and the Bellman equation is imposed as a penalty rather than a constraint. This produces a single unconstrained optimization over the structural parameters $\theta$ and basis coefficients $\alpha$, with computational cost $O(K)$ independent of $|\calS|$. No inner loop is solved. No neural network is trained. When $K = |\calS|$ and the penalty weight goes to infinity, SEES reduces to the MPEC estimator of \citet{suJudd2012}.
+This document is a known-truth validation tutorial. It does not use real data.
+The synthetic DGP supplies the true reward, transition law, value function,
+policy, and Type A/B/C counterfactual oracle objects. The validation question
+is whether the SEES implementation recovers these known objects on a
+medium-scale finite panel while enforcing the Bellman equation tightly enough
+for structural use.
 
+\section{Source Paper}
 
-%% ============================================================
-\section{Model and Notation}
-%% ============================================================
+The source paper is \citet{luoSang2024}. The paper proposes a sieve-based
+efficient estimator for structural dynamic models. The value function is
+approximated by basis functions, and the equilibrium condition is imposed
+through a penalty. The estimator jointly optimizes structural parameters and
+sieve coefficients:
+\[
+(\hat\theta,\hat\alpha)
+=
+\argmax_{\theta,\alpha}
+\ell_n(\theta,\alpha)
+-
+\omega_n
+\left\|V_K(\alpha)-T_\theta V_K(\alpha)\right\|^2.
+\]
 
-\commonnotation
+The theoretical target is not a rough simulator fit. Under smoothness,
+identification, sieve-approximation, and penalty-rate conditions, the
+structural parameter estimator is consistent, asymptotically normal, and
+efficient. The finite discrete-state limiting case is important for this
+package: when the sieve has enough columns to span the finite-state value
+vector and the penalty is large, SEES approaches the MPEC formulation.
+
+The paper's main warning is also practical. SEES needs a basis rich enough to
+represent the value function and a penalty large enough to enforce
+equilibrium. Too few basis functions create projection bias. Too small a
+penalty allows the likelihood to fit choices with a value approximation that
+does not solve the dynamic model.
+
+\section{When to Use SEES}
+
+Use SEES when the model is structural, the reward is parametric, transitions
+are known or first-stage estimated, and the state space is large enough that
+NFXP or MPEC are costly but still smooth enough for deterministic basis
+functions to approximate \(V\). SEES is a structural approximation method, not
+a behavioral cloning method.
+
+Do not use SEES as a black-box rescue for a non-identified DGP. If the reward
+features are state-only and identical across actions, if an action is missing,
+or if the exit/scale normalization is absent, the likelihood cannot identify
+the structural parameters. The known-truth gates below are intentionally hard:
+a non-smoke run must pass Bellman residual, standard-error, reward, value,
+policy, and counterfactual checks.
+
+\section{Model}
+
+The observed data are state-action-next-state trajectories
+\[
+\{(s_{it}, a_{it}, s_{i,t+1}) : i=1,\ldots,N,\ t=1,\ldots,T\}.
+\]
+
+Flow payoff is linear in known features:
+\[
+u_\theta(s,a) = \phi(s,a)^\top \theta.
+\]
+Transitions are
+\[
+P_a(s,s') = \Pr(s_{t+1}=s' \mid s_t=s, a_t=a),
+\]
+the discount factor is \(\beta\), and the type-I extreme-value shock scale is
+\(\sigma\). Given \(V\), the choice-specific value is
+\[
+Q_\theta(s,a;V)
+=
+u_\theta(s,a)
++ \beta\sum_{s'}P_a(s,s')V(s').
+\]
+The logit policy implied by \((\theta,V)\) is
+\[
+\pi_{\theta,V}(a\mid s)
+=
+\frac{\exp(Q_\theta(s,a;V)/\sigma)}
+{\sum_b \exp(Q_\theta(s,b;V)/\sigma)}.
+\]
+
+The soft Bellman operator is
+\[
+T_\theta V(s)
+=
+\sigma \log \sum_a
+\exp\left(
+\frac{u_\theta(s,a)+\beta\sum_{s'}P_a(s,s')V(s')}{\sigma}
+\right).
+\]
+
+\section{SEES Estimator}
+
+Let \(\Psi\in\mathbb R^{|\calS|\times K}\) be the sieve basis matrix and
+\(V_K=\Psi\alpha\). The implementation supports B-splines, polynomials, and
+Fourier bases. The known-truth validation uses B-splines because Luo and Sang
+use spline sieves as the paper's default smooth basis.
+
+The penalized criterion is
+\[
+\mathcal Q_n(\theta,\alpha)
+=
+\sum_{i,t}\log \pi_{\theta,\Psi\alpha}(a_{it}\mid s_{it})
+-
+\omega
+\sum_s
+\left[
+\Psi_s\alpha - T_\theta(\Psi\alpha)(s)
+\right]^2.
+\]
+
+The optimizer variable is \(x=(\theta,\alpha)\). There is no nested value
+iteration. The package uses JAX automatic differentiation and L-BFGS-B over
+the joint vector. The reported log likelihood is the unpenalized choice log
+likelihood at the final \((\hat\theta,\hat\alpha)\); the Bellman violation is
+reported separately and is part of the hard validation gate.
+
+\subsection{Standard Errors}
+
+Let the Hessian of the penalized objective in \((\theta,\alpha)\) blocks be
+\[
+H =
+\begin{pmatrix}
+H_{\theta\theta} & H_{\theta\alpha}\\
+H_{\alpha\theta} & H_{\alpha\alpha}
+\end{pmatrix}.
+\]
+SEES treats \(\alpha\) as a nuisance approximation coefficient. The marginal
+information for \(\theta\) uses the Schur complement:
+\[
+\tilde H_\theta
+=
+H_{\theta\theta}
+-
+H_{\theta\alpha}
+H_{\alpha\alpha}^{-1}
+H_{\alpha\theta}.
+\]
+The validation run computes this marginal Hessian and requires finite
+standard errors. A run with good point estimates but singular standard errors
+is not treated as a completed structural validation.
+
+\section{Identification Checks}
+
+\begin{enumerate}
+\item \textbf{Reward rank.} The action-dependent feature matrix must have full
+column rank after dropping zero rows.
+\item \textbf{Action support.} Each action must appear in the finite panel so
+the likelihood can discipline payoff differences.
+\item \textbf{State coverage.} The canonical tabular validation observes every
+state in the regular state space.
+\item \textbf{Normalization.} The reward scale is fixed at \(\sigma=1\), and
+the synthetic DGP uses an exit action and absorbing state as a zero-reward
+anchor.
+\item \textbf{Basis adequacy.} The sieve must be rich enough for the DGP. In
+the finite-state validation, \(K=|\calS|=21\), so the B-spline basis has enough
+columns to span a 21-state value vector.
+\item \textbf{Penalty strength.} The Bellman residual is not cosmetic. The
+non-smoke validation gates on the final residual and fails if the penalty
+allows \(V_K\) to drift away from \(T_\theta V_K\).
+\end{enumerate}
+
+\section{Known-Truth DGP}
+
+The canonical SEES validation cell is \texttt{canonical\_low\_action}. It is
+the same low-dimensional action-dependent structural benchmark used for NFXP,
+CCP, and MPEC.
 
 \begin{table}[H]
 \centering\small
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
+\caption{Canonical SEES DGP.}
+\begin{tabular}{lr}
 \toprule
-Symbol & Name & Definition \\
+Quantity & Value \\
 \midrule
-$\Psi(s)$ & Sieve basis & Row vector of $K$ basis functions evaluated at $s$ \\
-$\alpha \in \R^K$ & Basis coefficients & Weights on the sieve basis \\
-$\omega > 0$ & Penalty weight & Controls strength of Bellman enforcement \\
-$K$ & Basis dimension & Number of sieve functions ($K \ll |\calS|$) \\
+Regular states & 20 \\
+Absorbing states & 1 \\
+Total states & 21 \\
+Actions & 3 \\
+Exit action & 2 \\
+Discount factor & 0.95 \\
+Shock scale & 1.0 \\
+Reward mode & action-dependent \\
+Reward dimension & low \\
+State mode & low-dimensional \\
+Simulated individuals & 2,000 \\
+Periods per individual & 80 \\
+Observations & 160,000 \\
 \bottomrule
-\end{tabular*}
+\end{tabular}
 \end{table}
 
-The sieve approximation replaces $V(s)$ with
-\begin{equation}
-\label{eq:sieve_v}
-V(s;\alpha) = \Psi(s)^\top \alpha,
-\end{equation}
-where $\Psi(s) = (\psi_1(s), \ldots, \psi_K(s))^\top$ is a deterministic basis. For Fourier bases, $\Psi(s) = (1, \cos(\pi \tilde s), \sin(\pi \tilde s), \cos(2\pi \tilde s), \ldots)$ with $\tilde s \in [0,1]$. Substituting into the Bellman equation gives approximate action values $Q(s,a;\theta,\alpha) = \theta^\top \phi(s,a) + \beta\, (P_a \Psi)^\top \alpha$, where $P_a \Psi$ is precomputed once per action.
-
-The penalized criterion jointly maximizes the log-likelihood and penalizes Bellman violations:
-\begin{equation}
-\label{eq:criterion}
-\max_{\theta, \alpha} \; \sum_{i=1}^N \log \pi(a_i \mid s_i; \theta, \alpha) \;-\; \omega \sum_{s} \bigl(V(s;\alpha) - T_\sigma(V;\theta)(s)\bigr)^2.
-\end{equation}
-
-
-%% ============================================================
-\section{Core Results}
-%% ============================================================
-
-\paragraph{Theorem 1 (Sieve Consistency).}
-Under regularity conditions P1--P7 of \citet{luoSang2024}, as $\omega = \omega_n \to \infty$ with $n$, the sieve approximation converges uniformly to the exact equilibrium mapping: $\sup_{\theta \in \Theta} \|\hat p(\theta) - p^*(\theta)\|_2 = o_P(1)$. The penalty forces the approximate value function toward the Bellman fixed point. Once the penalty is strong enough, the data likelihood drives the structural parameter estimates. The critical rate condition is $\omega_n / n^2 \to \infty$: the penalty must grow faster than the statistical error, but not so fast that the sieve coefficients $\alpha$ are over-constrained before the data has shaped them.
-
-\paragraph{Theorem 3 (Asymptotic Normality and Efficiency).}
-If $\omega_n / n^2 \to \infty$ and regularity conditions P1--P9 hold, the SEES estimator satisfies
+The action-dependent features are
 \[
-\sqrt{n}(\tilde\theta_n - \theta_0) \xrightarrow{d} N(0, \Sigma), \qquad \Sigma = -V_{\theta_0}^{-1},
+\phi(s,a)
+=
+\begin{cases}
+(1, x_s, 0, 0) & a = 0,\\
+(0, 0, 1, x_s) & a = 1,\\
+(0, 0, 0, 0) & a = 2.
+\end{cases}
 \]
-attaining the Cram\'er-Rao lower bound. SEES is asymptotically efficient despite never solving the Bellman equation.
+The exit action has zero reward and sends the process to the absorbing state.
+The true parameter vector is:
 
-\paragraph{Corollary 3.1 (Schur Complement SEs).}
-The joint Hessian over $(\theta, \alpha)$ has a block structure. The marginal Hessian for $\theta$ is the Schur complement
-\begin{equation}
-\label{eq:schur}
-\tilde H_\theta = H_{\theta\theta} - H_{\theta\alpha}\, H_{\alpha\alpha}^{-1}\, H_{\alpha\theta}.
-\end{equation}
-Standard errors from $(-\tilde H_\theta)^{-1}$ marginalize out the basis coefficients and give the correct Fisher information for the structural parameters. Unlike NNES, which achieves a block-diagonal information matrix via the zero Jacobian property, SEES requires the full Schur complement because the off-diagonal blocks $H_{\theta\alpha}$ are generally nonzero.
+\begin{table}[H]
+\centering\small
+\caption{True reward parameters.}
+\begin{tabular}{lr}
+\toprule
+Parameter & Truth \\
+\midrule
+\texttt{action\_0\_intercept} & 0.10 \\
+\texttt{action\_0\_progress} & 0.50 \\
+\texttt{action\_1\_intercept} & 0.00 \\
+\texttt{action\_1\_progress} & -0.20 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\paragraph{Relationship to MPEC.}
-When $K = |\calS|$ and $\omega \to \infty$, the sieve expansion becomes exact and the penalty enforces $V = T_\sigma(V;\theta)$ as a hard constraint. In this limit, SEES is the MPEC estimator of \citet{suJudd2012}, which jointly optimizes $(\theta, V)$ subject to the Bellman equation. SEES generalizes MPEC by allowing $K \ll |\calS|$, reducing the optimization from $d_\theta + |\calS|$ unknowns to $d_\theta + K$ unknowns at the cost of a controlled approximation error.
+\section{Pre-Estimation Diagnostics}
 
-\paragraph{Projection bias.}
-If the value function has sharp discontinuities that the basis cannot represent, the resulting projection bias contaminates $\hat\theta$. The paper recommends increasing $K$ until parameter estimates stabilize. Smooth value functions are well-approximated by Fourier or polynomial bases at moderate $K$. In the multi-component bus engine, the value function is a smooth function of summed mileage, so a Fourier basis with $K = 8$ terms captures it well.
+Run diagnostics before fitting. For SEES, basis and penalty choices are only
+meaningful after identification checks pass.
 
+\begin{lstlisting}
+from experiments.known_truth import (
+    SimulationConfig,
+    build_known_truth_dgp,
+    get_cell,
+    run_pre_estimation_diagnostics,
+    simulate_known_truth_panel,
+)
 
-%% ============================================================
-\section{Estimation Algorithm}
-%% ============================================================
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(
+    dgp,
+    SimulationConfig(n_individuals=2000, n_periods=80, seed=42),
+)
+diagnostics = run_pre_estimation_diagnostics(dgp, panel)
 
-\begin{algorithm}[H]
-\DontPrintSemicolon
-\caption{SEES: Joint Algorithm \citep{luoSang2024}}
-\label{alg:sees}
-\KwIn{Panel $\{(s_i, a_i)\}_{i=1}^N$, features $\phi(s,a)$, transitions $P(s'|s,a)$, discount $\beta$, scale $\sigma$, basis type, dimension $K$, penalty $\omega$}
-\BlankLine
+assert diagnostics.passed
+assert diagnostics.feature_rank == diagnostics.num_features
+assert diagnostics.is_action_dependent
+assert diagnostics.state_action_coverage == 1.0
+\end{lstlisting}
 
-\tcp{Step 1: Build sieve basis}
-$\Psi \leftarrow$ basis matrix of shape $(|\calS|, K)$\;
-Normalize states to $[0,1]$ (Fourier) or $[-1,1]$ (polynomial)\;
-\BlankLine
+\section{Run the Tutorial}
 
-\tcp{Step 2: Precompute continuation values}
-\For{each action $a$}{
-    $\E_a[\Psi] \leftarrow P_a \cdot \Psi$ \tcp*{shape $(|\calS|, K)$, one matrix multiply}
-}
-\BlankLine
+From the repository root:
 
-\tcp{Step 3: Define penalized criterion (Eq.~\ref{eq:criterion})}
-$x = [\theta, \alpha] \in \R^{d_\theta + K}$\;
-$f(x) = \sum_i \log \pi(a_i | s_i; \theta, \alpha) - \omega \sum_s (V(s;\alpha) - T_\sigma(V;\theta)(s))^2$\;
-\BlankLine
+\begin{lstlisting}
+PYTHONPATH=src:. python -m experiments.known_truth \
+    --estimator SEES \
+    --cell-id canonical_low_action \
+    --output-dir outputs/known_truth \
+    --show-progress \
+    --verbose
+\end{lstlisting}
 
-\tcp{Step 4: Joint L-BFGS-B optimization}
-$\hat x \leftarrow \arg\max_x f(x)$ \tcp*{single call, autodiff gradient}
-$\hat\theta, \hat\alpha \leftarrow \hat x[:d_\theta],\; \hat x[d_\theta:]$\;
-\BlankLine
+The command builds the DGP, simulates the panel with \texttt{tqdm} progress,
+runs pre-estimation diagnostics, fits SEES with Schur-complement standard
+errors, evaluates reward/value/Q/policy recovery, solves Type A/B/C
+counterfactual oracles, writes one \texttt{result.json}, and raises if any
+non-smoke hard gate fails.
 
-\tcp{Step 5: Standard errors via Schur complement (Eq.~\ref{eq:schur})}
-$H \leftarrow$ numerical Hessian of $f$ at $\hat x$\;
-$\tilde H_\theta \leftarrow H_{\theta\theta} - H_{\theta\alpha}\, H_{\alpha\alpha}^{-1}\, H_{\alpha\theta}$\;
-$\text{SE}(\hat\theta) \leftarrow \sqrt{\text{diag}(-\tilde H_\theta^{-1})}$\;
-\BlankLine
+Direct estimator usage:
 
-\KwOut{$\hat\theta$, $V^*$, $\pi^*$, $\text{SE}(\hat\theta)$, log-likelihood}
-\end{algorithm}
+\begin{lstlisting}
+from experiments.known_truth import (
+    build_known_truth_dgp,
+    get_cell,
+    simulate_known_truth_panel,
+)
+from econirl.estimation.sees import SEESEstimator
 
-\paragraph{Implementation.}
-The entire estimation is a single L-BFGS-B call over the $(d_\theta + K)$-dimensional vector. JAX autodiff computes the gradient through the penalized log-likelihood, including the softmax policy and the soft Bellman operator. The precomputed $\E_a[\Psi] = P_a \Psi$ matrices make continuation value evaluation a matrix-vector multiply, avoiding any inner loop or fixed-point iteration. Bounds on $\alpha$ (default $[-50, 50]$) prevent the basis coefficients from diverging during optimization.
+cell = get_cell("canonical_low_action")
+dgp = build_known_truth_dgp(cell.dgp_config)
+panel = simulate_known_truth_panel(dgp, cell.simulation_config)
 
-\paragraph{Smoothing parameter selection.}
-\citet{luoSang2024} recommend starting with a moderate $\omega$ and multiplying by a factor $L$ until the confidence intervals from successive values of $\omega$ overlap by more than a threshold. In practice, values between 1 and 100 work well. At low $\omega$ the data shapes the value function freely, producing a good starting point. At high $\omega$ the Bellman constraint dominates, pushing the estimator toward MLE. The paper proves that any $\omega$ satisfying $\omega_n / n^2 \to \infty$ yields an asymptotically efficient estimator.
+estimator = SEESEstimator(
+    basis_type="bspline",
+    basis_dim=dgp.problem.num_states,
+    penalty_weight=100.0,
+    max_iter=1000,
+    tol=1e-7,
+    compute_se=True,
+    verbose=True,
+)
 
-
-%% ============================================================
-\section{Results}
-%% ============================================================
+summary = estimator.estimate(
+    panel=panel,
+    utility=dgp.utility(),
+    problem=dgp.problem,
+    transitions=dgp.transitions,
+)
+\end{lstlisting}
 
 \input{sees_results}
 
-We run SEES and NFXP on a \seesKcomp-component bus engine with \seesNstates\ total states (\seesMbins\ mileage bins per component), discount $\beta = \seesBeta$, and \seesNobs\ observations. SEES uses a Fourier basis with $K = 8$ terms. This environment tests the scaling argument from \citet{luoSang2024}: with $|\calS| = \seesNstates$, NFXP must solve a $\seesNstates \times \seesNstates$ Bellman fixed point at each parameter guess, while SEES optimizes over $d_\theta + 8 = 11$ unknowns regardless of $|\calS|$.
+\section{Debugging Gaps}
 
-SEES achieves a log-likelihood within \seesLLgap\ nats of NFXP while running \seesSpeedup$\times$ faster (\seesTime s vs \seesNfxpTime s). The speedup comes entirely from eliminating the inner fixed-point iteration: at $\beta = \seesBeta$, the Bellman contraction rate is $(1 - \beta)$, requiring tens of thousands of value iteration steps per NFXP inner call. SEES bypasses this entirely.
+If SEES fails to recover truth, debug in this order.
 
-Both estimators agree closely on the replacement cost parameter. The operating and quadratic cost parameters show larger discrepancies because their effects on the likelihood surface are small relative to replacement cost, making them harder to identify precisely. The key observation is that the log-likelihoods are nearly identical: SEES finds the same statistical optimum as NFXP despite optimizing over only 11 unknowns ($d_\theta + K = 3 + 8$) instead of solving a $\seesNstates \times \seesNstates$ fixed point.
+\begin{enumerate}
+\item \textbf{Feature rank first.} If the reward design is not identified,
+larger sieves and larger penalties will only produce sharper nonsense.
+\item \textbf{Basis dimension.} Low \(K\) is the standard finite-sample SEES
+failure mode. On this DGP, \(K=8\) recovers the policy but leaves value and
+parameter recovery outside the hard structural gates. The validation uses
+\(K=21\), equal to the finite-state value dimension.
+\item \textbf{Penalty weight.} The penalty must make the Bellman residual
+small. A high likelihood with a loose Bellman residual is not a structural
+fit.
+\item \textbf{Standard errors.} Non-finite Schur-complement standard errors
+mean the nuisance block is singular or nearly singular. Do not publish that
+run as a full SEES validation.
+\item \textbf{Optimizer flag.} The package reports the L-BFGS-B
+absolute-gradient flag exactly. For SEES, the known-truth gate is the
+structural residual plus recovery metrics, because the sample-summed
+penalized objective can plateau with a large absolute gradient while the
+structural objects are already recovered.
+\item \textbf{Scale and anchor.} If the logit scale or exit-action anchor is
+changed, reward levels can drift.
+\item \textbf{Soft gates.} Do not accept a non-smoke run that only warns.
+Known-truth validation should pass hard gates or raise.
+\end{enumerate}
 
-Behavioral cloning achieves \seesBCacc\ policy accuracy (LL $= \seesBCll$), confirming that the data are informative but that BC cannot recover structural parameters or produce standard errors.
+\section{Practical Defaults}
 
-SEES occupies a middle ground between MPEC and NNES. The basis functions are deterministic and require no training, making the optimization smooth and well-conditioned. The trade-off is projection bias when $V$ is not well-represented by the basis. NNES \citep{nguyen2025} avoids this with a universal approximator and achieves valid SEs via Neyman orthogonality, at the cost of alternating optimization and sensitivity to initialization.
+Recommended non-smoke validation settings:
 
-\paragraph{Code.}
-The SEES estimator is implemented in \texttt{src/econirl/estimation/sees.py}. The companion script \texttt{sees\_run.py} generates Table~\ref{tab:sees_results}. The key implementation details map directly to Algorithm~\ref{alg:sees}: \texttt{\_build\_basis()} constructs $\Psi$ (Step 1), the \texttt{penalized\_ll()} closure implements Equation~\ref{eq:criterion} (Step 3), and the Schur complement in Equation~\ref{eq:schur} is computed from the numerical Hessian (Step 5). To regenerate:
-\begin{verbatim}
-python papers/econirl_package/primers/sees/sees_run.py
-\end{verbatim}
+\begin{lstlisting}
+SEESEstimator(
+    basis_type="bspline",
+    basis_dim=dgp.problem.num_states,
+    penalty_weight=100.0,
+    max_iter=1000,
+    tol=1e-7,
+    compute_se=True,
+)
+\end{lstlisting}
 
+Use smoke settings only for code-path tests. A smoke test shows that the
+estimator runs and returns finite objects; it is not evidence of recovery.
+
+\section{Implementation Paths}
+
+\begin{itemize}
+\item Estimator: \texttt{src/econirl/estimation/sees.py}
+\item Known-truth harness: \texttt{experiments/known\_truth.py}
+\item Fast validation tests: \texttt{tests/test\_known\_truth.py}
+\item Master plan: \texttt{papers/econirl\_package\_jss/plans/README.md}
+\item SEES alignment audit: \texttt{papers/econirl\_package\_jss/plans/alignment/13\_sees.md}
+\end{itemize}
+
+\section{References}
 
 \bibliographystyle{plainnat}
 \bibliography{references}

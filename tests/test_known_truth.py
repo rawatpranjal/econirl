@@ -399,6 +399,59 @@ def test_mpec_smoke_fit_produces_known_truth_metrics_and_gates():
     }.issubset(gate_names)
 
 
+def test_sees_smoke_fit_produces_known_truth_metrics_and_gates():
+    dgp = build_known_truth_dgp(
+        KnownTruthDGPConfig(
+            state_mode="low_dim",
+            reward_mode="action_dependent",
+            reward_dim="low",
+            heterogeneity="none",
+            num_regular_states=5,
+            transition_noise=0.02,
+            seed=512,
+        )
+    )
+    panel = simulate_known_truth_panel(
+        dgp,
+        SimulationConfig(n_individuals=20, n_periods=8, seed=513),
+    )
+
+    result = run_estimator("SEES", dgp, panel, smoke=True)
+
+    assert result.compatibility.compatible
+    assert result.summary.policy.shape == (dgp.problem.num_states, dgp.problem.num_actions)
+    assert result.summary.value_function.shape == (dgp.problem.num_states,)
+    assert result.summary.metadata["basis_type"] == "bspline"
+    assert result.summary.metadata["basis_dim"] == dgp.problem.num_states
+    assert math.isfinite(result.summary.metadata["bellman_violation"])
+
+    metrics = result.metrics
+    assert metrics["parameters"] is not None
+    assert math.isfinite(metrics["parameters"].rmse)
+    assert math.isfinite(metrics["reward_rmse"])
+    assert math.isfinite(metrics["value_rmse"])
+    assert math.isfinite(metrics["q_rmse"])
+    assert metrics["policy"].tv >= 0.0
+
+    gate_names = {
+        gate.name
+        for gate in recovery_gates("SEES", result.summary, metrics, smoke=False)
+    }
+    assert {
+        "bellman_violation",
+        "standard_errors_finite",
+        "parameter_cosine",
+        "parameter_relative_rmse",
+        "reward_rmse",
+        "policy_tv",
+        "value_rmse",
+        "q_rmse",
+        "type_a_regret",
+        "type_b_regret",
+        "type_c_regret",
+    }.issubset(gate_names)
+
+
 def test_nfxp_failed_non_smoke_recovery_raises_hard_gate():
     dgp = build_known_truth_dgp(
         KnownTruthDGPConfig(

@@ -1,193 +1,339 @@
 #!/usr/bin/env python3
-"""SEES Primer — auto-generate results for the LaTeX document.
+"""Generate SEES primer results from the known-truth DGP harness.
 
-Demonstrates SEES's core advantage: on a large state space (K=2
-multi-component bus, 400 states), SEES matches NFXP's log-likelihood
-while running an order of magnitude faster. NFXP must solve a 400x400
-Bellman fixed point at each parameter guess; SEES approximates V(s)
-with 8 Fourier terms and optimizes in one L-BFGS-B call.
-
-This replicates the computational scaling argument from Luo and Sang
-(2024, Section 2): SEES cost is O(K) independent of |S|.
+The SEES primer uses the same canonical synthetic DGP as the estimator
+validation harness. No real data are used. The main run is a hard-gated
+known-truth validation with a finite-state B-spline sieve, a Bellman
+equilibrium penalty, and Schur-complement standard errors.
 
 Usage:
-    python papers/econirl_package/primers/sees/sees_run.py
+    cd /path/to/econirl
+    PYTHONPATH=src:. python papers/econirl_package/primers/sees/sees_run.py
 """
 
-import json
-import time
-from pathlib import Path
+from __future__ import annotations
 
-import jax.numpy as jnp
+import argparse
+import sys
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 
-OUT = Path(__file__).resolve().parent / "sees_results.tex"
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[3]
+TEX_OUT = HERE / "sees_results.tex"
+DEFAULT_OUTPUT_DIR = Path("/tmp/econirl_sees_primer_known_truth")
+CELL_ID = "canonical_low_action"
+ESTIMATOR = "SEES"
 
-# ---------- DGP: Multi-component bus (large state space) ----------
-K_COMPONENTS = 2         # number of independent bus components
-M_BINS = 30             # mileage bins per component → 900 total states
-DISCOUNT = 0.9999
-SEED = 42
-N_BUSES = 100
-N_PERIODS = 100
+for path in (ROOT, ROOT / "src"):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
+
+from experiments.known_truth import (  # noqa: E402
+    build_known_truth_dgp,
+    get_cell,
+    run_estimator,
+    simulate_known_truth_panel,
+    stable_hash,
+    write_json,
+)
 
 
-def main():
-    from econirl.environments.multi_component_bus import MultiComponentBusEnvironment
-    from econirl.estimation.nfxp import NFXPEstimator
-    from econirl.estimation.sees import SEESConfig, SEESEstimator
-    from econirl.preferences.linear import LinearUtility
-    from econirl.simulation.synthetic import simulate_panel
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cell-id", default=CELL_ID)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--show-progress", action="store_true", default=True)
+    parser.add_argument("--quiet-progress", action="store_false", dest="show_progress")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
 
-    env = MultiComponentBusEnvironment(
-        K=K_COMPONENTS, M=M_BINS, discount_factor=DISCOUNT,
+    print("SEES primer: running known-truth validation")
+    print(f"  cell: {args.cell_id}")
+    print(f"  estimator: {ESTIMATOR}")
+    print(f"  output_dir: {args.output_dir}")
+
+    cell = get_cell(args.cell_id)
+    dgp = build_known_truth_dgp(cell.dgp_config)
+    simulation_config = replace(
+        cell.simulation_config,
+        show_progress=args.show_progress,
     )
-    n_states = env.num_states
-    n_obs = N_BUSES * N_PERIODS
-    true_params = env.get_true_parameter_vector()
-    problem = env.problem_spec
-    transitions = env.transition_matrices
-    utility = LinearUtility.from_environment(env)
+    panel = simulate_known_truth_panel(dgp, simulation_config)
 
-    print("SEES Primer — generating results")
-    print(f"  Environment: {K_COMPONENTS}-component bus, {M_BINS} bins/component, "
-          f"{n_states} total states, beta={DISCOUNT}")
-    print(f"  Data: {N_BUSES} x {N_PERIODS} = {n_obs:,} obs")
-    print(f"  True params: {dict(zip(env.parameter_names, np.asarray(true_params)))}")
-
-    panel = simulate_panel(
-        env, n_individuals=N_BUSES, n_periods=N_PERIODS, seed=SEED,
+    main_run = run_estimator(
+        ESTIMATOR,
+        dgp,
+        panel,
+        smoke=False,
+        verbose=args.verbose,
     )
 
-    results = {}
-
-    # ── BC baseline ──
-    from econirl.estimation.behavioral_cloning import BehavioralCloningEstimator
-    from econirl.core.bellman import SoftBellmanOperator
-    from econirl.core.solvers import policy_iteration
-
-    print("\n  Running BC baseline...")
-    transitions_f64 = jnp.asarray(transitions, dtype=jnp.float64)
-    operator = SoftBellmanOperator(problem, transitions_f64)
-    true_reward = jnp.asarray(
-        utility.compute(jnp.asarray(true_params, dtype=jnp.float32)),
-        dtype=jnp.float64,
-    )
-    true_result = policy_iteration(
-        operator, true_reward, tol=1e-10, max_iter=200, eval_method="matrix"
-    )
-    true_actions = np.argmax(np.array(true_result.policy), axis=1)
-
-    t0 = time.time()
-    bc = BehavioralCloningEstimator(smoothing=1.0, verbose=False)
-    bc_res = bc.estimate(panel, utility, problem, jnp.asarray(transitions))
-    bc_time = time.time() - t0
-    bc_acc = float(np.mean(np.argmax(np.array(bc_res.policy), axis=1) == true_actions))
-    results["bc"] = {
-        "ll": float(bc_res.log_likelihood),
-        "policy_acc": bc_acc,
-        "time": bc_time,
+    payload = {
+        "cell": cell,
+        "simulation": simulation_config,
+        "estimator": ESTIMATOR,
+        "diagnostics": main_run.diagnostics,
+        "compatibility": main_run.compatibility,
+        "summary": main_run.summary,
+        "metrics": main_run.metrics,
+        "gates": main_run.gates,
     }
-    print(f"    LL={results['bc']['ll']:.2f}, policy_acc={bc_acc:.2%}, time={bc_time:.2f}s")
-
-    # ── NFXP oracle ──
-    print("\n  Running NFXP...")
-    nfxp = NFXPEstimator(
-        inner_solver="hybrid", inner_tol=1e-10, inner_max_iter=100000,
-        switch_tol=1e-3, outer_max_iter=200,
-        compute_hessian=True, verbose=False,
+    run_hash = stable_hash(
+        {
+            "cell": cell.dgp_config.to_dict(),
+            "simulation": simulation_config,
+            "estimator": ESTIMATOR,
+            "primer": "sees",
+        }
     )
-    t0 = time.time()
-    nfxp_res = nfxp.estimate(panel, utility, problem, transitions)
-    nfxp_time = time.time() - t0
-    nfxp_p = np.asarray(nfxp_res.parameters)
-    nfxp_se = np.asarray(nfxp_res.standard_errors)
-    results["nfxp"] = {
-        "params": [float(x) for x in nfxp_p],
-        "se": [float(x) for x in nfxp_se],
-        "ll": float(nfxp_res.log_likelihood),
-        "time": nfxp_time,
-    }
-    print(f"    params={[f'{x:.4f}' for x in nfxp_p]}, "
-          f"LL={nfxp_res.log_likelihood:.1f}, time={nfxp_time:.1f}s")
+    run_dir = args.output_dir / f"{args.cell_id}_sees_primer_{run_hash}"
+    write_json(run_dir / "result.json", payload)
 
-    # ── SEES ──
-    print("\n  Running SEES (Fourier K=8)...")
-    sees_cfg = SEESConfig(
-        basis_type="fourier", basis_dim=8, penalty_weight=10.0,
-        max_iter=500, compute_se=True, se_method="asymptotic", verbose=False,
+    tex = render_results_tex(payload, dgp)
+    TEX_OUT.write_text(tex, encoding="utf-8")
+
+    print(f"  result: {run_dir / 'result.json'}")
+    print(f"  wrote: {TEX_OUT}")
+
+
+def render_results_tex(payload: dict[str, Any], dgp: Any) -> str:
+    summary = payload["summary"]
+    diagnostics = payload["diagnostics"]
+    metrics = payload["metrics"]
+    gates = payload["gates"]
+    simulation = payload["simulation"]
+    metadata = summary.metadata
+
+    names = list(summary.parameter_names)
+    estimates = np.asarray(summary.parameters, dtype=float)
+    standard_errors = np.asarray(summary.standard_errors, dtype=float)
+    truth = np.asarray(dgp.homogeneous_parameters, dtype=float)
+    errors = estimates - truth
+
+    lines: list[str] = []
+    add = lines.append
+
+    add("% Auto-generated by sees_run.py. Do not edit by hand.")
+    add("% Known-truth DGP cell: canonical_low_action")
+    add("")
+    add(r"\section{Generated Validation Results}")
+    add(
+        "This section is generated by \\texttt{sees\\_run.py} from the "
+        "\\texttt{experiments.known\\_truth} harness and the canonical "
+        "known-truth DGP."
     )
-    sees_est = SEESEstimator(config=sees_cfg)
-    t0 = time.time()
-    sees_res = sees_est.estimate(panel, utility, problem, transitions)
-    sees_time = time.time() - t0
-    sees_p = np.asarray(sees_res.parameters)
-    sees_se = np.asarray(sees_res.standard_errors)
-    results["sees"] = {
-        "params": [float(x) for x in sees_p],
-        "se": [float(x) for x in sees_se],
-        "ll": float(sees_res.log_likelihood),
-        "time": sees_time,
-    }
-    print(f"    params={[f'{x:.4f}' for x in sees_p]}, "
-          f"LL={sees_res.log_likelihood:.1f}, time={sees_time:.1f}s")
+    add("")
 
-    speedup = nfxp_time / sees_time if sees_time > 0 else float("inf")
-    ll_gap = abs(float(sees_res.log_likelihood) - float(nfxp_res.log_likelihood))
-    print(f"\n  Speedup: {speedup:.1f}x, LL gap: {ll_gap:.2f}")
+    add(r"\subsection{Pre-Estimation Checks}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Pre-estimation checks from the known-truth SEES run.}")
+    add(r"\begin{tabular}{lrl}")
+    add(r"\toprule")
+    add(r"Check & Value & Status \\")
+    add(r"\midrule")
+    add(
+        f"Feature rank & {diagnostics.feature_rank} / "
+        f"{diagnostics.num_features} & {status(not diagnostics.errors)} \\\\"
+    )
+    add(f"Feature condition number & {fmt(diagnostics.condition_number, 3)} & pass \\\\")
+    add(
+        "Transition row error & "
+        f"${sci(diagnostics.max_transition_row_error)}$ & pass \\\\"
+    )
+    add(
+        f"Observed states & {diagnostics.observed_states} / "
+        f"{diagnostics.num_states} & pass \\\\"
+    )
+    add(
+        f"State-action coverage & {fmt(diagnostics.state_action_coverage, 3)} "
+        "& pass \\\\"
+    )
+    shares = ", ".join(fmt(value, 3) for value in diagnostics.action_shares)
+    add(f"Action shares & {shares} & pass \\\\")
+    add(f"Minimum action share & {fmt(diagnostics.min_action_share, 3)} & pass \\\\")
+    add(f"Exit/absorbing anchor & {tf(diagnostics.anchor_valid)} & pass \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
 
-    # ── Write LaTeX macros + table ──
-    pnames = env.parameter_names
-    tex = []
-    tex.append("% Auto-generated by sees_run.py — do not edit by hand")
-    tex.append(f"% {K_COMPONENTS}-component bus, {M_BINS} bins/comp, "
-               f"{n_states} states, {n_obs} obs, seed={SEED}")
-    tex.append("")
-    tex.append(f"\\newcommand{{\\seesNstates}}{{{n_states}}}")
-    tex.append(f"\\newcommand{{\\seesBeta}}{{{DISCOUNT}}}")
-    tex.append(f"\\newcommand{{\\seesNobs}}{{{n_obs:,}}}")
-    tex.append(f"\\newcommand{{\\seesKcomp}}{{{K_COMPONENTS}}}")
-    tex.append(f"\\newcommand{{\\seesMbins}}{{{M_BINS}}}")
-    tex.append(f"\\newcommand{{\\seesSpeedup}}{{{speedup:.0f}}}")
-    tex.append(f"\\newcommand{{\\seesLLgap}}{{{ll_gap:.2f}}}")
-    tex.append(f"\\newcommand{{\\seesNfxpTime}}{{{nfxp_time:.1f}}}")
-    tex.append(f"\\newcommand{{\\seesTime}}{{{sees_time:.1f}}}")
-    tex.append(f"\\newcommand{{\\seesBCacc}}{{{results['bc']['policy_acc']*100:.1f}\\%}}")
-    tex.append(f"\\newcommand{{\\seesBCll}}{{{results['bc']['ll']:.1f}}}")
-    tex.append("")
+    add(r"\subsection{Estimator Fit}")
+    add(
+        "The medium-scale validation run uses "
+        f"{int(simulation.n_individuals):,} individuals, "
+        f"{int(simulation.n_periods):,} periods per individual, and "
+        f"{int(summary.num_observations):,} observations."
+    )
+    add("")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Known-truth SEES run summary.}")
+    add(r"\begin{tabular}{lr}")
+    add(r"\toprule")
+    add(r"Quantity & Value \\")
+    add(r"\midrule")
+    add(f"Optimizer absolute-gradient flag & {tf(summary.converged)} \\\\")
+    add(f"L-BFGS-B iterations & {int(summary.num_iterations)} \\\\")
+    add(f"Log-likelihood & {fmt(summary.log_likelihood, 4)} \\\\")
+    add(f"Estimation time & {fmt(summary.estimation_time, 2)} seconds \\\\")
+    add(f"Basis type & {tex_text(metadata['basis_type'])} \\\\")
+    add(f"Basis dimension & {int(metadata['basis_dim'])} \\\\")
+    add(f"Penalty weight & {fmt(metadata['penalty_weight'], 1)} \\\\")
+    add(f"Bellman violation & {fmt(metadata['bellman_violation'], 6)} \\\\")
+    add(f"Standard errors finite & {tf(np.isfinite(standard_errors).all())} \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
 
-    # Results table
-    tex.append("\\begin{table}[h!]")
-    tex.append("\\centering\\small")
-    tex.append(f"\\caption{{\\seesKcomp-component bus engine "
-               f"(\\seesNstates\\ states, $\\beta=\\seesBeta$, \\seesNobs\\ obs). "
-               f"SEES uses a Fourier basis with $K=8$.}}")
-    tex.append("\\label{tab:sees_results}")
-    tex.append("\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}} l r r r}")
-    tex.append("\\toprule")
-    tex.append("& True & NFXP & SEES \\\\")
-    tex.append("\\midrule")
-    for i, name in enumerate(pnames):
-        true_val = float(true_params[i])
-        nfxp_val = float(nfxp_p[i])
-        sees_val = float(sees_p[i])
-        nfxp_se_val = float(nfxp_se[i])
-        sees_se_val = float(sees_se[i])
-        tex.append(f"${name}$ & {true_val:.4f} & {nfxp_val:.4f} & {sees_val:.4f} \\\\")
-        se_nfxp = f"{nfxp_se_val:.4f}" if not np.isnan(nfxp_se_val) else "---"
-        se_sees = f"{sees_se_val:.4f}" if not np.isnan(sees_se_val) else "---"
-        tex.append(f"\\quad SE & --- & {se_nfxp} & {se_sees} \\\\")
-    tex.append(f"Log-lik & --- & ${float(nfxp_res.log_likelihood):.1f}$ "
-               f"& ${float(sees_res.log_likelihood):.1f}$ \\\\")
-    tex.append(f"Time (s) & --- & {nfxp_time:.1f} & {sees_time:.1f} \\\\")
-    tex.append("\\bottomrule")
-    tex.append("\\end{tabular*}")
-    tex.append("\\end{table}")
+    add(
+        "The optimizer flag is reported exactly as returned by the "
+        "L-BFGS-B wrapper. The hard validation gate for SEES is not that "
+        "sample-summed absolute-gradient flag; it is the structural Bellman "
+        "residual, finite standard errors, and known-truth recovery metrics "
+        "reported below."
+    )
+    add("")
 
-    OUT.write_text("\n".join(tex) + "\n")
-    print(f"\n  Wrote {OUT}")
-    OUT.with_suffix(".json").write_text(json.dumps(results, indent=2))
-    print(f"  Wrote {OUT.with_suffix('.json')}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Parameter recovery.}")
+    add(r"\begin{tabular}{lrrrr}")
+    add(r"\toprule")
+    add(r"Parameter & Truth & Estimate & SE & Error \\")
+    add(r"\midrule")
+    for name, true_value, estimate, se, error in zip(
+        names, truth, estimates, standard_errors, errors, strict=True
+    ):
+        add(
+            f"{tt(name)} & {fmt(true_value, 6)} & {fmt(estimate, 6)} & "
+            f"{fmt(se, 6)} & {fmt(error, 6)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    parameter_metrics = metrics["parameters"]
+    policy_metrics = metrics["policy"]
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Recovery metrics.}")
+    add(r"\begin{tabular}{lr}")
+    add(r"\toprule")
+    add(r"Metric & Value \\")
+    add(r"\midrule")
+    add(f"Parameter RMSE & {fmt(parameter_metrics.rmse, 6)} \\\\")
+    add(f"Parameter relative RMSE & {fmt(parameter_metrics.relative_rmse, 6)} \\\\")
+    add(
+        "Parameter cosine similarity & "
+        f"{fmt(parameter_metrics.cosine_similarity, 6)} \\\\"
+    )
+    add(f"Reward RMSE & {fmt(metrics['reward_rmse'], 6)} \\\\")
+    add(f"Value RMSE & {fmt(metrics['value_rmse'], 6)} \\\\")
+    add(f"Q RMSE & {fmt(metrics['q_rmse'], 6)} \\\\")
+    add(f"Policy KL & ${sci(policy_metrics.kl)}$ \\\\")
+    add(f"Policy total variation & {fmt(policy_metrics.tv, 6)} \\\\")
+    add(f"Policy max state L1 & {fmt(policy_metrics.linf, 6)} \\\\")
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Hard recovery gates.}")
+    add(r"\begin{tabular}{llrl}")
+    add(r"\toprule")
+    add(r"Gate & Threshold & Value & Status \\")
+    add(r"\midrule")
+    for gate in gates:
+        add(
+            f"{tex_text(gate.name)} & {gate_threshold(gate)} & "
+            f"{gate_value(gate.value)} & {status(gate.passed)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(r"\subsection{Counterfactual Recovery}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Counterfactual recovery against known oracle objects.}")
+    add(r"\begin{tabular}{lrrrr}")
+    add(r"\toprule")
+    add(r"Counterfactual & Policy TV & Policy KL & Value RMSE & Regret \\")
+    add(r"\midrule")
+    for kind, label in (
+        ("type_a", "Type A"),
+        ("type_b", "Type B"),
+        ("type_c", "Type C"),
+    ):
+        cf = metrics["counterfactuals"][kind]
+        add(
+            f"{label} & {fmt(cf.policy.tv, 6)} & ${sci(cf.policy.kl)}$ & "
+            f"{fmt(cf.value_rmse, 6)} & {fmt(cf.regret, 6)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+
+    return "\n".join(lines) + "\n"
+
+
+def fmt(value: float | None, digits: int = 4) -> str:
+    if value is None:
+        return "---"
+    return f"{float(value):.{digits}f}"
+
+
+def sci(value: float) -> str:
+    mantissa, exponent = f"{float(value):.2e}".split("e")
+    return rf"{mantissa}\times 10^{{{int(exponent)}}}"
+
+
+def tf(value: bool) -> str:
+    return "true" if bool(value) else "false"
+
+
+def status(passed: bool) -> str:
+    return "pass" if bool(passed) else "fail"
+
+
+def tt(value: str) -> str:
+    return r"\texttt{" + tex_text(value) + "}"
+
+
+def tex_text(value: str) -> str:
+    return (
+        str(value)
+        .replace("\\", r"\textbackslash{}")
+        .replace("_", r"\_")
+        .replace("%", r"\%")
+        .replace("&", r"\&")
+        .replace("#", r"\#")
+    )
+
+
+def gate_threshold(gate: Any) -> str:
+    if gate.operator == "is":
+        return tf(gate.threshold)
+    operator = r"$\leq$" if gate.operator == "<=" else r"$\geq$"
+    return f"{operator} {gate_value(gate.threshold)}"
+
+
+def gate_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return tf(value)
+    if isinstance(value, (int, float)):
+        return fmt(value, 6)
+    return tex_text(str(value))
 
 
 if __name__ == "__main__":

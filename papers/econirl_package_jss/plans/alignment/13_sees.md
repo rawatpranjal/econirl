@@ -1,56 +1,130 @@
 ## Estimator: SEES (Sieve Estimation of Economic Structural Models)
-## Paper(s): Luo & Sang 2024 "Sieve Estimation of Dynamic Discrete Choice Models" (working paper). Doclinged at `papers/foundational/luo_sang_2024_sees.md`.
+## Paper(s): Luo & Sang 2024 "Efficient Estimation of Structural Models via Sieves". Doclinged at `papers/foundational/luo_sang_2024_sees.md`.
 ## Code: `src/econirl/estimation/sees.py`
+
+### Known-truth migration status
+
+- Status: **migrated**.
+- RTD front door: `docs/estimators/sees.md`.
+- Dedicated TeX/PDF: `papers/econirl_package/primers/sees/sees.tex`.
+- Result generator: `papers/econirl_package/primers/sees/sees_run.py`.
+- Shared DGP harness: `experiments/known_truth.py`.
+- Fast test: `tests/test_known_truth.py::test_sees_smoke_fit_produces_known_truth_metrics_and_gates`.
+
+The migrated validation uses only the synthetic known-truth DGP. No real data
+or legacy examples are used on the RTD surface.
 
 ### Loss / objective
 
-- Paper formula (Luo-Sang 2024, eq. 3.4): replace the value function with a sieve approximation `V_K(s) = sum_{j=1}^K beta_j * b_j(s)` where `b_j` is a basis function (B-spline, polynomial, or Fourier). Joint penalized maximum-likelihood:
+- Paper formula: replace the value function with a sieve approximation
+  `V_K(s) = sum_j alpha_j b_j(s)` and maximize the choice likelihood minus an
+  equilibrium penalty:
 
   ```
-  L(theta, beta) = sum_i sum_t log Pr(a_it | s_it; theta, V_K(beta)) - omega_n * R(beta)
+  L(theta, alpha) =
+      sum_i sum_t log Pr(a_it | s_it; theta, V_K(alpha))
+      - omega_n * ||V_K(alpha) - T_theta V_K(alpha)||^2
   ```
 
-  where the penalty `R(beta)` is the squared Bellman residual `||V_K - T V_K||^2` and `omega_n` is a weight that diverges as `n -> infinity` (Luo-Sang Theorem 4.1 gives the rate).
+- Code implementation: `sees.py:_optimize` constructs a basis matrix `B`,
+  parameterizes `V = B @ alpha`, and runs joint L-BFGS-B over `(theta, alpha)`.
 
-- Code implementation: `sees.py:_optimize` constructs the basis matrix `B` (shape `(num_states, K)`), parameterizes V via `V = B @ beta`, and runs joint optimization over `(theta, beta)` with the penalized loss. The basis family is selected via the `basis_type` constructor argument; the dimension `K` via `basis_dim`.
-
-- Match: **yes**, follows the Luo-Sang penalized-MLE formulation.
+- Match: **yes**. The implementation uses the Bellman residual penalty, not a
+  placeholder regularizer.
 
 ### Gradient
 
-- Paper formula: standard penalized-MLE gradient.
-
-- Code implementation: JAX autodiff. The penalty term differentiates cleanly because the Bellman residual is a quadratic form in V.
-
+- Paper formula: penalized-MLE gradient over structural and sieve parameters.
+- Code implementation: JAX autodiff of the full penalized objective.
 - Match: **yes**.
 
 ### Bellman / inner loop
 
-- Paper algorithm: no inner Bellman fixed-point. The Bellman penalty replaces the fixed-point with a soft constraint, and the joint optimization handles both `theta` and `beta` simultaneously.
-
-- Code algorithm: matches.
-
+- Paper algorithm: no inner Bellman fixed point. The Bellman penalty replaces
+  the hard fixed-point solve.
+- Code algorithm: no value-iteration loop inside the likelihood. The final
+  Bellman residual is reported in `metadata["bellman_violation"]`.
 - Match: **yes**.
 
-### Identification assumptions
+### Standard errors
 
-- Paper conditions: the basis must be rich enough to approximate the true V (universal-approximation in the basis family); the penalty weight `omega_n` must grow slowly enough to allow the sieve to fit and fast enough to enforce the Bellman constraint asymptotically (Luo-Sang Theorem 4.1's two-sided rate condition).
+- Paper target: marginal structural inference after accounting for the sieve
+  nuisance parameters.
+- Code implementation: numerical Hessian of the joint penalized objective and
+  Schur complement
 
-- Code enforcement: `omega_n` is exposed as `bellman_penalty_weight` (default `1.0`); the user is expected to schedule it. The wrapper does not auto-schedule. **The default `1.0` is too low for asymptotic Bellman enforcement**; the paper's recommended schedule is `omega_n = n^{1/2}` or similar.
+  ```
+  H_tt - H_ta @ solve(H_aa, H_at)
+  ```
 
-- Match: **structure yes**; **default penalty weight too low**.
+- Known-truth gate: `standard_errors_finite == true`.
+- Match: **yes**, with finite-SE validation now enforced.
 
-### Hyperparameter defaults vs paper defaults
+### Hyperparameter findings
 
-- `basis_type`: "bspline" (paper used B-splines for their numerical experiments).
-- `basis_dim`: 10 (paper uses K = O(n^{1/5}) for cubic splines; for n=10000, K=6 to 10).
-- `bellman_penalty_weight`: 1.0.
-- `learning_rate`: 1e-3.
+The old primer used a Fourier basis with `K=8` on a legacy multi-component bus
+comparison. That is archived material, not the current validation.
 
-Match: **basis yes**; **penalty weight too low** for the asymptotic regime.
+A live medium-scale run on `canonical_low_action` showed that the previous
+harness default (`basis_dim=8`, penalty weight inherited from the estimator,
+and no SE computation) did not recover the full known truth:
 
-### Findings / fixes applied
+- Bellman violation was too large for structural validation.
+- Parameter recovery missed the non-smoke gates.
+- Standard errors were not computed.
 
-- **Default penalty weight could be raised**, but doing so without the paper's full schedule is a half-fix. The Tier 4 ss-spine cell uses default `omega_n=1.0` for now; if SEES under-performs on the cell, the failure_mode will be `policy_drift` and the follow-up is to implement the paper's adaptive schedule. **Not applied** in this audit pass.
+The migrated harness uses the finite-state limiting logic from Luo and Sang:
 
-- VALIDATION_LOG.md status: **Pending** (Tier 4 ss-spine).
+- `basis_type="bspline"`
+- `basis_dim=min(num_states, 21)` for the non-smoke canonical cell
+- `penalty_weight=100.0`
+- `max_iter=1000`
+- `tol=1e-7`
+- `compute_se=True`
+
+On the canonical 21-state DGP this makes the sieve as rich as the finite value
+vector. The Bellman penalty then enforces the dynamic structure while retaining
+the SEES joint-optimization path.
+
+### Hard gates
+
+The non-smoke SEES gates in `experiments/known_truth.py` require:
+
+- Bellman violation <= 0.05.
+- finite standard errors.
+- parameter cosine >= 0.99.
+- parameter relative RMSE <= 0.15.
+- reward RMSE <= 0.03.
+- policy TV <= 0.02.
+- value RMSE <= 0.10.
+- Q RMSE <= 0.10.
+- Type A/B/C counterfactual regret <= 0.01.
+
+Current canonical run:
+
+- Bellman violation: 0.044579.
+- parameter cosine: 0.995485.
+- parameter relative RMSE: 0.124955.
+- reward RMSE: 0.013579.
+- policy TV: 0.008884.
+- value RMSE: 0.080710.
+- Q RMSE: 0.080546.
+- Type A/B/C regret: 0.000526, 0.001281, 0.000313.
+
+All hard gates pass.
+
+### Optimizer flag nuance
+
+The L-BFGS-B wrapper reports the absolute-gradient convergence flag as
+`summary.converged`. For the validated SEES run that flag is `false` even
+though the structural Bellman residual, standard errors, reward/value/Q/policy
+recovery, and counterfactual recovery pass. This is not hidden. The RTD page
+and PDF report the flag and explain that the hard SEES validation gate is the
+structural recovery bundle, not the sample-summed absolute-gradient flag.
+
+### Remaining scope
+
+No additional SEES files are needed for the current RTD migration. Future work
+can add an adaptive penalty schedule following the paper's asymptotic
+discussion, but that is not required for the current finite-state known-truth
+validation.
