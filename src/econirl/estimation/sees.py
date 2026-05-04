@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import jax
@@ -40,14 +41,22 @@ class SEESConfig:
     """Configuration for SEES estimator.
 
     Attributes:
-        basis_type: Sieve basis type ("fourier" or "polynomial").
+        basis_type: Sieve basis type. "bspline" uses cubic B-splines per
+            Luo and Sang (2024). "polynomial" uses monomials on [-1, 1].
+            "fourier" is an econirl extension not in the original paper.
         basis_dim: Number of basis functions.
         penalty_weight: Weight omega on the equilibrium penalty
             (Luo and Sang 2024, equation 3). Penalizes the Bellman
             equation violation ||V - T(V; theta)||^2. Higher values
             enforce the Bellman constraint more strongly, pushing the
             estimator toward MLE. The paper recommends increasing omega
-            until the confidence interval stabilizes.
+            until the confidence interval stabilizes. If
+            penalty_schedule is set, that value is used instead.
+        penalty_schedule: Optional callable mapping sample size n to a
+            penalty weight, implementing the omega_n -> infinity schedule
+            of Luo and Sang (2024). When set, supersedes penalty_weight.
+            Example: lambda n: 1.0 * n ** 0.5.
+        spline_degree: Polynomial degree for the B-spline basis (default 3).
         max_iter: Maximum L-BFGS-B iterations.
         tol: Gradient tolerance for convergence.
         compute_se: Whether to compute standard errors.
@@ -55,9 +64,11 @@ class SEESConfig:
         verbose: Whether to print progress.
     """
 
-    basis_type: str = "fourier"
+    basis_type: str = "bspline"
     basis_dim: int = 8
     penalty_weight: float = 10.0
+    penalty_schedule: Callable[[int], float] | None = None
+    spline_degree: int = 3
     max_iter: int = 500
     tol: float = 1e-6
     compute_se: bool = True
@@ -85,9 +96,11 @@ class SEESEstimator(BaseEstimator):
 
     def __init__(
         self,
-        basis_type: str = "fourier",
+        basis_type: str = "bspline",
         basis_dim: int = 8,
         penalty_weight: float = 10.0,
+        penalty_schedule: Callable[[int], float] | None = None,
+        spline_degree: int = 3,
         max_iter: int = 500,
         tol: float = 1e-6,
         compute_se: bool = True,
@@ -99,6 +112,8 @@ class SEESEstimator(BaseEstimator):
             basis_type = config.basis_type
             basis_dim = config.basis_dim
             penalty_weight = config.penalty_weight
+            penalty_schedule = config.penalty_schedule
+            spline_degree = config.spline_degree
             max_iter = config.max_iter
             tol = config.tol
             compute_se = config.compute_se
@@ -113,6 +128,8 @@ class SEESEstimator(BaseEstimator):
         self._basis_type = basis_type
         self._basis_dim = basis_dim
         self._penalty_weight = penalty_weight
+        self._penalty_schedule = penalty_schedule
+        self._spline_degree = spline_degree
         self._max_iter = max_iter
         self._tol = tol
         self._compute_se = compute_se
@@ -120,6 +137,8 @@ class SEESEstimator(BaseEstimator):
             basis_type=basis_type,
             basis_dim=basis_dim,
             penalty_weight=penalty_weight,
+            penalty_schedule=penalty_schedule,
+            spline_degree=spline_degree,
             max_iter=max_iter,
             tol=tol,
             compute_se=compute_se,
@@ -168,6 +187,35 @@ class SEESEstimator(BaseEstimator):
                 basis = basis.at[:, k].set(s_cheb ** k)
             return basis
 
+        elif self._basis_type == "bspline":
+            # Cubic B-spline basis per Luo and Sang (2024). The K basis
+            # functions span the unit interval with equally-spaced knots
+            # and degree `spline_degree` (default 3 = cubic).
+            from scipy.interpolate import BSpline as _BSpline
+
+            degree = self._spline_degree
+            K = self._basis_dim
+            n_interior = K - degree - 1
+            if n_interior < 0:
+                raise ValueError(
+                    f"basis_dim ({K}) must exceed spline_degree ({degree}) "
+                    f"to admit a clamped B-spline basis."
+                )
+            interior = np.linspace(0.0, 1.0, n_interior + 2)[1:-1]
+            knots = np.concatenate([
+                np.zeros(degree + 1),
+                interior,
+                np.ones(degree + 1),
+            ])
+            s_grid = np.asarray(s_norm)
+            basis_np = np.zeros((n_states, K))
+            for k in range(K):
+                coeffs = np.zeros(K)
+                coeffs[k] = 1.0
+                spline = _BSpline(knots, coeffs, degree, extrapolate=False)
+                basis_np[:, k] = np.nan_to_num(spline(s_grid), nan=0.0)
+            return jnp.array(basis_np, dtype=jnp.float64)
+
         else:
             raise ValueError(f"Unknown basis type: {self._basis_type}")
 
@@ -196,7 +244,11 @@ class SEESEstimator(BaseEstimator):
         n_actions = problem.num_actions
         sigma = problem.scale_parameter
         beta = problem.discount_factor
-        omega = self._penalty_weight
+        if self._penalty_schedule is not None:
+            n_obs = sum(len(t.actions) for t in panel.trajectories)
+            omega = float(self._penalty_schedule(n_obs))
+        else:
+            omega = self._penalty_weight
 
         feature_matrix = jnp.array(utility.feature_matrix, dtype=jnp.float64)
         n_theta = utility.num_parameters

@@ -45,11 +45,26 @@ from econirl.preferences.base import UtilityFunction
 
 
 class _ValueNetwork(eqx.Module):
-    """MLP that maps state features to a scalar value V(s)."""
+    """MLP that maps state features to a scalar value V(s).
+
+    When anchor_features is set the network returns the anchored
+    difference V(s) = f(s) - f(x_0) per Nguyen (2025), guaranteeing
+    V(x_0) = 0 and removing the additive identification ambiguity that
+    becomes ill-conditioned as beta approaches 1.
+    """
 
     mlp: eqx.nn.MLP
+    anchor_features: jnp.ndarray | None = eqx.field(static=False, default=None)
 
-    def __init__(self, input_dim: int, hidden_dim: int, num_layers: int = 2, *, key: jax.random.PRNGKey):
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        num_layers: int = 2,
+        *,
+        key: jax.random.PRNGKey,
+        anchor_features: jnp.ndarray | None = None,
+    ):
         self.mlp = eqx.nn.MLP(
             in_size=input_dim,
             out_size=1,
@@ -58,10 +73,15 @@ class _ValueNetwork(eqx.Module):
             activation=jax.nn.relu,
             key=key,
         )
+        self.anchor_features = anchor_features
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """Forward pass. Input shape (input_dim,), output scalar."""
-        return self.mlp(x).squeeze(-1)
+        v = self.mlp(x).squeeze(-1)
+        if self.anchor_features is not None:
+            v0 = self.mlp(self.anchor_features).squeeze(-1)
+            v = v - v0
+        return v
 
 
 @dataclass
@@ -91,6 +111,7 @@ class NNESConfig:
     outer_max_iter: int = 200
     outer_tol: float = 1e-6
     n_outer_iterations: int = 3
+    anchor_state: int | None = 0
     compute_se: bool = True
     se_method: SEMethod = "asymptotic"
     verbose: bool = False
@@ -128,6 +149,7 @@ class NNESNFXPEstimator(BaseEstimator):
         outer_max_iter: int = 200,
         outer_tol: float = 1e-6,
         n_outer_iterations: int = 3,
+        anchor_state: int | None = 0,
         compute_se: bool = True,
         se_method: SEMethod = "asymptotic",
         verbose: bool = False,
@@ -143,6 +165,7 @@ class NNESNFXPEstimator(BaseEstimator):
             outer_max_iter = config.outer_max_iter
             outer_tol = config.outer_tol
             n_outer_iterations = config.n_outer_iterations
+            anchor_state = config.anchor_state
             compute_se = config.compute_se
             se_method = config.se_method
             verbose = config.verbose
@@ -161,6 +184,7 @@ class NNESNFXPEstimator(BaseEstimator):
         self._outer_max_iter = outer_max_iter
         self._outer_tol = outer_tol
         self._n_outer_iterations = n_outer_iterations
+        self._anchor_state = anchor_state
         self._compute_se = compute_se
         self._seed = seed
         self._config = NNESConfig(
@@ -172,6 +196,7 @@ class NNESNFXPEstimator(BaseEstimator):
             outer_max_iter=outer_max_iter,
             outer_tol=outer_tol,
             n_outer_iterations=n_outer_iterations,
+            anchor_state=anchor_state,
             compute_se=compute_se,
             se_method=se_method,
             verbose=verbose,
@@ -305,8 +330,14 @@ class NNESNFXPEstimator(BaseEstimator):
         beta = problem.discount_factor
 
         key, init_key = jax.random.split(key)
+        anchor_features = None
+        if self._anchor_state is not None:
+            anchor_features = self._build_state_features(
+                jnp.asarray([self._anchor_state]), problem
+            )[0]
         v_net = _ValueNetwork(
-            problem.state_dim or 1, self._hidden_dim, self._num_layers, key=init_key,
+            problem.state_dim or 1, self._hidden_dim, self._num_layers,
+            key=init_key, anchor_features=anchor_features,
         )
 
         # Set up optimizer with gradient clipping
@@ -632,6 +663,7 @@ class NNESEstimator(BaseEstimator):
         outer_max_iter: int = 200,
         outer_tol: float = 1e-6,
         n_outer_iterations: int = 3,
+        anchor_state: int | None = 0,
         compute_se: bool = True,
         se_method: SEMethod = "asymptotic",
         verbose: bool = False,
@@ -647,6 +679,7 @@ class NNESEstimator(BaseEstimator):
             outer_max_iter = config.outer_max_iter
             outer_tol = config.outer_tol
             n_outer_iterations = config.n_outer_iterations
+            anchor_state = config.anchor_state
             compute_se = config.compute_se
             se_method = config.se_method
             verbose = config.verbose
@@ -665,6 +698,7 @@ class NNESEstimator(BaseEstimator):
         self._outer_max_iter = outer_max_iter
         self._outer_tol = outer_tol
         self._n_outer_iterations = n_outer_iterations
+        self._anchor_state = anchor_state
         self._compute_se = compute_se
         self._seed = seed
         self._config = NNESConfig(
@@ -676,6 +710,7 @@ class NNESEstimator(BaseEstimator):
             outer_max_iter=outer_max_iter,
             outer_tol=outer_tol,
             n_outer_iterations=n_outer_iterations,
+            anchor_state=anchor_state,
             compute_se=compute_se,
             se_method=se_method,
             verbose=verbose,
@@ -792,8 +827,14 @@ class NNESEstimator(BaseEstimator):
 
         # Initialize V-network
         key, init_key = jax.random.split(key)
+        anchor_features = None
+        if self._anchor_state is not None:
+            anchor_features = self._build_state_features(
+                jnp.asarray([self._anchor_state]), problem
+            )[0]
         v_net = _ValueNetwork(
-            problem.state_dim or 1, self._hidden_dim, self._num_layers, key=init_key,
+            problem.state_dim or 1, self._hidden_dim, self._num_layers,
+            key=init_key, anchor_features=anchor_features,
         )
 
         # Set up optimizer

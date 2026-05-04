@@ -103,7 +103,8 @@ class CCPEstimator(BaseEstimator):
 
     def __init__(
         self,
-        num_policy_iterations: int = 1,
+        mode: Literal["one_step", "npl"] | None = None,
+        num_policy_iterations: int | None = None,
         ccp_min_count: int = 1,
         ccp_smoothing: float = 1e-6,
         convergence_tol: float = 1e-6,
@@ -116,8 +117,15 @@ class CCPEstimator(BaseEstimator):
         """Initialize the CCP estimator.
 
         Args:
-            num_policy_iterations: Number of policy iterations (K=1 is Hotz-Miller,
-                                   K>1 is NPL). Set to -1 for convergence-based stopping.
+            mode: Estimator mode following the JSS paper Versions paragraph.
+                "one_step" stops at K=1 with empirical CCPs (Hotz-Miller 1993).
+                "npl" iterates to convergence (Aguirregabiria-Mira 2002).
+                If both `mode` and `num_policy_iterations` are None the default
+                is "one_step".
+            num_policy_iterations: Legacy iteration-count selector. K=1 is the
+                one-step estimator, K>1 runs NPL for K iterations, K=-1 runs
+                NPL until parameter convergence. When `mode` is set the K
+                value is derived from it (one_step -> 1, npl -> -1).
             ccp_min_count: Minimum observations per state for reliable CCP estimation.
                           States with fewer observations get uniform CCPs.
             ccp_smoothing: Small value added to CCPs to avoid log(0).
@@ -133,6 +141,15 @@ class CCPEstimator(BaseEstimator):
             compute_hessian=compute_hessian,
             verbose=verbose,
         )
+        if mode is not None and num_policy_iterations is not None:
+            raise ValueError(
+                "Pass either `mode` or `num_policy_iterations`, not both."
+            )
+        if mode is not None:
+            num_policy_iterations = 1 if mode == "one_step" else -1
+        elif num_policy_iterations is None:
+            num_policy_iterations = 1
+        self._mode = mode
         self._num_policy_iterations = num_policy_iterations
         self._ccp_min_count = ccp_min_count
         self._ccp_smoothing = ccp_smoothing

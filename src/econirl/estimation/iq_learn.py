@@ -50,13 +50,16 @@ class IQLearnConfig:
         verbose: Whether to print progress
     """
 
-    q_type: Literal["tabular", "linear"] = "tabular"
+    q_type: Literal["tabular", "linear", "neural"] = "tabular"
     divergence: Literal["chi2", "simple"] = "chi2"
     alpha: float = 1.0
     optimizer: Literal["L-BFGS-B", "adam"] = "L-BFGS-B"
     learning_rate: float = 0.01
     max_iter: int = 500
     convergence_tol: float = 1e-6
+    hidden_dim: int = 64
+    num_layers: int = 2
+    seed: int = 0
     verbose: bool = False
 
 
@@ -182,6 +185,144 @@ class IQLearnEstimator(BaseEstimator):
             metadata=result.metadata,
         )
 
+    def _optimize_neural(
+        self,
+        panel: Panel,
+        utility: BaseUtilityFunction,
+        problem: DDCProblem,
+        transitions: jnp.ndarray,
+        expert_states_jax: jnp.ndarray,
+        expert_actions_jax: jnp.ndarray,
+        trans_f64: jnp.ndarray,
+        initial_dist: jnp.ndarray,
+        n_states: int,
+        n_actions: int,
+        sigma: float,
+        gamma: float,
+        alpha: float,
+        start_time: float,
+    ) -> EstimationResult:
+        """Neural Q-head variant.
+
+        Trains a small feedforward Q-network mapping state features to a
+        vector of action-conditional Q-values, optimizing the IQ-Learn
+        objective with Adam. Provided to fulfill the JSS paper claim of a
+        neural Q head alongside the tabular and linear parametrizations.
+        """
+        import equinox as eqx
+        import optax
+
+        all_states = jnp.arange(n_states)
+        if problem.state_encoder is not None:
+            state_features = problem.state_encoder(all_states)
+        else:
+            denom = max(n_states - 1, 1)
+            state_features = (all_states.astype(jnp.float64) / denom)[:, None]
+        state_dim = int(state_features.shape[1])
+
+        _hidden = self.config.hidden_dim
+        _layers = self.config.num_layers
+
+        class _QNet(eqx.Module):
+            mlp: eqx.nn.MLP
+
+            def __init__(self, *, key):
+                self.mlp = eqx.nn.MLP(
+                    in_size=state_dim,
+                    out_size=n_actions,
+                    width_size=_hidden,
+                    depth=_layers,
+                    activation=jax.nn.relu,
+                    key=key,
+                )
+
+            def __call__(self, x):
+                return self.mlp(x)
+
+        key = jax.random.PRNGKey(self.config.seed)
+        q_net = _QNet(key=key)
+
+        optimizer = optax.chain(
+            optax.clip_by_global_norm(1.0),
+            optax.adam(self.config.learning_rate),
+        )
+        opt_state = optimizer.init(eqx.filter(q_net, eqx.is_array))
+
+        divergence = self.config.divergence
+
+        @eqx.filter_jit
+        def train_step(q_net, opt_state):
+            def loss_fn(model):
+                Q = jax.vmap(model)(state_features)  # (S, A)
+                V_star = sigma * jax.scipy.special.logsumexp(Q / sigma, axis=1)
+                EV = jnp.einsum("ast,t->as", trans_f64, V_star).T
+                td = Q - gamma * EV
+                Q_expert = Q[expert_states_jax, expert_actions_jax]
+                V_expert = V_star[expert_states_jax]
+                if divergence == "chi2":
+                    td_expert = td[expert_states_jax, expert_actions_jax]
+                    loss = (
+                        -(Q_expert - V_expert).mean()
+                        + (1.0 / (4 * alpha)) * (td_expert ** 2).mean()
+                    )
+                else:
+                    td_expert = td[expert_states_jax, expert_actions_jax]
+                    loss = -td_expert.mean() + (1 - gamma) * jnp.dot(
+                        initial_dist, V_star
+                    )
+                return loss
+
+            loss, grads = eqx.filter_value_and_grad(loss_fn)(q_net)
+            updates, new_opt = optimizer.update(
+                grads, opt_state, eqx.filter(q_net, eqx.is_array)
+            )
+            q_net = eqx.apply_updates(q_net, updates)
+            return q_net, new_opt, loss
+
+        loss_history: list[float] = []
+        from tqdm import tqdm
+        pbar = tqdm(
+            range(self.config.max_iter),
+            desc="IQ-Learn (neural)",
+            disable=not self.config.verbose,
+            leave=True,
+        )
+        for it in pbar:
+            q_net, opt_state, loss = train_step(q_net, opt_state)
+            loss_history.append(float(loss))
+            pbar.set_postfix({"loss": f"{float(loss):.4f}"})
+
+        Q_table = jax.vmap(q_net)(state_features).astype(jnp.float32)
+        policy = jax.nn.softmax(Q_table / sigma, axis=1)
+        V = sigma * jax.scipy.special.logsumexp(Q_table / sigma, axis=1)
+        transitions_f32 = jnp.asarray(transitions, dtype=jnp.float32)
+        EV = jnp.einsum("ast,t->as", transitions_f32, V).T
+        reward_table = Q_table - gamma * EV
+
+        log_probs = jax.nn.log_softmax(Q_table / sigma, axis=1)
+        ll = float(log_probs[expert_states_jax, expert_actions_jax].sum())
+
+        return EstimationResult(
+            parameters=Q_table.flatten().astype(jnp.float32),
+            log_likelihood=ll,
+            value_function=V,
+            policy=policy,
+            hessian=None,
+            converged=True,
+            num_iterations=self.config.max_iter,
+            num_function_evals=self.config.max_iter,
+            message="Neural Q-head trained",
+            optimization_time=time.time() - start_time,
+            metadata={
+                "q_type": "neural",
+                "divergence": self.config.divergence,
+                "alpha": self.config.alpha,
+                "q_table": np.asarray(Q_table).tolist(),
+                "reward_table": np.asarray(reward_table).tolist(),
+                "loss_history": loss_history,
+            },
+        )
+
     def _compute_initial_distribution(
         self,
         panel: Panel,
@@ -238,6 +379,13 @@ class IQLearnEstimator(BaseEstimator):
         trans_f64 = jnp.asarray(transitions, dtype=jnp.float64)
 
         # Setup Q parameterization
+        if self.config.q_type == "neural":
+            return self._optimize_neural(
+                panel, utility, problem, transitions,
+                expert_states_jax, expert_actions_jax,
+                trans_f64, initial_dist, n_states, n_actions,
+                sigma, gamma, alpha, start_time,
+            )
         if self.config.q_type == "linear":
             if isinstance(utility, ActionDependentReward):
                 fm = np.asarray(utility.feature_matrix, dtype=np.float64)

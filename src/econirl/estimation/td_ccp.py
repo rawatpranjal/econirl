@@ -156,6 +156,7 @@ class TDCCPConfig:
 
     # --- Inference ---
     cross_fitting: bool = True
+    split_unit: Literal["individual", "row"] = "individual"
     robust_se: bool = True
 
     # --- NPL iteration (not in paper, optional) ---
@@ -1603,25 +1604,54 @@ class TDCCPEstimator(BaseEstimator):
         """
         from econirl.core.types import Panel as EconPanel
 
-        self._log("Using 2-fold cross-fitting (Algorithm 2)")
-        n_ind = len(panel.trajectories)
-        half_ind = n_ind // 2
+        split_unit = getattr(self._config, "split_unit", "individual")
+        self._log(f"Using 2-fold cross-fitting (Algorithm 2, split_unit={split_unit})")
 
-        # Random permutation for individual-level fold assignment
-        key, perm_key = jax.random.split(key)
-        ind_perm = np.array(jax.random.permutation(perm_key, n_ind))
-        fold1_inds = ind_perm[:half_ind]
-        fold2_inds = ind_perm[half_ind:]
-
-        # Build fold-specific sub-panels (for theta MLE)
-        fold1_panel = EconPanel([panel.trajectories[i] for i in fold1_inds])
-        fold2_panel = EconPanel([panel.trajectories[i] for i in fold2_inds])
-
-        # Build fold-specific transition masks using individual_ids.
-        # individual_ids[t] is the trajectory index in panel.trajectories for transition t.
         individual_ids = self._extract_individual_ids(panel)
-        fold1_trans_mask = np.isin(individual_ids, fold1_inds)
-        fold2_trans_mask = ~fold1_trans_mask
+        n_ind = len(panel.trajectories)
+
+        if split_unit == "individual":
+            # Individual-level split: all transitions from individual i go to
+            # the same fold, preserving the orthogonality condition required
+            # by Adusumilli and Eckardt (2025) Theorem 5.
+            half_ind = n_ind // 2
+            key, perm_key = jax.random.split(key)
+            ind_perm = np.array(jax.random.permutation(perm_key, n_ind))
+            fold1_inds = ind_perm[:half_ind]
+            fold2_inds = ind_perm[half_ind:]
+
+            fold1_panel = EconPanel([panel.trajectories[i] for i in fold1_inds])
+            fold2_panel = EconPanel([panel.trajectories[i] for i in fold2_inds])
+
+            fold1_trans_mask = np.isin(individual_ids, fold1_inds)
+            fold2_trans_mask = ~fold1_trans_mask
+
+        elif split_unit == "row":
+            # Transition-level split: each (s, a, s') row is randomly assigned
+            # to a fold. Provided for ablations only; this breaks the
+            # independence required for the orthogonality result, since
+            # transitions from the same individual leak across folds.
+            n_rows = len(individual_ids)
+            half_rows = n_rows // 2
+            key, perm_key = jax.random.split(key)
+            row_perm = np.array(jax.random.permutation(perm_key, n_rows))
+            fold1_rows = row_perm[:half_rows]
+            fold2_rows = row_perm[half_rows:]
+
+            fold1_trans_mask = np.zeros(n_rows, dtype=bool)
+            fold1_trans_mask[fold1_rows] = True
+            fold2_trans_mask = ~fold1_trans_mask
+
+            # For the per-fold theta MLE we still need a panel. The cleanest
+            # row-level analogue is to keep the full panel on each fold and
+            # only swap which fold's (h, g) is plugged into the score.
+            fold1_panel = panel
+            fold2_panel = panel
+
+        else:
+            raise ValueError(
+                f"split_unit must be 'individual' or 'row', got {split_unit!r}"
+            )
 
         # -----------------------------------------------------------------
         # Fold 1: estimate h,g from fold 1 transitions

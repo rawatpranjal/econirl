@@ -61,6 +61,13 @@ class AIRLConfig:
     """
 
     reward_type: Literal["tabular", "linear"] = "tabular"
+    reward_arg: Literal["state", "state_action"] = "state"
+    """Reward parametrization. Per Fu et al. (2018) Theorems 5.1-5.2 the
+    disentanglement / dynamics-transfer guarantees only hold when the
+    reward is a function of state alone, g_theta(s). State-action rewards
+    g_theta(s, a) recover a shaped advantage and lose the transfer
+    property. Default 'state' matches the original paper; 'state_action'
+    is the legacy econirl behavior."""
     reward_lr: float = 0.01
     reward_weight_decay: float = 0.0  # L2 regularization on reward params
     discriminator_steps: int = 5
@@ -260,7 +267,13 @@ class AIRLEstimator(AdversarialEstimatorBase):
         Returns logits = f - log pi(a|s)
         """
         # f(s,a,s') = r(s,a) + gamma*V(s') - V(s)
-        r_sa = reward_matrix[states, actions]
+        # When reward_arg == "state" we project the reward onto the
+        # state-only subspace per Fu et al. (2018) Theorems 5.1-5.2.
+        if self.config.reward_arg == "state":
+            r_state = reward_matrix.mean(axis=1)
+            r_sa = r_state[states]
+        else:
+            r_sa = reward_matrix[states, actions]
         if self.config.use_shaping:
             shaping_coef = (
                 self.config.shaping_coef if self.config.shaping_coef else gamma
@@ -418,9 +431,16 @@ class AIRLEstimator(AdversarialEstimatorBase):
         use_shaping = self.config.use_shaping
         shaping_coef = self.config.shaping_coef
 
+        reward_arg_state = self.config.reward_arg == "state"
+
         def disc_loss_fn(rw_params, V_fixed, policy_fixed,
                          exp_s, exp_a, exp_ns, pol_s, pol_a, pol_ns):
             reward_matrix = get_reward_matrix(rw_params)
+            if reward_arg_state:
+                reward_matrix = jnp.broadcast_to(
+                    reward_matrix.mean(axis=1, keepdims=True),
+                    reward_matrix.shape,
+                )
 
             def logits(states, actions, next_states):
                 r_sa = reward_matrix[states, actions]
@@ -483,6 +503,11 @@ class AIRLEstimator(AdversarialEstimatorBase):
 
             # Update policy via soft value iteration
             current_reward = get_reward_matrix(reward_params)
+            if reward_arg_state:
+                current_reward = jnp.broadcast_to(
+                    current_reward.mean(axis=1, keepdims=True),
+                    current_reward.shape,
+                )
             new_policy, V = self._compute_policy(current_reward, operator, problem.num_periods)
 
             # Conservative policy iteration: mix old and new policy
@@ -514,6 +539,11 @@ class AIRLEstimator(AdversarialEstimatorBase):
 
         # Final values
         final_reward = get_reward_matrix(reward_params)
+        if reward_arg_state:
+            final_reward = jnp.broadcast_to(
+                final_reward.mean(axis=1, keepdims=True),
+                final_reward.shape,
+            )
 
         # Compute log-likelihood
         log_probs = operator.compute_log_choice_probabilities(final_reward, V)

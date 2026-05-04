@@ -116,7 +116,10 @@ class NFXPEstimator(BaseEstimator):
         self,
         se_method: SEMethod = "asymptotic",
         optimizer: Literal["L-BFGS-B", "BFGS", "BHHH"] = "BHHH",
-        inner_solver: Literal["value", "policy", "hybrid", "optimistix"] = "hybrid",
+        inner_solver: Literal[
+            "sa", "nk", "polyalgorithm", "optimistix",
+            "value", "policy", "hybrid",
+        ] = "polyalgorithm",
         inner_tol: float = 1e-12,
         inner_max_iter: int = 100000,
         switch_tol: float = 1e-3,
@@ -133,14 +136,17 @@ class NFXPEstimator(BaseEstimator):
                 - "BHHH": Berndt-Hall-Hall-Hausman (uses per-observation scores)
                 - "L-BFGS-B": Scipy L-BFGS-B with bounds
                 - "BFGS": Scipy BFGS
-            inner_solver: Solver for inner fixed-point problem.
-                - "hybrid": SA then NK polyalgorithm per Iskhakov et al. (2016)
-                - "policy": Policy iteration (fast for small state spaces)
-                - "value": Pure contraction (slow for high beta)
+            inner_solver: Solver for inner fixed-point problem. Canonical names
+                follow Iskhakov et al. (2016).
+                - "sa": Successive approximation (pure contraction)
+                - "nk": Newton-Kantorovich iteration on the Bellman residual
+                - "polyalgorithm": SA then NK polyalgorithm (default)
                 - "optimistix": Optimistix fixed-point with implicit differentiation
+                Legacy aliases "value", "policy", "hybrid" map to "sa", "nk",
+                "polyalgorithm" respectively.
             inner_tol: Final convergence tolerance for inner solver
             inner_max_iter: Max iterations for inner solver
-            switch_tol: SA then NK switch tolerance (hybrid solver only)
+            switch_tol: SA to NK switch tolerance (polyalgorithm only)
             outer_tol: Gradient tolerance for outer optimization
             outer_max_iter: Max outer optimization iterations
             compute_hessian: Whether to compute Hessian for standard errors
@@ -152,7 +158,12 @@ class NFXPEstimator(BaseEstimator):
             verbose=verbose,
         )
         self._optimizer = optimizer
-        self._inner_solver = inner_solver
+        _solver_aliases = {
+            "sa": "value",
+            "nk": "policy",
+            "polyalgorithm": "hybrid",
+        }
+        self._inner_solver = _solver_aliases.get(inner_solver, inner_solver)
         self._inner_tol = inner_tol
         self._inner_max_iter = inner_max_iter
         self._switch_tol = switch_tol

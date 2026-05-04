@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 import jax
@@ -97,6 +98,11 @@ class GLADIUSConfig:
     gradient_clip: float = 1.0
     patience: int = 50
     alternating_updates: bool = True
+    mode: Literal["dual", "q_only"] = "dual"
+    """Network configuration. ``dual`` (default) trains separate Q_eta and
+    V_zeta networks per Kang et al. (2025) Algorithm 1. ``q_only`` drops
+    the V_zeta network and replaces V_zeta with the soft maximum of
+    Q_eta, i.e. V(s) = sigma * logsumexp(Q(s, :) / sigma)."""
     lr_decay_rate: float = 0.001
     tikhonov_annealing: bool = False
     tikhonov_initial_weight: float = 100.0
@@ -695,6 +701,31 @@ class GLADIUSEstimator(BaseEstimator):
         loss_history: list[float] = []
         rng_key = jax.random.PRNGKey(42)
         alternating = self.config.alternating_updates
+        q_only_mode = self.config.mode == "q_only"
+
+        if q_only_mode:
+            # Q-only training step: V_zeta is replaced by sigma*logsumexp(Q)
+            # so the network has no separate zeta head. Q is trained on NLL
+            # alone (the Bellman penalty has no anchor without observed rewards
+            # in the IRL setting).
+            @eqx.filter_jit
+            def q_only_step(q_net, q_opt_state, s_feat, a_batch, ce_weight):
+                def q_only_loss_fn(q_net_inner):
+                    q_all = q_net_inner.forward_all_actions(s_feat)
+                    log_probs = q_all / sigma - jax.scipy.special.logsumexp(
+                        q_all / sigma, axis=1, keepdims=True
+                    )
+                    nll = -log_probs[jnp.arange(len(a_batch)), a_batch].mean()
+                    return ce_weight * nll, nll
+
+                (loss, nll), grads = eqx.filter_value_and_grad(
+                    q_only_loss_fn, has_aux=True
+                )(q_net)
+                updates, new_q_opt = q_optimizer.update(
+                    grads, q_opt_state, eqx.filter(q_net, eqx.is_array)
+                )
+                q_net = eqx.apply_updates(q_net, updates)
+                return q_net, new_q_opt, loss, nll
 
         from tqdm import tqdm
         pbar = tqdm(
@@ -732,7 +763,12 @@ class GLADIUSEstimator(BaseEstimator):
                 s_feat = self._build_state_features(s_batch, problem)
                 sp_feat = self._build_state_features(sp_batch, problem)
 
-                if alternating:
+                if q_only_mode:
+                    q_net, q_opt_state, loss, nll = q_only_step(
+                        q_net, q_opt_state, s_feat, a_batch, ce_weight,
+                    )
+                    epoch_nll = float(nll)
+                elif alternating:
                     if batch_idx % 2 == 0:
                         # Even batch: update zeta only
                         zeta_net, zeta_opt_state, loss = zeta_step(

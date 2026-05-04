@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import jax
 import jax.numpy as jnp
 
 from econirl.core.types import DDCProblem, Panel, Trajectory

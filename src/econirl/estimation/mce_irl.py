@@ -56,7 +56,7 @@ class MCEIRLConfig:
     """Configuration for MCE IRL estimation."""
 
     # Optimization
-    optimizer: Literal["L-BFGS-B", "BFGS", "gradient"] = "L-BFGS-B"
+    optimizer: Literal["L-BFGS-B", "BFGS", "gradient", "root"] = "L-BFGS-B"
     learning_rate: float = 0.02  # Lower than typical SGD; works well with Adam
     outer_tol: float = 1e-6
     outer_max_iter: int = 200
@@ -717,6 +717,88 @@ class MCEIRLEstimator(BaseEstimator):
                 optimization_time=optimization_time,
                 metadata={
                     "optimizer": self.config.optimizer,
+                    "empirical_features": np.asarray(empirical_features).tolist(),
+                    "final_expected_features": np.asarray(final_expected).tolist(),
+                    "feature_diff": feature_diff,
+                },
+            )
+
+        # ── Root-finding path ──
+        # Solve the feature-matching equation mu_D - mu_pi(theta) = 0 directly
+        # via scipy.optimize.root. This is the explicit feature-matching solver
+        # described in the JSS paper Versions paragraph and corresponds to the
+        # primal stationarity condition of MCE IRL (Ziebart 2010, eq 3.1).
+        if self.config.optimizer == "root":
+            from scipy.optimize import root as _scipy_root
+
+            self._log("Starting MCE IRL with root-finding (feature matching)")
+            finite_horizon = problem.num_periods is not None
+            num_periods = problem.num_periods
+
+            def feature_residual(theta_np: np.ndarray) -> np.ndarray:
+                theta = jnp.asarray(theta_np, dtype=jnp.float64)
+                reward_matrix = reward_fn.compute(theta).astype(jnp.float64)
+                V, policy, _ = self._soft_value_iteration(
+                    operator, reward_matrix, num_periods=num_periods,
+                )
+                if finite_horizon:
+                    expected = self._compute_expected_features_finite_horizon(
+                        panel, policy, reward_fn, num_periods,
+                        transitions=transitions_f64, initial_dist=initial_dist,
+                        discount=problem.discount_factor,
+                    )
+                else:
+                    expected = self._compute_expected_features(
+                        panel, policy, reward_fn,
+                        transitions=transitions_f64,
+                        initial_dist=initial_dist,
+                        discount=problem.discount_factor,
+                    )
+                return np.asarray(empirical_features - expected, dtype=np.float64)
+
+            sol = _scipy_root(
+                feature_residual,
+                np.asarray(params, dtype=np.float64),
+                method="hybr",
+                tol=self.config.outer_tol,
+                options={"maxfev": self.config.outer_max_iter * (len(params) + 1)},
+            )
+            params = jnp.asarray(sol.x, dtype=jnp.float64)
+            converged = bool(sol.success)
+            n_function_evals = int(getattr(sol, "nfev", 0))
+
+            reward_matrix = reward_fn.compute(params).astype(jnp.float64)
+            V, policy, _ = self._soft_value_iteration(
+                operator, reward_matrix, num_periods=num_periods,
+            )
+            if finite_horizon:
+                final_expected = self._compute_expected_features_finite_horizon(
+                    panel, policy, reward_fn, num_periods,
+                    transitions=transitions_f64, initial_dist=initial_dist,
+                    discount=problem.discount_factor,
+                )
+            else:
+                final_expected = self._compute_expected_features(
+                    panel, policy, reward_fn,
+                    transitions=transitions_f64, initial_dist=initial_dist,
+                    discount=problem.discount_factor,
+                )
+            feature_diff = float(jnp.linalg.norm(empirical_features - final_expected))
+            elapsed = time.time() - start_time
+            self._log(
+                f"Root-finding done in {elapsed:.2f}s, "
+                f"||mu_D - mu_pi|| = {feature_diff:.6f}"
+            )
+            return EstimationResult(
+                parameters=params,
+                log_likelihood=0.0,
+                value_function=V,
+                policy=policy,
+                converged=converged,
+                num_iterations=n_function_evals,
+                metadata={
+                    "estimator": "MCE-IRL (root)",
+                    "elapsed_seconds": elapsed,
                     "empirical_features": np.asarray(empirical_features).tolist(),
                     "final_expected_features": np.asarray(final_expected).tolist(),
                     "feature_diff": feature_diff,

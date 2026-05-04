@@ -15,9 +15,15 @@ Algorithm:
     4. Return R and induced policy
 
 Supported f-divergences:
-    - KL: D_KL(p_expert || p_policy), gradient = log(p_expert / p_policy)
-    - chi2: chi-squared divergence, gradient = (p_expert / p_policy) - 1
-    - tv: total variation, gradient = sign(p_expert - p_policy)
+    - fkl (or "kl"): forward KL D_KL(p_expert || p_policy),
+        gradient = log(p_expert / p_policy)
+    - rkl: reverse KL D_KL(p_policy || p_expert) (mode-seeking),
+        gradient = log(p_policy / p_expert)
+    - js: Jensen-Shannon divergence, symmetric mixture-based form,
+        gradient = log(p_expert / mean) - log(p_policy / mean) where
+        mean = (p_expert + p_policy) / 2
+    - chi2: chi-squared (econirl extension), gradient = (p_expert / p_policy) - 1
+    - tv: total variation (econirl extension), gradient = sign(p_expert - p_policy)
 
 Reference:
     Ni, T., Sikchi, H., Wang, Y., Gupta, T., Lee, L., & Eysenbach, B. (2022).
@@ -65,7 +71,7 @@ class FIRLEstimator(BaseEstimator):
 
     def __init__(
         self,
-        f_divergence: Literal["kl", "chi2", "tv"] = "kl",
+        f_divergence: Literal["kl", "fkl", "rkl", "js", "chi2", "tv"] = "fkl",
         lr: float = 0.5,
         max_iter: int = 500,
         inner_tol: float = 1e-8,
@@ -80,7 +86,8 @@ class FIRLEstimator(BaseEstimator):
             compute_hessian=False,
             verbose=verbose,
         )
-        self._f_divergence = f_divergence
+        # "kl" is a back-compat alias for "fkl" (forward KL) per Ni et al. 2022.
+        self._f_divergence = "fkl" if f_divergence == "kl" else f_divergence
         self._lr = lr
         self._max_iter = max_iter
         self._inner_tol = inner_tol
@@ -171,15 +178,22 @@ class FIRLEstimator(BaseEstimator):
         p_policy_safe = jnp.clip(p_policy, min=eps)
         p_expert_safe = jnp.clip(p_expert, min=eps)
 
-        if self._f_divergence == "kl":
-            # Gradient of KL(expert || policy) w.r.t. log-reward
-            # Points where expert has mass but policy doesn't get upweighted
+        if self._f_divergence == "fkl":
+            # Forward KL D_KL(p_E || p_pi). Mass-covering: upweights states
+            # where expert has support but policy does not.
             return jnp.log(p_expert_safe / p_policy_safe)
+        elif self._f_divergence == "rkl":
+            # Reverse KL D_KL(p_pi || p_E). Mode-seeking: penalizes states
+            # where the policy puts mass that the expert does not.
+            return jnp.log(p_policy_safe / p_expert_safe)
+        elif self._f_divergence == "js":
+            # Jensen-Shannon symmetric divergence with mixture
+            # M = (p_E + p_pi) / 2.
+            mean = 0.5 * (p_expert_safe + p_policy_safe)
+            return jnp.log(p_expert_safe / mean) - jnp.log(p_policy_safe / mean)
         elif self._f_divergence == "chi2":
-            # Chi-squared divergence gradient
             return (p_expert_safe / p_policy_safe) - 1.0
         elif self._f_divergence == "tv":
-            # Total variation gradient
             return jnp.sign(p_expert - p_policy)
         else:
             raise ValueError(f"Unknown f-divergence: {self._f_divergence}")
