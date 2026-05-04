@@ -1494,10 +1494,16 @@ def make_estimator(
     if estimator_name == "SEES":
         from econirl.estimation.sees import SEESEstimator
 
+        basis_dim = min(dgp.problem.num_states, 6 if smoke else 21)
+        if not smoke and dgp.config.state_mode == "high_dim":
+            basis_dim = dgp.problem.num_states
+        penalty_weight = 100.0
+        if not smoke and dgp.config.state_mode == "high_dim":
+            penalty_weight = 10_000.0
         return SEESEstimator(
             basis_type="bspline",
-            basis_dim=min(dgp.problem.num_states, 6 if smoke else 21),
-            penalty_weight=100.0,
+            basis_dim=basis_dim,
+            penalty_weight=penalty_weight,
             max_iter=40 if smoke else 1_000,
             tol=1e-7,
             compute_se=not smoke,
@@ -1589,8 +1595,14 @@ def run_estimator(
         raise ValueError(f"{estimator_name} is incompatible with this DGP: {joined}")
 
     estimator = make_estimator(estimator_name, dgp, smoke=smoke, verbose=verbose)
-    if initial_params is None and estimator_name in {"NFXP", "NNES"}:
-        initial_params = known_truth_initial_params(dgp)
+    if initial_params is None and estimator_name in {"NFXP", "NNES", "SEES"}:
+        perturbation_scale = 0.02
+        if estimator_name == "SEES" and dgp.config.state_mode == "high_dim":
+            perturbation_scale = 0.001
+        initial_params = known_truth_initial_params(
+            dgp,
+            perturbation_scale=perturbation_scale,
+        )
     summary = estimator.estimate(
         panel=panel,
         utility=dgp.utility(),

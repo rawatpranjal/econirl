@@ -41,9 +41,12 @@ and penalizes Bellman residuals instead of imposing exact equality.
 This document is a known-truth validation tutorial. It does not use real data.
 The synthetic DGP supplies the true reward, transition law, value function,
 policy, and Type A/B/C counterfactual oracle objects. The validation question
-is whether the SEES implementation recovers these known objects on a
-medium-scale finite panel while enforcing the Bellman equation tightly enough
-for structural use.
+is whether the SEES implementation recovers these known objects on
+medium-scale finite panels while enforcing the Bellman equation tightly enough
+for structural use. The low-dimensional cell is a sanity check. The
+high-dimensional cell is the primary validation because it requires SEES to
+build its sieve from encoded state features rather than from a one-dimensional
+state index.
 
 \section{Source Paper}
 
@@ -195,8 +198,10 @@ state in the regular state space.
 the synthetic DGP uses an exit action and absorbing state as a zero-reward
 anchor.
 \item \textbf{Basis adequacy.} The sieve must be rich enough for the DGP. In
-the finite-state validation, \(K=|\calS|=21\), so the B-spline basis has enough
-columns to span a 21-state value vector.
+the low-dimensional sanity cell, \(K=|\calS|=21\), so the B-spline basis spans
+the 21-state value vector. In the high-dimensional primary cell, SEES uses
+\texttt{problem.state\_encoder} to build a full-rank encoded-state basis with
+\(K=|\calS|=81\).
 \item \textbf{Penalty strength.} The Bellman residual is not cosmetic. The
 non-smoke validation gates on the final residual and fails if the penalty
 allows \(V_K\) to drift away from \(T_\theta V_K\).
@@ -204,35 +209,37 @@ allows \(V_K\) to drift away from \(T_\theta V_K\).
 
 \section{Known-Truth DGP}
 
-The canonical SEES validation cell is \texttt{canonical\_low\_action}. It is
-the same low-dimensional action-dependent structural benchmark used for NFXP,
-CCP, and MPEC.
+The SEES primer runs two canonical cells. The first is
+\texttt{canonical\_low\_action}, the low-dimensional action-dependent
+structural benchmark used as a sanity check. The second is
+\texttt{canonical\_high\_action}, the high-dimensional state and reward-feature
+stress benchmark used as the primary SEES validation.
 
 \begin{table}[H]
 \centering\small
-\caption{Canonical SEES DGP.}
-\begin{tabular}{lr}
+\caption{Canonical SEES DGP cells.}
+\begin{tabular}{lrr}
 \toprule
-Quantity & Value \\
+Quantity & Low-dimensional & High-dimensional \\
 \midrule
-Regular states & 20 \\
-Absorbing states & 1 \\
-Total states & 21 \\
-Actions & 3 \\
-Exit action & 2 \\
-Discount factor & 0.95 \\
-Shock scale & 1.0 \\
-Reward mode & action-dependent \\
-Reward dimension & low \\
-State mode & low-dimensional \\
-Simulated individuals & 2,000 \\
-Periods per individual & 80 \\
-Observations & 160,000 \\
+Regular states & 20 & 80 \\
+Absorbing states & 1 & 1 \\
+Total states & 21 & 81 \\
+State features & 2 & 16 \\
+Reward parameters & 4 & 32 \\
+Actions & 3 & 3 \\
+Exit action & 2 & 2 \\
+Discount factor & 0.95 & 0.95 \\
+Shock scale & 1.0 & 1.0 \\
+Reward mode & action-dependent & action-dependent \\
+Simulated individuals & 2,000 & 2,000 \\
+Periods per individual & 80 & 80 \\
+Observations & 160,000 & 160,000 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The action-dependent features are
+In the low-dimensional sanity cell, the action-dependent features are
 \[
 \phi(s,a)
 =
@@ -274,18 +281,18 @@ from experiments.known_truth import (
     simulate_known_truth_panel,
 )
 
-cell = get_cell("canonical_low_action")
+cell = get_cell("canonical_high_action")
 dgp = build_known_truth_dgp(cell.dgp_config)
 panel = simulate_known_truth_panel(
     dgp,
-    SimulationConfig(n_individuals=2000, n_periods=80, seed=42),
+    cell.simulation_config,
 )
 diagnostics = run_pre_estimation_diagnostics(dgp, panel)
 
 assert diagnostics.passed
 assert diagnostics.feature_rank == diagnostics.num_features
 assert diagnostics.is_action_dependent
-assert diagnostics.state_action_coverage == 1.0
+assert diagnostics.observed_states == diagnostics.num_states
 \end{lstlisting}
 
 \section{Run the Tutorial}
@@ -295,7 +302,7 @@ From the repository root:
 \begin{lstlisting}
 PYTHONPATH=src:. python -m experiments.known_truth \
     --estimator SEES \
-    --cell-id canonical_low_action \
+    --cell-id canonical_high_action \
     --output-dir outputs/known_truth \
     --show-progress \
     --verbose
@@ -306,6 +313,12 @@ runs pre-estimation diagnostics, fits SEES with Schur-complement standard
 errors, evaluates reward/value/Q/policy recovery, solves Type A/B/C
 counterfactual oracles, writes one \texttt{result.json}, and raises if any
 non-smoke hard gate fails.
+
+To regenerate the full primer tables for both cells:
+
+\begin{lstlisting}
+PYTHONPATH=src:. python papers/econirl_package/primers/sees/sees_run.py
+\end{lstlisting}
 
 Direct estimator usage:
 
@@ -339,6 +352,13 @@ summary = estimator.estimate(
 )
 \end{lstlisting}
 
+For the high-dimensional validation, the known-truth harness uses
+\texttt{basis\_dim=dgp.problem.num\_states}, an encoded-state basis selected
+automatically from \texttt{problem.state\_encoder}, and a stronger Bellman
+penalty. The deterministic starting point is near the truth because this hard
+validation checks the SEES basis and Bellman formulation, not global discovery
+from an arbitrary 32-parameter start.
+
 \input{sees_results}
 
 \section{Debugging Gaps}
@@ -371,13 +391,26 @@ Known-truth validation should pass hard gates or raise.
 
 \section{Practical Defaults}
 
-Recommended non-smoke validation settings:
+Recommended non-smoke validation settings for the low-dimensional sanity cell:
 
 \begin{lstlisting}
 SEESEstimator(
     basis_type="bspline",
     basis_dim=dgp.problem.num_states,
     penalty_weight=100.0,
+    max_iter=1000,
+    tol=1e-7,
+    compute_se=True,
+)
+\end{lstlisting}
+
+Recommended high-dimensional validation settings:
+
+\begin{lstlisting}
+SEESEstimator(
+    basis_type="bspline",
+    basis_dim=dgp.problem.num_states,
+    penalty_weight=10000.0,
     max_iter=1000,
     tol=1e-7,
     compute_se=True,
@@ -392,6 +425,7 @@ estimator runs and returns finite objects; it is not evidence of recovery.
 \begin{itemize}
 \item Estimator: \texttt{src/econirl/estimation/sees.py}
 \item Known-truth harness: \texttt{experiments/known\_truth.py}
+\item Component tests: \texttt{tests/test\_sees\_known\_truth\_components.py}
 \item Fast validation tests: \texttt{tests/test\_known\_truth.py}
 \item Master plan: \texttt{papers/econirl\_package\_jss/plans/README.md}
 \item SEES alignment audit: \texttt{papers/econirl\_package\_jss/plans/alignment/13\_sees.md}

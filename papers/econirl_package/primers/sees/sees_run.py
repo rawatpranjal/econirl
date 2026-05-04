@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Generate SEES primer results from the known-truth DGP harness.
+"""Generate SEES primer validation results from the known-truth DGP harness.
 
-The SEES primer uses the same canonical synthetic DGP as the estimator
-validation harness. No real data are used. The main run is a hard-gated
-known-truth validation with a finite-state B-spline sieve, a Bellman
-equilibrium penalty, and Schur-complement standard errors.
+The SEES primer uses the shared canonical synthetic DGP and enforces the
+hard known-truth recovery gates. The low-dimensional cell is a sanity check;
+the high-dimensional cell is the primary validation because it exercises the
+encoded-state sieve path.
 
 Usage:
     cd /path/to/econirl
@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -24,9 +25,19 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[3]
 TEX_OUT = HERE / "sees_results.tex"
+JSON_OUT = HERE / "sees_results.json"
 DEFAULT_OUTPUT_DIR = Path("/tmp/econirl_sees_primer_known_truth")
-CELL_ID = "canonical_low_action"
+DEFAULT_CELL_IDS = ("canonical_low_action", "canonical_high_action")
+PRIMARY_CELL_ID = "canonical_high_action"
 ESTIMATOR = "SEES"
+CELL_ROLES = {
+    "canonical_low_action": "sanity",
+    "canonical_high_action": "primary",
+}
+CELL_LABELS = {
+    "canonical_low_action": "Low-dimensional",
+    "canonical_high_action": "High-dimensional",
+}
 
 for path in (ROOT, ROOT / "src"):
     if str(path) not in sys.path:
@@ -44,19 +55,51 @@ from experiments.known_truth import (  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cell-id", default=CELL_ID)
+    parser.add_argument(
+        "--cell-id",
+        action="append",
+        default=None,
+        help=(
+            "Known-truth cell to run. May be repeated. "
+            "Defaults to canonical_low_action and canonical_high_action."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--show-progress", action="store_true", default=True)
     parser.add_argument("--quiet-progress", action="store_false", dest="show_progress")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
+    cell_ids = args.cell_id if args.cell_id is not None else list(DEFAULT_CELL_IDS)
 
     print("SEES primer: running known-truth validation")
-    print(f"  cell: {args.cell_id}")
+    print(f"  cells: {', '.join(cell_ids)}")
     print(f"  estimator: {ESTIMATOR}")
     print(f"  output_dir: {args.output_dir}")
 
-    cell = get_cell(args.cell_id)
+    records = [run_validation_cell(cell_id, args) for cell_id in cell_ids]
+
+    write_json(JSON_OUT, compact_payload(records))
+    TEX_OUT.write_text(render_results_tex(records), encoding="utf-8")
+
+    total_gates = 0
+    failed_gates = 0
+    for record in records:
+        payload = record["payload"]
+        failed = [gate for gate in payload["gates"] if not gate.passed]
+        total_gates += len(payload["gates"])
+        failed_gates += len(failed)
+        print(f"  result ({payload['cell'].cell_id}): {record['run_dir'] / 'result.json'}")
+        print(
+            f"  hard gates ({payload['cell'].cell_id}): "
+            f"{len(payload['gates']) - len(failed)} pass, {len(failed)} fail"
+        )
+    print(f"  wrote: {JSON_OUT}")
+    print(f"  wrote: {TEX_OUT}")
+    print(f"  hard gates total: {total_gates - failed_gates} pass, {failed_gates} fail")
+
+
+def run_validation_cell(cell_id: str, args: argparse.Namespace) -> dict[str, Any]:
+    cell = get_cell(cell_id)
     dgp = build_known_truth_dgp(cell.dgp_config)
     simulation_config = replace(
         cell.simulation_config,
@@ -70,6 +113,7 @@ def main() -> None:
         panel,
         smoke=False,
         verbose=args.verbose,
+        enforce_gates=True,
     )
 
     payload = {
@@ -88,174 +132,161 @@ def main() -> None:
             "simulation": simulation_config,
             "estimator": ESTIMATOR,
             "primer": "sees",
+            "enforce_gates": True,
         }
     )
-    run_dir = args.output_dir / f"{args.cell_id}_sees_primer_{run_hash}"
+    run_dir = args.output_dir / f"{cell_id}_sees_primer_{run_hash}"
     write_json(run_dir / "result.json", payload)
-
-    tex = render_results_tex(payload, dgp)
-    TEX_OUT.write_text(tex, encoding="utf-8")
-
-    print(f"  result: {run_dir / 'result.json'}")
-    print(f"  wrote: {TEX_OUT}")
+    return {"payload": payload, "dgp": dgp, "run_dir": run_dir}
 
 
-def render_results_tex(payload: dict[str, Any], dgp: Any) -> str:
-    summary = payload["summary"]
-    diagnostics = payload["diagnostics"]
-    metrics = payload["metrics"]
-    gates = payload["gates"]
-    simulation = payload["simulation"]
-    metadata = summary.metadata
-
-    names = list(summary.parameter_names)
-    estimates = np.asarray(summary.parameters, dtype=float)
-    standard_errors = np.asarray(summary.standard_errors, dtype=float)
-    truth = np.asarray(dgp.homogeneous_parameters, dtype=float)
-    errors = estimates - truth
+def render_results_tex(records: list[dict[str, Any]]) -> str:
+    records_by_id = {record["payload"]["cell"].cell_id: record for record in records}
+    low_record = records_by_id.get("canonical_low_action")
+    high_record = records_by_id.get(PRIMARY_CELL_ID)
 
     lines: list[str] = []
     add = lines.append
 
     add("% Auto-generated by sees_run.py. Do not edit by hand.")
-    add("% Known-truth DGP cell: canonical_low_action")
+    cell_comment = ", ".join(record["payload"]["cell"].cell_id for record in records)
+    add("% Known-truth DGP cells: " + cell_comment)
     add("")
     add(r"\section{Generated Validation Results}")
     add(
         "This section is generated by \\texttt{sees\\_run.py} from the "
-        "\\texttt{experiments.known\\_truth} harness and the canonical "
-        "known-truth DGP."
+        "\\texttt{experiments.known\\_truth} harness. Hard gates are enforced. "
+        "The low-dimensional cell is a sanity check for the historical "
+        "index-based sieve; the high-dimensional cell is the main SEES "
+        "validation because it uses the encoded-state sieve."
     )
     add("")
 
-    add(r"\subsection{Pre-Estimation Checks}")
-    add(r"\begin{table}[H]")
-    add(r"\centering\small")
-    add(r"\caption{Pre-estimation checks from the known-truth SEES run.}")
-    add(r"\begin{tabular}{lrl}")
-    add(r"\toprule")
-    add(r"Check & Value & Status \\")
-    add(r"\midrule")
+    add(r"\subsection{Validation Design}")
     add(
-        f"Feature rank & {diagnostics.feature_rank} / "
-        f"{diagnostics.num_features} & {status(not diagnostics.errors)} \\\\"
-    )
-    add(f"Feature condition number & {fmt(diagnostics.condition_number, 3)} & pass \\\\")
-    add(
-        "Transition row error & "
-        f"${sci(diagnostics.max_transition_row_error)}$ & pass \\\\"
-    )
-    add(
-        f"Observed states & {diagnostics.observed_states} / "
-        f"{diagnostics.num_states} & pass \\\\"
-    )
-    add(
-        f"State-action coverage & {fmt(diagnostics.state_action_coverage, 3)} "
-        "& pass \\\\"
-    )
-    shares = ", ".join(fmt(value, 3) for value in diagnostics.action_shares)
-    add(f"Action shares & {shares} & pass \\\\")
-    add(f"Minimum action share & {fmt(diagnostics.min_action_share, 3)} & pass \\\\")
-    add(f"Exit/absorbing anchor & {tf(diagnostics.anchor_valid)} & pass \\\\")
-    add(r"\bottomrule")
-    add(r"\end{tabular}")
-    add(r"\end{table}")
-    add("")
-
-    add(r"\subsection{Estimator Fit}")
-    add(
-        "The medium-scale validation run uses "
-        f"{int(simulation.n_individuals):,} individuals, "
-        f"{int(simulation.n_periods):,} periods per individual, and "
-        f"{int(summary.num_observations):,} observations."
+        "Both cells use 2,000 simulated individuals, 80 periods per individual, "
+        "known transitions, three actions, homogeneous rewards, and the shared "
+        "Type A/B/C counterfactual oracles."
     )
     add("")
     add(r"\begin{table}[H]")
-    add(r"\centering\small")
-    add(r"\caption{Known-truth SEES run summary.}")
-    add(r"\begin{tabular}{lr}")
+    add(r"\centering\scriptsize")
+    add(r"\caption{SEES known-truth validation cells.}")
+    add(r"\begin{tabular}{@{}llrrrrrr@{}}")
     add(r"\toprule")
-    add(r"Quantity & Value \\")
+    add(r"Cell & Role & States & State dim. & Reward params & Basis & Penalty & Gates \\")
     add(r"\midrule")
-    add(f"Optimizer absolute-gradient flag & {tf(summary.converged)} \\\\")
-    add(f"L-BFGS-B iterations & {int(summary.num_iterations)} \\\\")
-    add(f"Log-likelihood & {fmt(summary.log_likelihood, 4)} \\\\")
-    add(f"Estimation time & {fmt(summary.estimation_time, 2)} seconds \\\\")
-    add(f"Basis type & {tex_text(metadata['basis_type'])} \\\\")
-    add(f"Basis dimension & {int(metadata['basis_dim'])} \\\\")
-    add(f"Penalty weight & {fmt(metadata['penalty_weight'], 1)} \\\\")
-    add(f"Bellman violation & {fmt(metadata['bellman_violation'], 6)} \\\\")
-    add(f"Standard errors finite & {tf(np.isfinite(standard_errors).all())} \\\\")
-    add(r"\bottomrule")
-    add(r"\end{tabular}")
-    add(r"\end{table}")
-    add("")
-
-    add(
-        "The optimizer flag is reported exactly as returned by the "
-        "L-BFGS-B wrapper. The hard validation gate for SEES is not that "
-        "sample-summed absolute-gradient flag; it is the structural Bellman "
-        "residual, finite standard errors, and known-truth recovery metrics "
-        "reported below."
-    )
-    add("")
-
-    add(r"\begin{table}[H]")
-    add(r"\centering\small")
-    add(r"\caption{Parameter recovery.}")
-    add(r"\begin{tabular}{lrrrr}")
-    add(r"\toprule")
-    add(r"Parameter & Truth & Estimate & SE & Error \\")
-    add(r"\midrule")
-    for name, true_value, estimate, se, error in zip(
-        names, truth, estimates, standard_errors, errors, strict=True
-    ):
+    for record in records:
+        payload = record["payload"]
+        dgp = record["dgp"]
+        summary = payload["summary"]
+        metadata = summary.metadata
+        gates = payload["gates"]
+        cell_id = payload["cell"].cell_id
+        passed_gates = sum(gate.passed for gate in gates)
+        basis = (
+            f"{metadata.get('basis_source')}, "
+            f"K={int(metadata.get('basis_dim'))}"
+        )
         add(
-            f"{tt(name)} & {fmt(true_value, 6)} & {fmt(estimate, 6)} & "
-            f"{fmt(se, 6)} & {fmt(error, 6)} \\\\"
+            f"{tex_text(CELL_LABELS.get(cell_id, cell_id))} & "
+            f"{tex_text(CELL_ROLES.get(cell_id, 'validation'))} & "
+            f"{dgp.problem.num_states} & {dgp.problem.state_dim} & "
+            f"{dgp.feature_matrix.shape[-1]} & {tex_text(basis)} & "
+            f"{fmt(metadata.get('penalty_weight'), 0)} & "
+            f"{passed_gates}/{len(gates)} \\\\"
         )
     add(r"\bottomrule")
     add(r"\end{tabular}")
     add(r"\end{table}")
     add("")
 
-    parameter_metrics = metrics["parameters"]
-    policy_metrics = metrics["policy"]
+    if high_record is not None:
+        high = high_record["payload"]
+        high_diag = high["diagnostics"]
+        high_meta = high["summary"].metadata
+        add(
+            "The high-dimensional DGP passes pre-estimation checks before SEES "
+            "is fit: feature rank is "
+            f"{high_diag.feature_rank}/{high_diag.num_features}, the reward-feature "
+            f"condition number is {fmt(high_diag.condition_number, 3)}, all "
+            f"{high_diag.num_states} states are observed, and state-action "
+            f"coverage is {fmt(high_diag.state_action_coverage, 3)}. "
+            "The encoded-state basis uses "
+            f"{int(high_meta.get('state_feature_dim'))} state features and has "
+            f"numerical rank {int(high_meta.get('encoded_basis_rank'))}."
+        )
+        add("")
+
+    add(r"\subsection{Fit Summary}")
     add(r"\begin{table}[H]")
     add(r"\centering\small")
-    add(r"\caption{Recovery metrics.}")
-    add(r"\begin{tabular}{lr}")
+    add(r"\caption{SEES fit summary.}")
+    add(r"\begin{tabular}{lrrrrr}")
     add(r"\toprule")
-    add(r"Metric & Value \\")
+    add(r"Cell & Optimizer flag & Iter. & Bellman max & Bellman RMSE & Log likelihood \\")
     add(r"\midrule")
-    add(f"Parameter RMSE & {fmt(parameter_metrics.rmse, 6)} \\\\")
-    add(f"Parameter relative RMSE & {fmt(parameter_metrics.relative_rmse, 6)} \\\\")
-    add(
-        "Parameter cosine similarity & "
-        f"{fmt(parameter_metrics.cosine_similarity, 6)} \\\\"
-    )
-    add(f"Reward RMSE & {fmt(metrics['reward_rmse'], 6)} \\\\")
-    add(f"Value RMSE & {fmt(metrics['value_rmse'], 6)} \\\\")
-    add(f"Q RMSE & {fmt(metrics['q_rmse'], 6)} \\\\")
-    add(f"Policy KL & ${sci(policy_metrics.kl)}$ \\\\")
-    add(f"Policy total variation & {fmt(policy_metrics.tv, 6)} \\\\")
-    add(f"Policy max state L1 & {fmt(policy_metrics.linf, 6)} \\\\")
+    for record in records:
+        payload = record["payload"]
+        summary = payload["summary"]
+        metadata = summary.metadata
+        add(
+            f"{tt(payload['cell'].cell_id)} & {tf(summary.converged)} & "
+            f"{int(summary.num_iterations)} & "
+            f"{sci(metadata['bellman_violation'])} & "
+            f"{sci(metadata['bellman_rmse'])} & "
+            f"{fmt(summary.log_likelihood, 1)} \\\\"
+        )
     add(r"\bottomrule")
     add(r"\end{tabular}")
     add(r"\end{table}")
     add("")
+    add(
+        "The optimizer flag is reported exactly as returned by L-BFGS-B. "
+        "The hard SEES validation gate is the Bellman residual, finite "
+        "standard errors, known-truth recovery, and counterfactual regret."
+    )
+    add("")
 
+    add(r"\subsection{Main Recovery Numbers}")
     add(r"\begin{table}[H]")
     add(r"\centering\small")
-    add(r"\caption{Hard recovery gates.}")
-    add(r"\begin{tabular}{llrl}")
+    add(r"\caption{Core recovery metrics.}")
+    add(r"\begin{tabular}{llrr}")
     add(r"\toprule")
-    add(r"Gate & Threshold & Value & Status \\")
+    add(r"Metric & Gate & Low-dimensional & High-dimensional \\")
     add(r"\midrule")
-    for gate in gates:
+    metric_rows = (
+        (
+            "Bellman violation",
+            r"$\leq 0.05$",
+            lambda record: record["payload"]["summary"].metadata["bellman_violation"],
+        ),
+        (
+            "Parameter cosine similarity",
+            r"$\geq 0.99$",
+            lambda record: record["payload"]["metrics"]["parameters"].cosine_similarity,
+        ),
+        (
+            "Parameter relative RMSE",
+            r"$\leq 0.15$",
+            lambda record: record["payload"]["metrics"]["parameters"].relative_rmse,
+        ),
+        ("Reward RMSE", r"$\leq 0.03$", lambda record: record["payload"]["metrics"]["reward_rmse"]),
+        (
+            "Policy total variation",
+            r"$\leq 0.02$",
+            lambda record: record["payload"]["metrics"]["policy"].tv,
+        ),
+        ("Value RMSE", r"$\leq 0.10$", lambda record: record["payload"]["metrics"]["value_rmse"]),
+        ("Q RMSE", r"$\leq 0.10$", lambda record: record["payload"]["metrics"]["q_rmse"]),
+    )
+    for label, gate, getter in metric_rows:
+        low_value = getter(low_record) if low_record is not None else None
+        high_value = getter(high_record) if high_record is not None else None
         add(
-            f"{tex_text(gate.name)} & {gate_threshold(gate)} & "
-            f"{gate_value(gate.value)} & {status(gate.passed)} \\\\"
+            f"{tex_text(label)} & {gate} & {fmt(low_value, 6)} & "
+            f"{fmt(high_value, 6)} \\\\"
         )
     add(r"\bottomrule")
     add(r"\end{tabular}")
@@ -263,22 +294,61 @@ def render_results_tex(payload: dict[str, Any], dgp: Any) -> str:
     add("")
 
     add(r"\subsection{Counterfactual Recovery}")
+    add("Each counterfactual gate requires regret below 0.01.")
+    add("")
     add(r"\begin{table}[H]")
     add(r"\centering\small")
-    add(r"\caption{Counterfactual recovery against known oracle objects.}")
-    add(r"\begin{tabular}{lrrrr}")
+    add(r"\caption{Counterfactual regret.}")
+    add(r"\begin{tabular}{lrrl}")
     add(r"\toprule")
-    add(r"Counterfactual & Policy TV & Policy KL & Value RMSE & Regret \\")
+    add(r"Counterfactual & Low-dimensional & High-dimensional & Interpretation \\")
     add(r"\midrule")
-    for kind, label in (
-        ("type_a", "Type A"),
-        ("type_b", "Type B"),
-        ("type_c", "Type C"),
+    for kind, label, interpretation in (
+        ("type_a", "Type A", "reward/state shift"),
+        ("type_b", "Type B", "transition change"),
+        ("type_c", "Type C", "action restriction"),
     ):
-        cf = metrics["counterfactuals"][kind]
+        low_value = (
+            low_record["payload"]["metrics"]["counterfactuals"][kind].regret
+            if low_record is not None
+            else None
+        )
+        high_value = (
+            high_record["payload"]["metrics"]["counterfactuals"][kind].regret
+            if high_record is not None
+            else None
+        )
         add(
-            f"{label} & {fmt(cf.policy.tv, 6)} & ${sci(cf.policy.kl)}$ & "
-            f"{fmt(cf.value_rmse, 6)} & {fmt(cf.regret, 6)} \\\\"
+            f"{label} & {fmt(low_value, 6)} & {fmt(high_value, 6)} & "
+            f"{tex_text(interpretation)} \\\\"
+        )
+    add(r"\bottomrule")
+    add(r"\end{tabular}")
+    add(r"\end{table}")
+    add("")
+
+    add(
+        "Exact parameter vectors, standard errors, log-likelihoods, policy "
+        "distances, basis metadata, and all gate values are written to "
+        "\\texttt{sees\\_results.json}. The PDF reports the decision-critical "
+        "values rather than printing the full 32-parameter high-dimensional vector."
+    )
+    add("")
+
+    add(r"\subsection{Gate Audit}")
+    add(r"\begin{table}[H]")
+    add(r"\centering\small")
+    add(r"\caption{Hard-gate audit by cell.}")
+    add(r"\begin{tabular}{lrr}")
+    add(r"\toprule")
+    add(r"Cell & Passed gates & Failed gates \\")
+    add(r"\midrule")
+    for record in records:
+        payload = record["payload"]
+        gates = payload["gates"]
+        passed = sum(gate.passed for gate in gates)
+        add(
+            f"{tt(payload['cell'].cell_id)} & {passed} & {len(gates) - passed} \\\\"
         )
     add(r"\bottomrule")
     add(r"\end{tabular}")
@@ -287,23 +357,81 @@ def render_results_tex(payload: dict[str, Any], dgp: Any) -> str:
     return "\n".join(lines) + "\n"
 
 
+def compact_payload(records: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "estimator": ESTIMATOR,
+        "primary_cell_id": PRIMARY_CELL_ID,
+        "results": [compact_cell_payload(record["payload"]) for record in records],
+    }
+
+
+def compact_cell_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = payload["summary"]
+    metadata = summary.metadata
+    return {
+        "cell_id": payload["cell"].cell_id,
+        "estimator": payload["estimator"],
+        "simulation": payload["simulation"],
+        "compatibility": payload["compatibility"],
+        "diagnostics": payload["diagnostics"],
+        "summary": {
+            "parameter_names": summary.parameter_names,
+            "parameters": summary.parameters,
+            "standard_errors": finite_list(summary.standard_errors),
+            "log_likelihood": summary.log_likelihood,
+            "converged": summary.converged,
+            "num_iterations": summary.num_iterations,
+            "num_observations": summary.num_observations,
+            "estimation_time": summary.estimation_time,
+            "convergence_message": summary.convergence_message,
+            "metadata": {
+                "basis_type": metadata.get("basis_type"),
+                "basis_source": metadata.get("basis_source"),
+                "basis_family": metadata.get("basis_family"),
+                "basis_dim": metadata.get("basis_dim"),
+                "configured_basis_dim": metadata.get("configured_basis_dim"),
+                "state_feature_dim": metadata.get("state_feature_dim"),
+                "encoded_basis_rank": metadata.get("encoded_basis_rank"),
+                "rbf_bandwidth_sq": metadata.get("rbf_bandwidth_sq"),
+                "penalty_weight": metadata.get("penalty_weight"),
+                "penalty_objective_scale": metadata.get("penalty_objective_scale"),
+                "bellman_violation": metadata.get("bellman_violation"),
+                "bellman_rmse": metadata.get("bellman_rmse"),
+                "warm_start_value": metadata.get("warm_start_value"),
+                "initial_value_projection_rmse": metadata.get(
+                    "initial_value_projection_rmse"
+                ),
+            },
+        },
+        "metrics": payload["metrics"],
+        "gates": payload["gates"],
+    }
+
+
 def fmt(value: float | None, digits: int = 4) -> str:
     if value is None:
         return "---"
-    return f"{float(value):.{digits}f}"
+    number = float(value)
+    if not math.isfinite(number):
+        return "---"
+    return f"{number:.{digits}f}"
+
+
+def finite_list(values: Any) -> list[float | None]:
+    array = np.asarray(values, dtype=float)
+    return [float(value) if math.isfinite(float(value)) else None for value in array]
 
 
 def sci(value: float) -> str:
-    mantissa, exponent = f"{float(value):.2e}".split("e")
-    return rf"{mantissa}\times 10^{{{int(exponent)}}}"
+    number = float(value)
+    if not math.isfinite(number):
+        return "---"
+    mantissa, exponent = f"{number:.2e}".split("e")
+    return rf"${mantissa}\times 10^{{{int(exponent)}}}$"
 
 
 def tf(value: bool) -> str:
     return "true" if bool(value) else "false"
-
-
-def status(passed: bool) -> str:
-    return "pass" if bool(passed) else "fail"
 
 
 def tt(value: str) -> str:
@@ -319,21 +447,6 @@ def tex_text(value: str) -> str:
         .replace("&", r"\&")
         .replace("#", r"\#")
     )
-
-
-def gate_threshold(gate: Any) -> str:
-    if gate.operator == "is":
-        return tf(gate.threshold)
-    operator = r"$\leq$" if gate.operator == "<=" else r"$\geq$"
-    return f"{operator} {gate_value(gate.threshold)}"
-
-
-def gate_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return tf(value)
-    if isinstance(value, (int, float)):
-        return fmt(value, 6)
-    return tex_text(str(value))
 
 
 if __name__ == "__main__":
