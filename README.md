@@ -1,6 +1,16 @@
 # econirl
 
-Benchmarking dynamic discrete choice and inverse RL algorithms on a variety of MDPs — comparing reward recovery, imitation, and generalization.
+Structural dynamic discrete choice and inverse reinforcement learning tools,
+with estimator validation built around synthetic data-generating processes where
+the truth is known exactly.
+
+The current development focus is a shared **known-truth validation harness**.
+For each estimator, the harness generates a DGP with known rewards,
+transitions, policies, values, Q functions, and Type A/B/C counterfactual
+oracles. An estimator is treated as migrated only after it recovers the relevant
+truth objects and passes hard gates.
+
+**Docs:** https://econirl.readthedocs.io/
 
 ## Install
 
@@ -10,7 +20,7 @@ pip install econirl
 
 ## Try It
 
-Load a bundled dataset and fit one estimator in under a second.
+Load a bundled dataset and fit one structural estimator.
 
 ```python
 from econirl.datasets import load_rust_bus
@@ -23,139 +33,100 @@ print(model.params_)
 print(model.summary())
 ```
 
-## Benchmark
+## What Is Validated Now
 
-Compare 10 estimators on a simulated 5-state bus engine replacement MDP. This runs each estimator sequentially and takes a few minutes.
+The structural-estimator pages below have been migrated to the shared
+known-truth workflow. Each page is a short front door to a generated PDF and
+the exact run artifacts.
 
-```python
-from econirl.evaluation.benchmark import BenchmarkDGP, run_single, get_default_estimator_specs
+| Estimator | Role | Current validation status |
+| --- | --- | --- |
+| [NFXP](https://econirl.readthedocs.io/en/latest/estimators/nfxp.html) | Exact nested fixed-point MLE | Low-dimensional structural reference |
+| [CCP / NPL](https://econirl.readthedocs.io/en/latest/estimators/ccp.html) | Hotz-Miller inversion plus NPL updates | Low-dimensional structural recovery |
+| [MPEC](https://econirl.readthedocs.io/en/latest/estimators/mpec.html) | Constrained likelihood formulation | Low-dimensional structural recovery |
+| [SEES](https://econirl.readthedocs.io/en/latest/estimators/sees.html) | Sieve value approximation | Low-dimensional structural recovery |
+| [NNES](https://econirl.readthedocs.io/en/latest/estimators/nnes.html) | Neural NPL value approximation | Low-dimensional sanity check plus high-dimensional primary validation |
 
-dgp = BenchmarkDGP(n_states=5, discount_factor=0.95)
-specs = get_default_estimator_specs()
+NNES is the first migrated page where the high-dimensional DGP is central to
+the story: it passes both the easy low-dimensional cell and the 81-state,
+32-reward-parameter high-dimensional cell.
 
-for spec in specs:
-    result = run_single(dgp, spec, n_agents=100, n_periods=50, seed=42)
-    print(f"{result.estimator:12s}  {result.pct_optimal:6.1f}%  {result.time_seconds:5.1f}s")
+## Known-Truth Harness
+
+The harness lives in `experiments/known_truth.py`. It checks more than
+in-sample choice fit:
+
+- structural parameter recovery when the estimator has structural parameters;
+- reward, value, Q, and policy recovery;
+- Type A reward/state-shift counterfactuals;
+- Type B transition-change counterfactuals;
+- Type C action-restriction counterfactuals;
+- compatibility with low-dimensional, high-dimensional, and latent-segment
+  synthetic DGPs where appropriate.
+
+Useful commands:
+
+```bash
+PYTHONPATH=src:. pytest tests/test_known_truth.py -v
+PYTHONPATH=src:. python papers/econirl_package/primers/nnes/nnes_run.py --quiet-progress
 ```
 
-![5-State Bus Engine Replacement MDP](docs/mdp_data_generation.gif)
+## Estimators In The Repo
 
-### Results
+These are the main estimator families currently exposed or wired into the
+known-truth migration plan.
 
-The table below shows all 18 algorithms (10 default from `get_default_estimator_specs()` plus 8 additional from `econirl.contrib`).
+| Family | Estimators |
+| --- | --- |
+| Structural econometrics | NFXP, CCP / NPL, MPEC, SEES, NNES, TD-CCP |
+| Entropy and feature-matching IRL | MCE-IRL, neural MCE-IRL, MaxEnt IRL, Deep MaxEnt IRL, Bayesian IRL |
+| Margin and distribution matching | Max Margin IRL, Max Margin Planning, f-IRL |
+| Neural / Q-based methods | GLADIUS, Neural GLADIUS, IQ-Learn |
+| Adversarial IRL | AIRL, Neural AIRL, AIRL-Het, GAIL, GCL |
+| Baselines and utilities | Behavioral cloning, transition estimation, Rust bus replication tools |
 
-| Estimator   | Category    | Recovers Params | Recovers Reward | % Optimal | % Transfer | Time   |
-|-------------|-------------|:---------------:|:---------------:|----------:|-----------:|-------:|
-| **Structural Estimators** | | | | | | |
-| NFXP        | Structural  | Yes | Yes |  99.7% |  99.8% |  13.9s |
-| CCP         | Structural  | Yes | Yes |  99.7% |  99.8% |  18.6s |
-| SEES        | Structural  | Yes | Yes |  99.6% |  99.6% |  28.6s |
-| NNES        | Structural  | Yes | Yes |  99.6% |  99.1% |  13.7s |
-| **Entropy-Based IRL** | | | | | | |
-| MCE IRL     | IRL         | Yes | Yes |  99.7% |  99.7% |  20.6s |
-| MaxEnt IRL  | IRL         | No  | Yes |  98.2% |  97.8% |   9.1s |
-| Deep MaxEnt | IRL         | No  | Yes |  98.3% |  98.2% |  52.3s |
-| BIRL        | IRL         | No  | Yes |  99.5% |  99.5% | 237.8s |
-| **Margin-Based IRL** | | | | | | |
-| Max Margin  | IRL         | Yes | Yes |  99.3% |  99.3% |  64.8s |
-| Max Margin IRL | IRL      | No  | Yes |  31.1% |  34.2% |   0.3s |
-| **Distribution Matching** | | | | | | |
-| f-IRL       | IRL         | No  | Yes |  99.1% |  99.1% |  44.9s |
-| **Neural Estimators** | | | | | | |
-| TD-CCP      | Neural      | Yes | Yes |  99.8% |  99.7% |  16.3s |
-| GLADIUS     | Neural      | Yes | Yes |  99.6% |  88.7% |   4.2s |
-| **Adversarial Methods** | | | | | | |
-| GAIL        | Adversarial | No  | No  |  54.3% |  50.9% | 112.9s |
-| AIRL        | Adversarial | No  | Yes |  99.4% |  99.5% | 123.0s |
-| GCL         | Adversarial | No  | Yes |  92.7% |  95.3% | 166.5s |
-| **Inverse Q-Learning** | | | | | | |
-| IQ-Learn    | IRL         | No  | Yes |  99.5% |  99.1% |   0.0s |
-| **Baseline** | | | | | | |
-| BC          | Baseline    | No  | No  |  99.5% |  99.5% |   0.1s |
+The migration status is intentionally not the same as "code exists." Some
+estimators are already validated in the shared known-truth framework; others
+are present in the package and are being brought into that framework
+estimator-by-estimator.
 
-5-state MDP, 100 agents x 50 periods, seed=42. **% Optimal** = value achieved vs true optimal on training dynamics (baseline-normalized). **% Transfer** = same metric on held-out transition dynamics (same rewards, different wear rates). **Recovers Params** = recovers interpretable structural parameters. **Recovers Reward** = recovers a reward function (enables transfer to new dynamics).
+## Package Surface
 
-![Internal Validity — Policy Execution on Training Dynamics](docs/internal_validity.gif)
+The recommended public API is sklearn-style:
 
-![External Validity — Policy Execution on Transfer Dynamics](docs/external_validity.gif)
+```python
+from econirl import (
+    NFXP,
+    CCP,
+    SEES,
+    NNES,
+    TDCCP,
+    MCEIRL,
+    MaxEntIRL,
+    MaxMarginIRL,
+    GLADIUS,
+    NeuralGLADIUS,
+    AIRL,
+    NeuralAIRL,
+    IQLearn,
+    MCEIRLNeural,
+)
+```
 
-![Estimated vs True Rewards](docs/reward_heatmaps.png)
+Lower-level estimator implementations remain available under
+`econirl.estimation` and `econirl.contrib` for research workflows that need
+direct access to configuration objects or diagnostics. For example, the MPEC
+implementation is currently available as `econirl.estimation.mpec.MPECEstimator`
+while its public docs page is already part of the known-truth validation set.
+The lower-level namespace also includes f-IRL and behavioral cloning, and
+`econirl.contrib` keeps the older MaxEnt, Deep MaxEnt, max-margin, GAIL, GCL,
+and Bayesian IRL implementations available for comparison work.
 
-## Algorithms
+## Reference Pages
 
-### Structural Estimators
-
-Assume the econometrician knows the model and recover flow utility parameters by maximum likelihood.
-
-| Algorithm | Paper | Method |
-|-----------|-------|--------|
-| NFXP      | [Rust (1987)](https://doi.org/10.2307/1911259) | Full-solution MLE via nested fixed point |
-| CCP       | [Hotz & Miller (1993)](https://doi.org/10.2307/2298122) | Two-step conditional choice probability with NPL iterations |
-| SEES      | [Luo & Sang (2024)](https://arxiv.org/abs/2204.13488) | Sieve basis V(s) approximation + penalized joint MLE |
-| NNES      | [Nguyen (2025)](https://huuhoang2211.github.io/hoangnguyen.com/NNES_DDC_JMP_20251005.pdf) | Neural V(s) network (NPL Bellman) + structural MLE |
-
-### Entropy-Based IRL
-
-Recover reward functions from demonstrations using maximum entropy or Bayesian principles.
-
-| Algorithm   | Paper | Method |
-|-------------|-------|--------|
-| MCE IRL     | [Ziebart (2010)](https://www.cs.cmu.edu/~bziebart/publications/thesis-bziebart.pdf) | Maximum causal entropy IRL with soft value iteration |
-| MaxEnt IRL  | [Ziebart et al. (2008)](https://cdn.aaai.org/AAAI/2008/AAAI08-227.pdf) | Maximum entropy IRL with state visitation frequencies |
-| Deep MaxEnt | [Wulfmeier et al. (2016)](https://arxiv.org/abs/1507.04888) | Neural reward network + MaxEnt feature matching |
-| BIRL        | [Ramachandran & Amir (2007)](https://www.ijcai.org/Proceedings/07/Papers/416.pdf) | Bayesian MCMC (Metropolis-Hastings) over reward parameters |
-
-### Margin-Based IRL
-
-Recover rewards by maximizing the margin between expert and non-expert behavior.
-
-| Algorithm      | Paper | Method |
-|----------------|-------|--------|
-| Max Margin     | [Ratliff et al. (2006)](https://doi.org/10.1145/1143844.1143936) | Structured max-margin planning |
-| Max Margin IRL | [Abbeel & Ng (2004)](https://ai.stanford.edu/~ang/papers/icml04-apprentice.pdf) | Apprenticeship learning via margin maximization |
-
-### Distribution Matching
-
-Match state-marginal distributions rather than feature expectations.
-
-| Algorithm | Paper | Method |
-|-----------|-------|--------|
-| f-IRL     | [Ni et al. (2022)](https://arxiv.org/abs/2011.04709) | State-marginal matching via f-divergences (KL, chi-squared, TV) |
-
-### Neural Estimators
-
-Approximate value functions with neural networks for scalability to large state spaces.
-
-| Algorithm | Paper | Method |
-|-----------|-------|--------|
-| TD-CCP    | [Adusumilli & Eckardt (2022)](https://arxiv.org/abs/1912.09509) | TD-learning + CCP with neural approximate value iteration |
-| GLADIUS   | [Kang, Yoganarasimhan & Jain (2025)](https://arxiv.org/abs/2502.14131) | Dual Q + EV networks with Bellman consistency penalty |
-
-### Inverse Q-Learning
-
-Recover reward and policy by learning a single soft Q-function, avoiding adversarial training.
-
-| Algorithm | Paper | Method |
-|-----------|-------|--------|
-| IQ-Learn  | [Garg et al. (2021)](https://arxiv.org/abs/2106.12142) | Inverse soft-Q learning with chi-squared divergence |
-
-### Adversarial Methods
-
-Learn reward or policy via a discriminator that distinguishes expert from generated behavior.
-
-| Algorithm | Paper | Method |
-|-----------|-------|--------|
-| GAIL      | [Ho & Ermon (2016)](https://arxiv.org/abs/1611.03852) | Generative adversarial imitation learning |
-| AIRL      | [Fu et al. (2018)](https://arxiv.org/abs/1710.11248) | Adversarial inverse RL with disentangled reward |
-| GCL       | [Finn et al. (2016)](https://arxiv.org/abs/1603.00448) | Guided cost learning with importance sampling |
-
-### Baseline
-
-| Algorithm | Paper | Method |
-|-----------|-------|--------|
-| BC        | — | Supervised: empirical P(a\|s) from demonstrations |
-
-## [Pseudocode](docs/pseudocode.md)
+- Estimator index: https://econirl.readthedocs.io/en/latest/estimators.html
+- NNES page: https://econirl.readthedocs.io/en/latest/estimators/nnes.html
+- NNES PDF: https://github.com/rawatpranjal/EconIRL/blob/main/papers/econirl_package/primers/nnes/nnes.pdf
 
 ## License
 
