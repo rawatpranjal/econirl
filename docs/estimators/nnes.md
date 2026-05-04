@@ -3,68 +3,79 @@
 **Reference PDF:** [NNES reference and known-truth validation tutorial](https://github.com/rawatpranjal/EconIRL/blob/main/papers/econirl_package/primers/nnes/nnes.pdf)
 
 NNES estimates structural dynamic discrete choice models with a neural
-value-function approximation inside an NPL-style policy iteration. It targets
-the same objects as NFXP, CCP, MPEC, and SEES: reward parameters, policy, value
-function, Q function, and counterfactual policies.
+value-function approximation inside an NPL-style policy iteration. In this
+package, NNES is used when the model is structural, transitions are known or
+estimated up front, and the state space is large enough that repeatedly solving
+the exact dynamic program is unattractive.
 
-## Validation Status
+The important question is not only whether the likelihood improves. We test
+whether NNES recovers the true reward, policy, value function, Q function, and
+counterfactual behavior in a synthetic DGP where the truth is known exactly.
 
-NNES passes the enforced known-truth gates on both the easy canonical DGP and
-the high-dimensional canonical DGP. Both runs use 2,000 simulated individuals,
-80 periods per individual, known transitions, 3 actions, homogeneous rewards,
-and the shared Type A/B/C counterfactual checks.
+## Status
 
-| Cell | States | Reward features | Observations | Converged | L-BFGS-B iterations | Log-likelihood | Final V loss | Hard gates |
-| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |
-| `canonical_low_action` | 21 | 4 | 160,000 | true | 10 | -174875.80929267284 | 0.0003994984270360631 | 11 / 11 |
-| `canonical_high_action` | 81 | 32 | 160,000 | true | 29 | -160272.88031279508 | 0.029931686287506906 | 11 / 11 |
+NNES now passes the enforced known-truth gates in both validation settings:
 
-The high-dimensional preset uses 16-dimensional state features and a
-32-parameter action-dependent reward basis. Its pre-estimation diagnostics pass:
-feature rank is 32 / 32, the reward-feature condition number is
-1.376810450603823, all 81 states are observed, and state-action coverage is
-0.9588477366255144.
+- an easy low-dimensional structural DGP;
+- a high-dimensional structural DGP with 16 state features and 32 reward
+  features.
 
-## Recovery Metrics
+Both runs use 2,000 simulated individuals and 80 periods per individual, for
+160,000 observations. Both use known transitions, 3 actions, homogeneous
+rewards, and the same Type A/B/C counterfactual checks.
 
-| Metric | Gate | Low-dimensional value | High-dimensional value |
+| Validation cell | What it checks | Result |
+| --- | --- | ---: |
+| `canonical_low_action` | Small structural model with 21 states and 4 reward parameters | 11 / 11 gates pass |
+| `canonical_high_action` | High-dimensional model with 81 states and 32 reward parameters | 11 / 11 gates pass |
+
+The easy case is very tight. The high-dimensional case is harder and has larger
+value and Q errors, but it stays inside every hard gate.
+
+## Main Numbers
+
+These are the numbers to look at first.
+
+| Metric | Gate | Easy case | High-dimensional case |
 | --- | ---: | ---: | ---: |
-| Parameter cosine similarity | >= 0.95 | 0.9982397556304932 | 0.991203784942627 |
-| Parameter relative RMSE | <= 0.30 | 0.0651790127158165 | 0.13511048257350922 |
-| Parameter RMSE | -- | 0.017850005999207497 | 0.01414113026112318 |
-| Maximum parameter absolute error | -- | 0.022873617708683014 | 0.03015984036028385 |
-| Reward RMSE | <= 0.08 | 0.010209567844867706 | 0.0640120804309845 |
-| Policy total variation | <= 0.03 | 0.00564560820338359 | 0.023834346317619222 |
-| Policy KL | -- | 0.00009810229540605409 | 0.002693513289699444 |
-| Value RMSE | <= 0.20 | 0.019845455486253175 | 0.11562010299193262 |
-| Q RMSE | <= 0.20 | 0.0233699468610916 | 0.13714528932947226 |
+| Parameter cosine similarity | at least 0.95 | 0.9982 | 0.9912 |
+| Parameter relative RMSE | at most 0.30 | 0.0652 | 0.1351 |
+| Reward RMSE | at most 0.08 | 0.0102 | 0.0640 |
+| Policy total variation | at most 0.03 | 0.0056 | 0.0238 |
+| Value RMSE | at most 0.20 | 0.0198 | 0.1156 |
+| Q RMSE | at most 0.20 | 0.0234 | 0.1371 |
 
-The easy cell is very tight. The high-dimensional cell is looser on reward,
-value, and Q recovery, but it remains inside every hard gate.
+The high-dimensional run is the more informative stress test. It has full
+feature rank, a well-conditioned reward basis, all 81 states observed, and
+state-action coverage of 0.959.
 
-## Counterfactual Recovery
+## Counterfactuals
 
-| Counterfactual | Regret gate | Low regret | High-dimensional regret | Low policy TV | High-dimensional policy TV |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Type A | <= 0.05 | 0.00022427010596255665 | 0.004865025745682183 | 0.005080256555500048 | 0.021578199248338113 |
-| Type B | <= 0.05 | 0.00033179297440636394 | 0.005558862016315504 | 0.005504813369390121 | 0.02165145983648699 |
-| Type C | <= 0.05 | 0.00005469089622241882 | 0.0013139353505658108 | 0.0026945148023238114 | 0.013052841154959438 |
+NNES is also tested on three counterfactuals. The gate is regret below 0.05.
+
+| Counterfactual | Easy case regret | High-dimensional regret | Interpretation |
+| --- | ---: | ---: | --- |
+| Type A | 0.0002 | 0.0049 | Recovers behavior after a reward or state shift |
+| Type B | 0.0003 | 0.0056 | Recovers behavior after a transition change |
+| Type C | 0.0001 | 0.0013 | Recovers behavior after restricting an action |
+
+All three counterfactuals pass in both validation settings.
 
 ## What Is Being Validated
 
-The known-truth harness compares the estimator against the exact DGP solution,
-not only against likelihood fit. For NNES this means:
+The known-truth harness compares the NNES output to the exact DGP solution.
+The checks cover:
 
-- structural reward-parameter recovery;
-- recovered reward, value, Q, and policy objects;
-- Type A transition/reward-shift counterfactuals;
-- Type B transition-change counterfactuals;
-- Type C action-restriction counterfactuals.
+- reward parameters;
+- reward values over state-action pairs;
+- policy probabilities;
+- value function and Q function;
+- counterfactual regret and counterfactual policy distance.
 
-NNES also has component tests for the algebra inside the profiled NPL step:
-the policy-evaluation linear system, the profiled value fixed point, the
-profiled Q/policy fixed point, the theta-dependent continuation term, anchor
-normalization, and the high-dimensional fixed point.
+There are also targeted component tests for the NNES algebra: policy
+evaluation, the profiled value fixed point, the profiled Q/policy fixed point,
+the theta-dependent continuation term, anchor normalization, and the
+high-dimensional fixed point.
 
 ## Reproduce
 
@@ -77,7 +88,8 @@ PYTHONPATH=src:. pytest tests/test_nnes_known_truth_components.py tests/test_kno
 ```
 
 The primer generator writes `nnes_results.tex`, `nnes_results.json`, and a full
-JSON copy under `/tmp/econirl_nnes_primer_known_truth`.
+JSON copy under `/tmp/econirl_nnes_primer_known_truth`. The tables above are
+rounded for readability; the JSON file keeps the exact values.
 
 ## Code Pointers
 
