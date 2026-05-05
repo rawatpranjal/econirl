@@ -1,52 +1,80 @@
 ## Estimator: MCE-IRL Deep (neural reward variant of MCE-IRL)
-## Paper(s): same Ziebart 2010 thesis as the tabular version. The neural-reward variant is the imitation library's pattern (Wulfmeier, Ondruska, and Posner 2015 "Maximum Entropy Deep Inverse Reinforcement Learning" is the canonical neural extension; not in `papers/foundational/` and we should add it).
-## Code: `src/econirl/estimation/mce_irl.py` — same module, selected via `reward_type="neural"` constructor argument.
+## Paper(s): Ziebart 2010 plus Wulfmeier, Ondruska, and Posner 2015 "Maximum Entropy Deep Inverse Reinforcement Learning"
+## Code: `src/econirl/estimators/mceirl_neural.py`; known-truth adapter in `experiments/known_truth.py`
+
+### Status
+
+- Status: **validated for anchored nonlinear reward-map recovery**.
+- Result artifact: `papers/econirl_package/primers/deep_mce_irl/deep_mce_irl_results.json`.
+- Primer: `papers/econirl_package/primers/deep_mce_irl/deep_mce_irl.pdf`.
 
 ### Loss / objective
 
-- Paper formula: same dual MCE objective as the tabular version, with the linear reward `R = phi @ theta` replaced by a neural reward `R = phi_net(s, a; theta)` where `theta` are network weights. The gradient is the same form `mu_pi - mu_E` but contracted with the network's Jacobian `d_theta R(s, a)` rather than the static feature matrix.
+- Paper formula: Wulfmeier et al. use a neural network from supplied state
+  features to state rewards, then train it with the same MaxEnt/MCE occupancy
+  gradient as the linear reward model.
+- Implementation reference check: the `imitation.algorithms.mce_irl` reference
+  implementation is finite-horizon tabular MCE and computes a state reward
+  vector; its source contains a TODO for non-state-only rewards. This supports
+  a narrow validation claim unless the econirl action-dependent extension is
+  explicitly anchored.
+- Code implementation: `MCEIRLNeural` trains a neural reward with surrogate
+  loss `sum_{s,a} R_psi(s,a) [mu_pi(s,a)-mu_D(s,a)]`. Empirical and model
+  moments are normalized discounted state-action occupancy measures using the
+  empirical initial distribution.
+- Match: **yes** for the Deep MCE occupancy-gradient objective.
 
-- Code implementation: `mce_irl.py` selects between linear and neural via the `reward_type` constructor argument. The neural path swaps `LinearUtility.compute(theta)` for `phi_net(theta)`; the loss and inner-Bellman-solve flow unchanged. Optax Adam is the default optimizer for the neural variant (vs L-BFGS for tabular).
+### Identification and gated artifact
 
-- Match: **yes**, follows the Wulfmeier-Ondruska-Posner pattern. Network architecture defaults are documented in the `MCEIRLConfig` constructor.
+- Neural network weights are not finite economic parameters.
+- For frozen neural reward truth, the gated artifact is the learned raw
+  `reward_matrix`, with action 0 anchored at zero in Shapeshifter
+  action-dependent cells.
+- For finite linear reward truth, projected parameters are gated only when the
+  supplied feature matrix is numerically identifiable. The neural-feature
+  finite-theta cell is ill conditioned, so its poor projected-theta cosine/RMSE
+  are reported as diagnostics rather than claimed as structural theta recovery.
+- Counterfactual gates use the same affine IRL reward normalization convention
+  before applying intervention deltas.
+- Raw FCNN/Objectworld-style spatial feature learning is not implemented here.
+  That would require a convolutional reward network over raw spatial inputs;
+  the validated target is an MLP over supplied encodings.
 
-### Gradient
+### Gates
 
-- Paper formula: same `mu_pi - mu_E` form with neural Jacobian.
+For frozen neural reward truth, the non-smoke gates require:
 
-- Code implementation: JAX autodiff through the network and the inner soft Bellman solver. The `value_iteration` solver is wrapped in `jax.lax.while_loop` so `jax.grad` differentiates correctly through the fixed point.
+- convergence;
+- occupancy residual <= 0.03;
+- normalized reward RMSE <= 0.15;
+- policy TV <= 0.05;
+- normalized value RMSE <= 0.15;
+- normalized Q RMSE <= 0.15;
+- Type A/B/C counterfactual regret <= 0.08.
 
-- Match: **yes**.
+For finite linear truths, parameter cosine/RMSE gates are added only when the
+projection condition number is at most 100. Otherwise reward, policy, value, Q,
+occupancy, and counterfactual gates remain active.
 
-### Bellman / inner loop
+### Current Results
 
-- Paper algorithm: per outer step, recompute `R(s, a)` from the network, run soft VI to convergence, compute occupancy, update theta.
-
-- Code algorithm: matches. The inner `value_iteration` is jit-compiled; the outer Adam step uses `jax.grad` on the dual loss.
-
-- Match: **yes**.
-
-### Identification assumptions
-
-- Paper conditions: same as tabular MCE-IRL (action-dependent inputs to the network) plus the standard neural-network identifiability caveats (rewards identified up to additive constants and scale per Kim et al. 2021). The neural network can in principle absorb any constant shift, so identification post-fit relies on the same anchor-action normalization the tabular case uses.
-
-- Code enforcement: same wrapper issue as tabular — if `feature_matrix=None`, the network input degenerates. The Tier 4 ss-neural-r cell sets `dataset_config.reward_type="neural"` and passes the env's feature matrix through the `LinearUtility.from_environment` path, so the cell does not hit the wrapper bug.
-
-- Match: **same caveat as tabular**.
-
-### Hyperparameter defaults vs paper defaults
-
-- `MCEIRLConfig.network_width`: 64.
-- `MCEIRLConfig.network_depth`: 2.
-- `MCEIRLConfig.learning_rate`: 1e-3 for Adam.
-- `MCEIRLConfig.outer_max_iter`: 500 (more than tabular because Adam needs more steps).
-
-Match: **yes**, standard imitation-library defaults.
+- `canonical_low_state_only`: 11/11 gates pass.
+- `deep_mce_neural_reward`: 9/9 gates pass. This is the primary validation
+  cell.
+- `deep_mce_neural_features`: 9/9 active gates pass. Projected-theta cosine is
+  diagnostic because the projection condition number is about 479.
+- `deep_mce_neural_reward_features`: 9/9 gates pass.
 
 ### Findings / fixes applied
 
-- No code fixes applied. Same wrapper-default issue as tabular MCE-IRL; same workaround (cells pass `feature_matrix` explicitly).
-
-- A **paper-side gap**: the Wulfmeier-Ondruska-Posner 2015 paper is the canonical reference for neural-reward MaxEnt IRL but is not in `papers/foundational/`. **Action**: docling and add it. Tracked in CLOUD_VERIFICATION_QUEUE.md as a follow-up.
-
-- VALIDATION_LOG.md status: **Pending** (Tier 4 ss-neural-r cell will validate).
+- Added a Shapeshifter known-truth bridge with no absorbing-state assumption.
+- Added full reward/policy/value/Q/occupancy/counterfactual masks for DGPs
+  without an absorbing state or exit action.
+- Added action-0 reward anchoring for Shapeshifter action-dependent neural
+  reward cells.
+- Added a Shapeshifter reward-scale knob for non-degenerate neural reward
+  signal while keeping default behavior unchanged.
+- Routed neural-reward validation through `summary.metadata["reward_matrix"]`
+  and empty finite theta.
+- Kept projected theta diagnostic unless the finite feature basis is
+  numerically identifiable.

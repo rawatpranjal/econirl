@@ -89,8 +89,8 @@ def fitted_model(bus_df):
         discount=_DISCOUNT,
         feature_matrix=features,
         feature_names=["linear", "quadratic"],
-        se_method="bootstrap",
-        n_bootstrap=20,
+        se_method="hessian",
+        n_bootstrap=0,
         verbose=False,
     )
     model.fit(bus_df, state="mileage_bin", action="replaced", id="bus_id")
@@ -117,7 +117,8 @@ class TestBackwardCompat:
             discount=_DISCOUNT,
             feature_matrix=features,
             feature_names=["linear", "quadratic"],
-            n_bootstrap=10,
+            se_method="hessian",
+            n_bootstrap=0,
             verbose=False,
         )
         result = model.fit(bus_df, state="mileage_bin", action="replaced", id="bus_id")
@@ -150,7 +151,8 @@ class TestRewardSpec:
         model = MCEIRL(
             n_states=n,
             discount=_DISCOUNT,
-            n_bootstrap=10,
+            se_method="hessian",
+            n_bootstrap=0,
             verbose=False,
         )
         model.fit(
@@ -164,6 +166,23 @@ class TestRewardSpec:
         assert "linear" in model.params_
         assert "quadratic" in model.params_
         assert model.reward_spec_ is spec
+
+    def test_fit_without_reward_spec_or_features_raises(self, bus_df):
+        model = MCEIRL(
+            n_states=_N_STATES,
+            n_actions=2,
+            discount=_DISCOUNT,
+            se_method="hessian",
+            n_bootstrap=0,
+            verbose=False,
+        )
+        with pytest.raises(ValueError, match="explicit reward specification"):
+            model.fit(
+                bus_df,
+                state="mileage_bin",
+                action="replaced",
+                id="bus_id",
+            )
 
 
 # ---------------------------------------------------------------------------

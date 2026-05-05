@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import jax.numpy as jnp
 import pytest
 
+from econirl.environments.shapeshifter import ShapeshifterConfig
 from experiments.known_truth import (
     DEFAULT_CELLS,
     ESTIMATOR_CONTRACTS,
@@ -15,12 +17,15 @@ from experiments.known_truth import (
     KnownTruthDGPConfig,
     RecoveryGateFailure,
     SimulationConfig,
+    ShapeshifterKnownTruthConfig,
     build_counterfactual,
     build_known_truth_dgp,
     check_estimator_compatibility,
+    evaluate_estimator_against_truth,
     get_cell,
     known_truth_initial_params,
     make_estimator,
+    normalized_rmse,
     policy_divergence,
     recovery_gates,
     run_estimator,
@@ -182,9 +187,10 @@ def test_type_a_b_c_counterfactual_oracles_change_truth():
     assert float(regular_policy.max()) < 1e-3
 
 
-def test_estimator_contract_registry_has_required_twelve():
-    assert len(REQUIRED_ESTIMATORS) == 12
+def test_estimator_contract_registry_has_required_estimators():
+    assert len(REQUIRED_ESTIMATORS) == 13
     assert "BC" not in REQUIRED_ESTIMATORS
+    assert "MCE-IRL Deep" in REQUIRED_ESTIMATORS
     assert "AIRL-Het" in REQUIRED_ESTIMATORS
     for name in REQUIRED_ESTIMATORS:
         contract = ESTIMATOR_CONTRACTS[name]
@@ -219,6 +225,8 @@ def test_estimator_factories_and_compatibility_reports_are_available():
 
     assert check_estimator_compatibility("NFXP", structural_dgp).compatible
     assert not check_estimator_compatibility("NFXP", state_only_dgp).compatible
+    assert check_estimator_compatibility("MCE-IRL Deep", state_only_dgp).compatible
+    assert check_estimator_compatibility("MCE-IRL Deep", structural_dgp).compatible
     assert check_estimator_compatibility("AIRL-Het", hetero_dgp).compatible
 
 
@@ -229,6 +237,9 @@ def test_nfxp_uses_universal_canonical_preset():
         "canonical_low_state_only",
         "canonical_high_action",
         "canonical_latent_segments",
+        "deep_mce_neural_reward",
+        "deep_mce_neural_features",
+        "deep_mce_neural_reward_features",
     }.issubset(cell_ids)
 
     dgp = build_known_truth_dgp(get_cell("canonical_low_action").dgp_config)
@@ -252,6 +263,71 @@ def test_legacy_cell_ids_are_aliases_not_separate_dgps():
 
     assert legacy.cell_id == "low_state_action_reward"
     assert legacy.dgp_config == canonical.dgp_config
+
+
+def test_shapeshifter_neural_reward_bridge_has_no_finite_theta_and_full_masks():
+    dgp = build_known_truth_dgp(
+        ShapeshifterKnownTruthConfig(
+            env_config=ShapeshifterConfig(
+                num_states=6,
+                num_actions=2,
+                num_features=3,
+                reward_type="neural",
+                feature_type="linear",
+                action_dependent=False,
+                stochastic_transitions=True,
+                stochastic_rewards=False,
+                discount_factor=0.9,
+                state_dim=1,
+                network_width=8,
+                network_depth=1,
+                seed=901,
+            )
+        )
+    )
+
+    assert dgp.config.reward_mode == "neural"
+    assert dgp.config.absorbing_state is None
+    assert dgp.config.exit_action is None
+    assert dgp.homogeneous_parameters.shape == (0,)
+    assert dgp.homogeneous_reward.shape == (
+        dgp.problem.num_states,
+        dgp.problem.num_actions,
+    )
+
+    diagnostics = run_pre_estimation_diagnostics(dgp)
+    assert diagnostics.passed
+    truth = solve_known_truth(dgp)
+    summary = SimpleNamespace(
+        parameters=jnp.asarray([], dtype=jnp.float32),
+        parameter_names=[],
+        metadata={
+            "reward_matrix": dgp.homogeneous_reward,
+            "reward_validation_target": "raw_neural_reward_matrix",
+            "counterfactual_reward_normalization": "affine",
+            "occupancy_moment_residual": 0.0,
+        },
+        policy=truth.policy,
+        value_function=truth.V,
+        converged=True,
+    )
+
+    metrics = evaluate_estimator_against_truth(dgp, summary)
+    assert metrics["parameters"] is None
+    assert metrics["reward_normalized_rmse"] == pytest.approx(0.0, abs=1e-10)
+    assert metrics["policy"].tv == pytest.approx(0.0, abs=1e-10)
+    assert metrics["value_normalized_rmse"] == pytest.approx(0.0, abs=1e-10)
+    assert metrics["q_normalized_rmse"] == pytest.approx(0.0, abs=1e-10)
+    assert set(metrics["counterfactuals"]) == {"type_a", "type_b", "type_c"}
+
+    gate_names = {
+        gate.name
+        for gate in recovery_gates("MCE-IRL Deep", summary, metrics, smoke=False)
+    }
+    assert "projected_parameter_cosine" not in gate_names
+    assert "projected_parameter_relative_rmse" not in gate_names
+    assert "occupancy_moment_residual" in gate_names
+    assert all(gate.passed for gate in recovery_gates("MCE-IRL Deep", summary, metrics, smoke=False))
 
 
 def test_known_truth_initialization_is_deterministic_and_near_truth():
@@ -520,6 +596,175 @@ def test_nnes_smoke_fit_produces_known_truth_metrics_and_gates():
         "type_b_regret",
         "type_c_regret",
     }.issubset(gate_names)
+
+
+def test_mce_irl_smoke_fit_produces_known_truth_metrics_and_gates():
+    dgp = build_known_truth_dgp(
+        KnownTruthDGPConfig(
+            state_mode="low_dim",
+            reward_mode="action_dependent",
+            reward_dim="low",
+            heterogeneity="none",
+            num_regular_states=5,
+            transition_noise=0.02,
+            seed=712,
+        )
+    )
+    panel = simulate_known_truth_panel(
+        dgp,
+        SimulationConfig(n_individuals=20, n_periods=8, seed=713),
+    )
+
+    result = run_estimator("MCE-IRL", dgp, panel, smoke=True)
+
+    assert result.compatibility.compatible
+    assert result.summary.policy.shape == (dgp.problem.num_states, dgp.problem.num_actions)
+    assert result.summary.value_function.shape == (dgp.problem.num_states,)
+    assert result.summary.metadata["optimizer"] == "root"
+    assert math.isfinite(result.summary.metadata["feature_difference"])
+    assert math.isfinite(result.summary.metadata["occupancy_moment_residual"])
+
+    metrics = result.metrics
+    assert metrics["parameters"] is not None
+    assert math.isfinite(metrics["reward_normalized_rmse"])
+    assert math.isfinite(metrics["value_normalized_rmse"])
+    assert math.isfinite(metrics["q_normalized_rmse"])
+    assert metrics["policy"].tv >= 0.0
+
+    gate_names = {
+        gate.name
+        for gate in recovery_gates("MCE-IRL", result.summary, metrics, smoke=False)
+    }
+    assert {
+        "converged",
+        "feature_residual",
+        "occupancy_moment_residual",
+        "reward_normalized_rmse",
+        "policy_tv",
+        "value_normalized_rmse",
+        "q_normalized_rmse",
+        "type_a_regret",
+        "type_b_regret",
+        "type_c_regret",
+    }.issubset(gate_names)
+    assert "parameter_cosine" not in gate_names
+    assert "parameter_relative_rmse" not in gate_names
+
+
+def test_mce_irl_deep_smoke_fit_produces_known_truth_metrics_and_gates():
+    dgp = build_known_truth_dgp(
+        KnownTruthDGPConfig(
+            state_mode="low_dim",
+            reward_mode="state_only",
+            reward_dim="low",
+            heterogeneity="none",
+            num_regular_states=5,
+            transition_noise=0.02,
+            seed=812,
+        )
+    )
+    panel = simulate_known_truth_panel(
+        dgp,
+        SimulationConfig(n_individuals=20, n_periods=8, seed=813),
+    )
+
+    result = run_estimator("MCE-IRL Deep", dgp, panel, smoke=True)
+
+    assert result.compatibility.compatible
+    assert result.summary.policy.shape == (dgp.problem.num_states, dgp.problem.num_actions)
+    assert result.summary.value_function.shape == (dgp.problem.num_states,)
+    assert result.summary.metadata["estimator"] == "MCE-IRL Deep"
+    assert result.summary.metadata["reward_type"] == "state"
+    assert result.summary.metadata["projection_r2"] is not None
+    assert math.isfinite(result.summary.metadata["feature_difference"])
+    assert math.isfinite(result.summary.metadata["occupancy_moment_residual"])
+    assert result.summary.metadata["raw_neural_reward_matrix"].shape == (
+        dgp.problem.num_states,
+        dgp.problem.num_actions,
+    )
+
+    metrics = result.metrics
+    assert metrics["parameters"] is not None
+    assert math.isfinite(metrics["parameters"].rmse)
+    assert math.isfinite(metrics["reward_normalized_rmse"])
+    assert math.isfinite(metrics["value_normalized_rmse"])
+    assert math.isfinite(metrics["q_normalized_rmse"])
+    assert metrics["policy"].tv >= 0.0
+
+    gate_names = {
+        gate.name
+        for gate in recovery_gates("MCE-IRL Deep", result.summary, metrics, smoke=False)
+    }
+    assert {
+        "converged",
+        "occupancy_moment_residual",
+        "projected_parameter_cosine",
+        "projected_parameter_relative_rmse",
+        "reward_normalized_rmse",
+        "policy_tv",
+        "value_normalized_rmse",
+        "q_normalized_rmse",
+        "type_a_regret",
+        "type_b_regret",
+        "type_c_regret",
+    }.issubset(gate_names)
+    assert "parameter_cosine" not in gate_names
+    assert "parameter_relative_rmse" not in gate_names
+
+
+def test_mce_irl_deep_accepts_shapeshifter_neural_reward_smoke_case():
+    dgp = build_known_truth_dgp(
+        ShapeshifterKnownTruthConfig(
+            env_config=ShapeshifterConfig(
+                num_states=6,
+                num_actions=2,
+                num_features=3,
+                reward_type="neural",
+                feature_type="linear",
+                action_dependent=False,
+                stochastic_transitions=True,
+                stochastic_rewards=False,
+                discount_factor=0.9,
+                state_dim=1,
+                network_width=8,
+                network_depth=1,
+                seed=914,
+            )
+        )
+    )
+    panel = simulate_known_truth_panel(
+        dgp,
+        SimulationConfig(n_individuals=8, n_periods=6, seed=915),
+    )
+
+    result = run_estimator("MCE-IRL Deep", dgp, panel, smoke=True)
+
+    assert result.compatibility.compatible
+    assert result.summary.parameters.shape == (0,)
+    assert result.metrics["parameters"] is None
+    assert result.summary.metadata["reward_type"] == "state"
+    assert result.summary.metadata["reward_validation_target"] == "raw_neural_reward_matrix"
+    assert result.summary.metadata["reward_matrix"].shape == (
+        dgp.problem.num_states,
+        dgp.problem.num_actions,
+    )
+    assert result.summary.policy.shape == (
+        dgp.problem.num_states,
+        dgp.problem.num_actions,
+    )
+    assert math.isfinite(result.metrics["reward_normalized_rmse"])
+    assert math.isfinite(result.metrics["value_normalized_rmse"])
+    assert math.isfinite(result.metrics["q_normalized_rmse"])
+    assert set(result.metrics["counterfactuals"]) == {"type_a", "type_b", "type_c"}
+
+
+def test_irl_normalized_rmse_removes_affine_reward_ambiguity_only():
+    truth = jnp.array([0.0, 1.0, 2.0, 3.0])
+    affine_same = 7.0 + 2.5 * truth
+    sign_flipped = 7.0 - 2.5 * truth
+
+    assert normalized_rmse(affine_same, truth) < 1e-8
+    assert normalized_rmse(sign_flipped, truth) > 1.0
 
 
 def test_nfxp_failed_non_smoke_recovery_raises_hard_gate():

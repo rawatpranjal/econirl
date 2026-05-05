@@ -152,6 +152,10 @@ class TDCCP:
         robust_se: bool = True,
         # Semi-gradient specific
         basis_dim: int = 8,
+        basis_type: Literal["polynomial", "encoded", "tabular"] = "polynomial",
+        basis_include_rewards: bool = False,
+        basis_ridge: float = 1e-8,
+        basis_pinv_rcond: float | None = None,
         # Neural AVI specific
         hidden_dim: int = 64,
         num_hidden_layers: int = 2,
@@ -188,6 +192,14 @@ class TDCCP:
             Compute locally robust standard errors (Section 4).
         basis_dim : int, default=8
             Number of polynomial basis functions for semi-gradient method.
+        basis_type : str, default="polynomial"
+            Semi-gradient basis: "polynomial", "encoded", or "tabular".
+        basis_include_rewards : bool, default=False
+            Include reward features in the encoded semi-gradient basis.
+        basis_ridge : float, default=1e-8
+            Ridge stabilization for the semi-gradient normal equation.
+        basis_pinv_rcond : float, optional
+            Pseudoinverse cutoff for nearly singular semi-gradient bases.
         hidden_dim : int, default=64
             Hidden units per layer in EV component networks.
         num_hidden_layers : int, default=2
@@ -216,6 +228,10 @@ class TDCCP:
         self.cross_fitting = cross_fitting
         self.robust_se = robust_se
         self.basis_dim = basis_dim
+        self.basis_type = basis_type
+        self.basis_include_rewards = basis_include_rewards
+        self.basis_ridge = basis_ridge
+        self.basis_pinv_rcond = basis_pinv_rcond
         self.hidden_dim = hidden_dim
         self.num_hidden_layers = num_hidden_layers
         self.avi_iterations = avi_iterations
@@ -344,6 +360,10 @@ class TDCCP:
         config = TDCCPConfig(
             method=self.method,
             basis_dim=self.basis_dim,
+            basis_type=self.basis_type,
+            basis_include_rewards=self.basis_include_rewards,
+            basis_ridge=self.basis_ridge,
+            basis_pinv_rcond=self.basis_pinv_rcond,
             hidden_dim=self.hidden_dim,
             num_hidden_layers=self.num_hidden_layers,
             avi_iterations=self.avi_iterations,

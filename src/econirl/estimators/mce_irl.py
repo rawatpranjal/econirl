@@ -16,6 +16,7 @@ from econirl.core.bellman import SoftBellmanOperator
 from econirl.core.reward_spec import RewardSpec
 from econirl.core.types import DDCProblem, Panel, Trajectory, TrajectoryPanel
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
+from econirl.preferences.action_reward import ActionDependentReward
 from econirl.preferences.reward import LinearReward
 from econirl.transitions import TransitionEstimator
 
@@ -36,8 +37,12 @@ class MCEIRL:
     discount : float, default=0.99
         Time discount factor (beta). Use <0.999 for numerical stability.
     feature_matrix : numpy.ndarray, optional
-        State feature matrix of shape (n_states, n_features).
-        If None, uses state index as single feature.
+        Feature matrix. State-only features have shape
+        ``(n_states, n_features)``. Action-dependent features have shape
+        ``(n_states, n_actions, n_features)``. For multi-action models,
+        ``fit`` raises if neither ``feature_matrix`` nor ``reward`` is
+        supplied; the old implicit state-index fallback is not a validated
+        structural specification.
     feature_names : list[str], optional
         Names for each feature.
     se_method : str, default="bootstrap"
@@ -281,31 +286,81 @@ class MCEIRL:
 
     def _build_transition_tensor(self, keep_transitions: np.ndarray) -> jnp.ndarray:
         """Build transition tensor for both actions."""
+        keep_transitions = np.asarray(keep_transitions, dtype=np.float32)
+        if keep_transitions.ndim == 3:
+            expected_shape = (self.n_actions, self.n_states, self.n_states)
+            if keep_transitions.shape != expected_shape:
+                raise ValueError(
+                    "3D transitions must have shape "
+                    f"{expected_shape}, got {keep_transitions.shape}"
+                )
+            return jnp.array(keep_transitions)
+
         n = self.n_states
         transitions = np.zeros((self.n_actions, n, n), dtype=np.float32)
 
         # Action 0 (keep): use provided transitions
-        transitions[0] = np.asarray(keep_transitions, dtype=np.float32)
+        transitions[0] = keep_transitions
 
-        # Action 1 (replace): reset to state 0, then transition
-        for s in range(n):
-            transitions[1, s, :] = transitions[0, 0, :]
+        # Non-keep actions: reset to state 0, then transition. This preserves
+        # the historical bus-replacement wrapper behavior for action 1 and
+        # avoids zero transition rows when callers set n_actions > 2.
+        for action in range(1, self.n_actions):
+            for s in range(n):
+                transitions[action, s, :] = transitions[0, 0, :]
 
         return jnp.array(transitions)
 
-    def _create_reward(self) -> LinearReward:
+    def _create_reward(self) -> LinearReward | ActionDependentReward:
         """Create reward function."""
-        if self.feature_matrix is not None:
-            features = jnp.array(self.feature_matrix, dtype=jnp.float32)
-            n_features = features.shape[1]
-        else:
-            features = jnp.expand_dims(jnp.arange(self.n_states, dtype=jnp.float32), axis=1)
+        if self.feature_matrix is None:
+            if self.n_actions > 1:
+                raise ValueError(
+                    "MCEIRL requires an explicit reward specification for "
+                    "multi-action structural recovery. Pass `reward=RewardSpec(...)` "
+                    "to fit(), or pass `feature_matrix` at construction time. "
+                    "The old state-index fallback is not identified for "
+                    "multi-action MCE-IRL."
+                )
+            features = jnp.expand_dims(
+                jnp.arange(self.n_states, dtype=jnp.float32),
+                axis=1,
+            )
             n_features = 1
+        else:
+            features = jnp.array(self.feature_matrix, dtype=jnp.float32)
+            if features.ndim == 2:
+                n_features = features.shape[1]
+            elif features.ndim == 3:
+                if features.shape[:2] != (self.n_states, self.n_actions):
+                    raise ValueError(
+                        "3D feature_matrix must have shape "
+                        f"({self.n_states}, {self.n_actions}, n_features), "
+                        f"got {features.shape}"
+                    )
+                n_features = features.shape[2]
+            else:
+                raise ValueError(
+                    "feature_matrix must be 2D (state-only) or 3D "
+                    f"(state-action), got shape {features.shape}"
+                )
 
         if self.feature_names is not None:
             param_names = list(self.feature_names)
         else:
             param_names = [f"f{i}" for i in range(n_features)]
+
+        if len(param_names) != n_features:
+            raise ValueError(
+                f"feature_names length {len(param_names)} must match "
+                f"feature dimension {n_features}"
+            )
+
+        if features.ndim == 3:
+            return ActionDependentReward(
+                feature_matrix=features,
+                parameter_names=param_names,
+            )
 
         return LinearReward(
             state_features=features,

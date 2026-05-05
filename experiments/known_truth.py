@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import time
 import traceback
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from pathlib import Path
@@ -26,12 +27,16 @@ from econirl.core.occupancy import (
 )
 from econirl.core.solvers import value_iteration
 from econirl.core.types import DDCProblem, Panel, Trajectory
+from econirl.environments.shapeshifter import (
+    ShapeshifterConfig,
+    ShapeshifterEnvironment,
+)
 from econirl.inference.results import EstimationSummary
 from econirl.preferences.action_reward import ActionDependentReward
 
 # --- Configuration ---
 StateMode = Literal["low_dim", "high_dim"]
-RewardMode = Literal["state_only", "action_dependent"]
+RewardMode = Literal["state_only", "action_dependent", "neural"]
 RewardDim = Literal["low", "high"]
 HeterogeneityMode = Literal["none", "latent_segments"]
 InitialStateMode = Literal["start", "uniform_regular"]
@@ -101,6 +106,86 @@ class KnownTruthDGPConfig:
 
 
 @dataclass(frozen=True)
+class ShapeshifterKnownTruthConfig:
+    """Known-truth harness adapter for the Shapeshifter flexible DGP.
+
+    Shapeshifter has no absorbing state or exit action. The bridge exposes the
+    small set of fields the shared harness needs while preserving the native
+    Shapeshifter configuration as the source of truth.
+    """
+
+    env_config: ShapeshifterConfig
+    state_mode: StateMode = "low_dim"
+    heterogeneity: HeterogeneityMode = "none"
+
+    @property
+    def reward_mode(self) -> RewardMode:
+        if self.env_config.reward_type == "neural":
+            return "neural"
+        if self.env_config.action_dependent:
+            return "action_dependent"
+        return "state_only"
+
+    @property
+    def reward_dim(self) -> RewardDim:
+        if self.env_config.feature_type == "neural" or self.env_config.num_features > 8:
+            return "high"
+        return "low"
+
+    @property
+    def num_states(self) -> int:
+        return self.env_config.total_states
+
+    @property
+    def num_actions(self) -> int:
+        return self.env_config.num_actions
+
+    @property
+    def num_regular_states(self) -> int:
+        return self.env_config.total_states
+
+    @property
+    def absorbing_state(self) -> None:
+        return None
+
+    @property
+    def exit_action(self) -> None:
+        return None
+
+    @property
+    def uses_exit_anchor(self) -> bool:
+        return False
+
+    @property
+    def num_segments(self) -> int:
+        return 1
+
+    @property
+    def seed(self) -> int:
+        return self.env_config.seed
+
+    def validate(self) -> None:
+        if self.env_config.total_states < 2:
+            raise ValueError("Shapeshifter total_states must be at least 2")
+        if self.env_config.num_actions < 2:
+            raise ValueError("Shapeshifter num_actions must be at least 2")
+        if self.heterogeneity != "none":
+            raise ValueError("Shapeshifter known-truth bridge is homogeneous")
+        if not 0 <= self.env_config.discount_factor < 1:
+            raise ValueError("discount_factor must be in [0, 1)")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": "shapeshifter",
+            "env_config": asdict(self.env_config),
+            "state_mode": self.state_mode,
+            "reward_mode": self.reward_mode,
+            "reward_dim": self.reward_dim,
+            "heterogeneity": self.heterogeneity,
+        }
+
+
+@dataclass(frozen=True)
 class SimulationConfig:
     """Panel simulation controls."""
 
@@ -125,7 +210,7 @@ class CounterfactualConfig:
 class KnownTruthDGP:
     """A fully specified synthetic DGP with all truth objects exposed."""
 
-    config: KnownTruthDGPConfig
+    config: KnownTruthDGPConfig | ShapeshifterKnownTruthConfig
     problem: DDCProblem
     transitions: jnp.ndarray
     feature_matrix: jnp.ndarray
@@ -161,7 +246,12 @@ class KnownTruthDGP:
         return jnp.einsum("g,gsa->sa", weights, self.reward_matrix)
 
     def utility(self) -> ActionDependentReward:
-        return ActionDependentReward(self.feature_matrix, self.parameter_names)
+        num_features = int(self.feature_matrix.shape[-1])
+        if len(self.parameter_names) == num_features:
+            names = self.parameter_names
+        else:
+            names = [f"feature_{k}" for k in range(num_features)]
+        return ActionDependentReward(self.feature_matrix, names)
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -176,11 +266,15 @@ class KnownTruthDGP:
         }
 
 
-def build_known_truth_dgp(config: KnownTruthDGPConfig | None = None) -> KnownTruthDGP:
+def build_known_truth_dgp(
+    config: KnownTruthDGPConfig | ShapeshifterKnownTruthConfig | None = None,
+) -> KnownTruthDGP:
     """Build a known-truth DGP from a config."""
 
     if config is None:
         config = KnownTruthDGPConfig()
+    if isinstance(config, ShapeshifterKnownTruthConfig):
+        return build_shapeshifter_known_truth_dgp(config)
     config.validate()
 
     transitions = _build_transitions(config)
@@ -215,6 +309,39 @@ def build_known_truth_dgp(config: KnownTruthDGPConfig | None = None) -> KnownTru
         reward_matrix=reward_matrix,
         initial_distribution=initial_distribution,
         segment_probabilities=segment_probabilities,
+    )
+
+
+def build_shapeshifter_known_truth_dgp(
+    config: ShapeshifterKnownTruthConfig,
+) -> KnownTruthDGP:
+    """Build a known-truth DGP from the Shapeshifter flexible environment."""
+
+    config.validate()
+    env = ShapeshifterEnvironment(config.env_config)
+    state_indices = jnp.arange(env.num_states, dtype=jnp.int32)
+    state_features = env.encode_states(state_indices)
+
+    if config.env_config.reward_type == "linear":
+        parameter_names = env.parameter_names
+        true_parameters = env.get_true_parameter_vector()
+    else:
+        parameter_names = []
+        true_parameters = jnp.asarray([], dtype=jnp.float32)
+
+    return KnownTruthDGP(
+        config=config,
+        problem=env.problem_spec,
+        transitions=jnp.asarray(env.transition_matrices, dtype=jnp.float32),
+        feature_matrix=jnp.asarray(env.feature_matrix, dtype=jnp.float32),
+        state_features=jnp.asarray(state_features, dtype=jnp.float32),
+        parameter_names=parameter_names,
+        true_parameters=true_parameters,
+        reward_matrix=jnp.asarray(env.true_reward_matrix, dtype=jnp.float32),
+        initial_distribution=jnp.asarray(
+            env._get_initial_state_distribution(), dtype=jnp.float32
+        ),
+        segment_probabilities=None,
     )
 
 
@@ -681,12 +808,44 @@ def _replace_truth_objects(
     )
 
 
+def _absorbing_state(dgp: KnownTruthDGP) -> int | None:
+    value = getattr(dgp.config, "absorbing_state", None)
+    if value is None:
+        return None
+    return int(value)
+
+
+def _exit_action(dgp: KnownTruthDGP) -> int | None:
+    if not bool(getattr(dgp.config, "uses_exit_anchor", False)):
+        return None
+    value = getattr(dgp.config, "exit_action", None)
+    if value is None:
+        return None
+    return int(value)
+
+
+def _regular_state_mask(dgp: KnownTruthDGP) -> jnp.ndarray:
+    mask = jnp.ones(dgp.problem.num_states, dtype=bool)
+    absorbing = _absorbing_state(dgp)
+    if absorbing is not None and 0 <= absorbing < dgp.problem.num_states:
+        mask = mask.at[absorbing].set(False)
+    return mask
+
+
+def _regular_state_limit(dgp: KnownTruthDGP) -> int:
+    absorbing = _absorbing_state(dgp)
+    if absorbing is None:
+        return dgp.problem.num_states
+    return min(int(getattr(dgp.config, "num_regular_states", absorbing)), dgp.problem.num_states)
+
+
 def _state_shift(dgp: KnownTruthDGP, amount: float) -> jnp.ndarray:
     progress = dgp.state_features[:, 0]
-    regular_mask = jnp.arange(dgp.problem.num_states) != dgp.config.absorbing_state
+    regular_mask = _regular_state_mask(dgp)
     action_mask = jnp.ones(dgp.problem.num_actions, dtype=jnp.float32)
-    if dgp.config.uses_exit_anchor:
-        action_mask = action_mask.at[dgp.config.exit_action].set(0.0)
+    exit_action = _exit_action(dgp)
+    if exit_action is not None:
+        action_mask = action_mask.at[exit_action].set(0.0)
     shift = amount * progress[:, None] * action_mask[None, :]
     shift = jnp.where(regular_mask[:, None], shift, 0.0)
     if dgp.reward_matrix.ndim == 3:
@@ -697,14 +856,20 @@ def _state_shift(dgp: KnownTruthDGP, amount: float) -> jnp.ndarray:
 def _skip_transitions(dgp: KnownTruthDGP, skip: int) -> jnp.ndarray:
     transitions = np.asarray(dgp.transitions).copy()
     advance_action = 0
-    if advance_action == dgp.config.exit_action:
+    exit_action = _exit_action(dgp)
+    if exit_action is not None and advance_action == exit_action:
         advance_action = 1
     transitions[advance_action, :, :] = 0.0
-    absorbing = dgp.config.absorbing_state
-    for state in range(dgp.config.num_regular_states):
-        target = min(state + skip, dgp.config.num_regular_states - 1)
+    absorbing = _absorbing_state(dgp)
+    regular_limit = _regular_state_limit(dgp)
+    for state in range(regular_limit):
+        if absorbing is None:
+            target = (state + skip) % regular_limit
+        else:
+            target = min(state + skip, regular_limit - 1)
         transitions[advance_action, state, target] = 1.0
-    transitions[advance_action, absorbing, absorbing] = 1.0
+    if absorbing is not None:
+        transitions[advance_action, absorbing, absorbing] = 1.0
     transitions = transitions / transitions.sum(axis=2, keepdims=True)
     return jnp.array(transitions, dtype=jnp.float32)
 
@@ -717,11 +882,13 @@ def _penalize_action(
 ) -> jnp.ndarray:
     if not 0 <= action < dgp.problem.num_actions:
         raise ValueError(f"action {action} is out of range")
-    if action == dgp.config.exit_action:
+    exit_action = _exit_action(dgp)
+    if exit_action is not None and action == exit_action:
         raise ValueError("Type C should not disable the anchor exit action")
+    regular_limit = _regular_state_limit(dgp)
     if reward.ndim == 2:
-        return reward.at[: dgp.config.num_regular_states, action].add(penalty)
-    return reward.at[:, : dgp.config.num_regular_states, action].add(penalty)
+        return reward.at[:regular_limit, action].add(penalty)
+    return reward.at[:, :regular_limit, action].add(penalty)
 
 
 # --- Pre-Estimation Diagnostics ---
@@ -771,18 +938,23 @@ def run_pre_estimation_diagnostics(
     row_sums = transitions.sum(axis=2)
     max_transition_row_error = float(np.max(np.abs(row_sums - 1.0)))
 
-    non_exit_actions = [a for a in range(dgp.problem.num_actions) if a != dgp.config.exit_action]
+    exit_action = _exit_action(dgp)
+    non_exit_actions = [
+        a for a in range(dgp.problem.num_actions) if a != exit_action
+    ]
     action_features = features[:, non_exit_actions, :]
     action_reference = action_features[:, :1, :]
     action_diff = np.max(np.abs(action_features - action_reference))
     is_action_dependent = bool(action_diff > 1e-8)
 
     anchor_valid = True
-    if dgp.config.uses_exit_anchor:
-        exit_reward = np.asarray(dgp.homogeneous_reward[:, dgp.config.exit_action])
-        absorbing_reward = np.asarray(dgp.homogeneous_reward[dgp.config.absorbing_state, :])
-        exit_transitions = transitions[dgp.config.exit_action, : dgp.config.num_regular_states]
-        anchor_target = exit_transitions[:, dgp.config.absorbing_state]
+    absorbing = _absorbing_state(dgp)
+    if exit_action is not None and absorbing is not None:
+        regular_limit = _regular_state_limit(dgp)
+        exit_reward = np.asarray(dgp.homogeneous_reward[:, exit_action])
+        absorbing_reward = np.asarray(dgp.homogeneous_reward[absorbing, :])
+        exit_transitions = transitions[exit_action, :regular_limit]
+        anchor_target = exit_transitions[:, absorbing]
         anchor_valid = bool(
             np.max(np.abs(exit_reward)) < 1e-6
             and np.max(np.abs(absorbing_reward)) < 1e-6
@@ -897,6 +1069,69 @@ def rmse(estimated: jnp.ndarray, truth: jnp.ndarray) -> float:
     estimated = jnp.asarray(estimated)
     truth = jnp.asarray(truth)
     return float(jnp.sqrt(jnp.mean((estimated - truth) ** 2)))
+
+
+def normalized_rmse(
+    estimated: jnp.ndarray,
+    truth: jnp.ndarray,
+    mask: jnp.ndarray | np.ndarray | None = None,
+    eps: float = 1e-12,
+) -> float:
+    """RMSE after the standard IRL location/scale normalization.
+
+    This is for IRL reward-like objects where additive constants and positive
+    rescaling are not the structural claim. It does not remove potential-based
+    shaping or change the policy gate.
+    """
+
+    estimated = jnp.asarray(estimated, dtype=jnp.float64)
+    truth = jnp.asarray(truth, dtype=jnp.float64)
+    if mask is not None:
+        mask_arr = jnp.asarray(mask, dtype=bool)
+        estimated = estimated[mask_arr]
+        truth = truth[mask_arr]
+    if estimated.size == 0:
+        estimated = jnp.ravel(jnp.asarray(estimated, dtype=jnp.float64))
+        truth = jnp.ravel(jnp.asarray(truth, dtype=jnp.float64))
+
+    truth_centered = truth - jnp.mean(truth)
+    estimated_centered = estimated - jnp.mean(estimated)
+    truth_scale = jnp.sqrt(jnp.mean(truth_centered**2))
+    estimated_scale = jnp.sqrt(jnp.mean(estimated_centered**2))
+    truth_norm = truth_centered / jnp.maximum(truth_scale, eps)
+    estimated_norm = estimated_centered / jnp.maximum(estimated_scale, eps)
+    return rmse(estimated_norm, truth_norm)
+
+
+def _affine_align_for_recovery(
+    estimated: jnp.ndarray,
+    truth: jnp.ndarray,
+    mask: jnp.ndarray | np.ndarray | None = None,
+    eps: float = 1e-12,
+) -> jnp.ndarray:
+    """Map an IRL reward estimate onto the truth location/scale convention."""
+
+    estimated = jnp.asarray(estimated, dtype=jnp.float64)
+    truth = jnp.asarray(truth, dtype=jnp.float64)
+    if mask is None:
+        est_vec = estimated.reshape(-1)
+        truth_vec = truth.reshape(-1)
+    else:
+        mask_arr = jnp.asarray(mask, dtype=bool)
+        est_vec = estimated[mask_arr]
+        truth_vec = truth[mask_arr]
+
+    est_centered = est_vec - jnp.mean(est_vec)
+    truth_centered = truth_vec - jnp.mean(truth_vec)
+    denom = jnp.sum(est_centered**2)
+    scale = jnp.where(
+        denom > eps,
+        jnp.sum(est_centered * truth_centered) / denom,
+        1.0,
+    )
+    scale = jnp.where(scale > eps, scale, 1.0)
+    offset = jnp.mean(truth_vec) - scale * jnp.mean(est_vec)
+    return scale * estimated + offset
 
 
 def parameter_metrics(
@@ -1029,23 +1264,43 @@ def evaluate_estimator_against_truth(
     metrics: dict[str, Any] = {
         "parameters": None,
         "reward_rmse": None,
+        "reward_normalized_rmse": None,
         "value_rmse": None,
+        "value_normalized_rmse": None,
         "q_rmse": None,
+        "q_normalized_rmse": None,
         "policy": None,
         "counterfactuals": {},
     }
 
-    if estimated_params.shape == true_params.shape:
+    if estimated_params.shape == true_params.shape and true_params.size > 0:
         metrics["parameters"] = parameter_metrics(true_params, estimated_params)
 
     estimated_reward = _extract_estimated_reward(dgp, summary, estimated_params)
     true_reward = get_segment_reward(dgp, segment_index)
+    counterfactual_estimated_reward = estimated_reward
     if estimated_reward is not None:
         metrics["reward_rmse"] = rmse(estimated_reward, true_reward)
+        metrics["reward_normalized_rmse"] = normalized_rmse(
+            estimated_reward,
+            true_reward,
+            _reward_recovery_mask(dgp),
+        )
+        if summary.metadata.get("counterfactual_reward_normalization") == "affine":
+            counterfactual_estimated_reward = _affine_align_for_recovery(
+                estimated_reward,
+                true_reward,
+                _reward_recovery_mask(dgp),
+            )
 
     if summary.value_function is not None:
         estimated_value = jnp.asarray(summary.value_function)
         metrics["value_rmse"] = rmse(estimated_value, truth.V)
+        metrics["value_normalized_rmse"] = normalized_rmse(
+            estimated_value,
+            truth.V,
+            _value_recovery_mask(dgp),
+        )
         if estimated_reward is not None:
             estimated_q = q_from_value(
                 estimated_reward,
@@ -1054,17 +1309,22 @@ def evaluate_estimator_against_truth(
                 dgp.problem.discount_factor,
             )
             metrics["q_rmse"] = rmse(estimated_q, truth.Q)
+            metrics["q_normalized_rmse"] = normalized_rmse(
+                estimated_q,
+                truth.Q,
+                _q_recovery_mask(dgp),
+            )
 
     if summary.policy is not None:
         estimated_policy = jnp.asarray(summary.policy)
         metrics["policy"] = policy_divergence(truth.policy, estimated_policy)
 
-        if estimated_reward is not None:
+        if counterfactual_estimated_reward is not None:
             for kind in counterfactual_kinds:
                 oracle = solve_counterfactual_oracle(dgp, kind, segment_index=segment_index)
                 cf_reward = oracle.counterfactual_solution.reward_matrix
                 reward_delta = cf_reward - true_reward
-                estimated_cf_reward = estimated_reward + reward_delta
+                estimated_cf_reward = counterfactual_estimated_reward + reward_delta
                 operator = SoftBellmanOperator(dgp.problem, oracle.counterfactual.transitions)
                 estimated_cf = value_iteration(
                     operator,
@@ -1086,6 +1346,39 @@ def evaluate_estimator_against_truth(
     return metrics
 
 
+def _reward_recovery_mask(dgp: KnownTruthDGP) -> jnp.ndarray:
+    mask = np.ones(
+        (dgp.problem.num_states, dgp.problem.num_actions),
+        dtype=bool,
+    )
+    absorbing = _absorbing_state(dgp)
+    if absorbing is not None and 0 <= absorbing < dgp.problem.num_states:
+        mask[absorbing, :] = False
+    exit_action = _exit_action(dgp)
+    if exit_action is not None and 0 <= exit_action < dgp.problem.num_actions:
+        mask[:, exit_action] = False
+    return jnp.asarray(mask)
+
+
+def _value_recovery_mask(dgp: KnownTruthDGP) -> jnp.ndarray:
+    mask = np.ones(dgp.problem.num_states, dtype=bool)
+    absorbing = _absorbing_state(dgp)
+    if absorbing is not None and 0 <= absorbing < dgp.problem.num_states:
+        mask[absorbing] = False
+    return jnp.asarray(mask)
+
+
+def _q_recovery_mask(dgp: KnownTruthDGP) -> jnp.ndarray:
+    mask = np.ones(
+        (dgp.problem.num_states, dgp.problem.num_actions),
+        dtype=bool,
+    )
+    absorbing = _absorbing_state(dgp)
+    if absorbing is not None and 0 <= absorbing < dgp.problem.num_states:
+        mask[absorbing, :] = False
+    return jnp.asarray(mask)
+
+
 def _extract_estimated_reward(
     dgp: Any,
     summary: Any,
@@ -1094,14 +1387,14 @@ def _extract_estimated_reward(
     """Recover an estimator reward matrix when its output supports one."""
 
     true_params = jnp.asarray(dgp.homogeneous_parameters)
-    if estimated_params.shape == true_params.shape:
-        return dgp.utility().compute(estimated_params)
-
     metadata_reward = summary.metadata.get("reward_matrix")
     if metadata_reward is not None:
         reward = jnp.asarray(metadata_reward)
         if reward.shape == dgp.homogeneous_reward.shape:
             return reward
+
+    if estimated_params.shape == true_params.shape and true_params.size > 0:
+        return dgp.utility().compute(estimated_params)
 
     if estimated_params.size == dgp.problem.num_states * dgp.problem.num_actions:
         return estimated_params.reshape((dgp.problem.num_states, dgp.problem.num_actions))
@@ -1183,7 +1476,7 @@ ESTIMATOR_CONTRACTS: dict[str, EstimatorContract] = {
         name="MCE-IRL",
         code_path="src/econirl/estimation/mce_irl.py",
         paper_paths=("papers/foundational/ziebart_2010_mce_irl.md",),
-        required_reward_modes=("action_dependent", "state_only"),
+        required_reward_modes=("action_dependent",),
         required_state_modes=("low_dim",),
         requires_transitions=True,
         recovers=("reward", "policy", "occupancy"),
@@ -1191,6 +1484,27 @@ ESTIMATOR_CONTRACTS: dict[str, EstimatorContract] = {
         type_b_support="valid_with_normalization",
         type_c_support="valid_with_normalization",
         notes="Reward comparisons require the accepted IRL normalization.",
+    ),
+    "MCE-IRL Deep": EstimatorContract(
+        name="MCE-IRL Deep",
+        code_path="src/econirl/estimators/mceirl_neural.py",
+        paper_paths=(
+            "papers/foundational/ziebart_2010_mce_irl.md",
+            "papers/foundational/wulfmeier_2015_deep_maxent_irl.md",
+        ),
+        required_reward_modes=("state_only", "action_dependent", "neural"),
+        required_state_modes=("low_dim",),
+        requires_transitions=True,
+        recovers=("reward", "policy", "value", "Q", "occupancy"),
+        type_a_support="valid_with_normalization",
+        type_b_support="valid_with_normalization",
+        type_c_support="valid_with_normalization",
+        gpu_recommended=True,
+        notes=(
+            "Validated targets are reward-map, policy, value, Q, occupancy, "
+            "and counterfactual recovery under known transitions. Neural "
+            "network weights themselves are not structural parameters."
+        ),
     ),
     "TD-CCP": EstimatorContract(
         name="TD-CCP",
@@ -1404,6 +1718,210 @@ def check_estimator_compatibility(
     )
 
 
+class _MCEIRLNeuralKnownTruthAdapter:
+    """Adapter from the sklearn-style neural MCE wrapper to EstimationSummary."""
+
+    def __init__(
+        self,
+        dgp: KnownTruthDGP,
+        *,
+        smoke: bool = False,
+        verbose: bool = False,
+    ) -> None:
+        self.dgp = dgp
+        self.smoke = smoke
+        self.verbose = verbose
+
+    def estimate(
+        self,
+        panel: Panel,
+        utility: Any,
+        problem: DDCProblem,
+        transitions: jnp.ndarray,
+        initial_params: jnp.ndarray | None = None,
+    ) -> EstimationSummary:
+        from econirl.estimators.mceirl_neural import MCEIRLNeural
+
+        del utility, initial_params
+        start = time.time()
+        state_features = jnp.asarray(self.dgp.state_features)
+        true_params = jnp.asarray(self.dgp.homogeneous_parameters)
+        is_neural_reward_truth = true_params.size == 0
+        env_config = getattr(self.dgp.config, "env_config", None)
+        truth_action_dependent = bool(
+            getattr(
+                env_config,
+                "action_dependent",
+                getattr(self.dgp.config, "reward_mode", "") == "action_dependent",
+            )
+        )
+        reward_type = (
+            "state_action"
+            if truth_action_dependent
+            else "state"
+        )
+        network_source = env_config if env_config is not None else self.dgp.config
+        network_width = (
+            int(network_source.network_width)
+            if hasattr(network_source, "network_width")
+            else (16 if self.smoke else 32)
+        )
+        network_depth = (
+            int(network_source.network_depth)
+            if hasattr(network_source, "network_depth")
+            else (1 if self.smoke else 2)
+        )
+
+        def state_encoder(states: jnp.ndarray) -> jnp.ndarray:
+            if problem.state_encoder is not None:
+                return problem.state_encoder(jnp.asarray(states, dtype=jnp.int32))
+            return state_features[jnp.asarray(states, dtype=jnp.int32)]
+
+        model = MCEIRLNeural(
+            n_states=problem.num_states,
+            n_actions=problem.num_actions,
+            discount=problem.discount_factor,
+            reward_type=reward_type,
+            reward_hidden_dim=min(network_width, 16) if self.smoke else network_width,
+            reward_num_layers=1 if self.smoke else network_depth,
+            max_epochs=80 if self.smoke else 1_200,
+            lr=3e-3,
+            inner_solver="value",
+            inner_tol=1e-8,
+            inner_max_iter=1_000 if self.smoke else 5_000,
+            state_encoder=state_encoder,
+            state_dim=problem.state_dim,
+            feature_names=list(self.dgp.parameter_names),
+            anchor_action=0 if reward_type == "state_action" else None,
+            absorbing_state=_absorbing_state(self.dgp),
+            seed=2,
+            verbose=self.verbose,
+        )
+        projection_features = (
+            np.asarray(self.dgp.feature_matrix)
+            if len(self.dgp.parameter_names) == int(self.dgp.feature_matrix.shape[-1])
+            else None
+        )
+        projection_condition_number = None
+        projected_parameter_identified = False
+        if projection_features is not None:
+            projection_condition_number = _safe_condition_number(
+                np.asarray(projection_features).reshape(-1, projection_features.shape[-1])
+            )
+            projected_parameter_identified = bool(
+                true_params.size > 0 and projection_condition_number <= 100.0
+            )
+        model.fit(
+            panel,
+            transitions=np.asarray(transitions),
+            features=projection_features,
+        )
+
+        raw_reward_matrix = np.asarray(model.reward_matrix_, dtype=np.float64)
+        if model.policy_ is None:
+            raise RuntimeError("MCEIRLNeural did not produce a policy")
+
+        projected_parameters = jnp.asarray([], dtype=jnp.float64)
+        projected_reward_matrix = None
+        projected_solution = None
+        if model.coef_ is not None and true_params.size > 0:
+            projected_parameters = jnp.asarray(model.coef_, dtype=jnp.float64)
+            projected_reward_matrix = np.asarray(
+                self.dgp.utility().compute(projected_parameters),
+                dtype=np.float64,
+            )
+            operator = SoftBellmanOperator(
+                problem, jnp.asarray(transitions, dtype=jnp.float64)
+            )
+            projected_solution = value_iteration(
+                operator,
+                jnp.asarray(projected_reward_matrix, dtype=jnp.float64),
+                tol=1e-8,
+                max_iter=10_000,
+            )
+
+        if is_neural_reward_truth or projected_solution is None:
+            reward_matrix = raw_reward_matrix
+            policy = jnp.asarray(model.policy_, dtype=jnp.float64)
+            value_function = jnp.asarray(model.value_, dtype=jnp.float64)
+            reward_validation_target = "raw_neural_reward_matrix"
+        else:
+            reward_matrix = projected_reward_matrix
+            policy = jnp.asarray(projected_solution.policy, dtype=jnp.float64)
+            value_function = jnp.asarray(projected_solution.V, dtype=jnp.float64)
+            reward_validation_target = "projected_linear_reward_matrix"
+
+        states = np.asarray(panel.get_all_states(), dtype=np.int64)
+        actions = np.asarray(panel.get_all_actions(), dtype=np.int64)
+        log_probs = np.log(np.clip(np.asarray(policy)[states, actions], 1e-12, 1.0))
+        ll = float(log_probs.sum())
+
+        parameter_names = list(self.dgp.parameter_names)
+        se_values = None
+        if model.se_ is not None:
+            se_values = [model.se_.get(name, np.nan) for name in parameter_names]
+        return EstimationSummary(
+            parameters=projected_parameters,
+            parameter_names=parameter_names,
+            standard_errors=(
+                jnp.asarray(se_values, dtype=jnp.float64)
+                if se_values is not None
+                else jnp.full_like(projected_parameters, jnp.nan)
+            ),
+            method="MCE-IRL Deep",
+            num_observations=panel.num_observations,
+            num_individuals=panel.num_individuals,
+            num_periods=max(panel.num_periods_per_individual),
+            discount_factor=problem.discount_factor,
+            scale_parameter=problem.scale_parameter,
+            log_likelihood=ll,
+            converged=bool(model.converged_),
+            num_iterations=int(model.n_epochs_ or 0),
+            convergence_message=(
+                "Neural MCE reward training completed"
+                if model.converged_
+                else "Neural MCE reward training stopped before convergence"
+            ),
+            value_function=value_function,
+            policy=policy,
+            estimation_time=time.time() - start,
+            metadata={
+                "estimator": "MCE-IRL Deep",
+                "reward_type": model.reward_type,
+                "truth_reward_type": getattr(
+                    getattr(self.dgp.config, "env_config", self.dgp.config),
+                    "reward_type",
+                    getattr(self.dgp.config, "reward_mode", None),
+                ),
+                "truth_feature_type": getattr(
+                    getattr(self.dgp.config, "env_config", self.dgp.config),
+                    "feature_type",
+                    None,
+                ),
+                "feature_difference": model.feature_difference_,
+                "feature_diff": model.feature_difference_,
+                "occupancy_moment_residual": model.occupancy_moment_residual_,
+                "reward_matrix": reward_matrix,
+                "raw_neural_reward_matrix": raw_reward_matrix,
+                "reward_validation_target": reward_validation_target,
+                "counterfactual_reward_normalization": "affine",
+                "projection_r2": model.projection_r2_,
+                "projection_condition_number": projection_condition_number,
+                "projected_parameter_identified": projected_parameter_identified,
+                "projected_parameters": np.asarray(projected_parameters).tolist(),
+                "projected_parameter_names": list(self.dgp.parameter_names),
+                "raw_neural_feature_difference": model.feature_difference_,
+                "raw_neural_occupancy_moment_residual": model.occupancy_moment_residual_,
+                "anchor_action": model.anchor_action,
+                "absorbing_state": model.absorbing_state,
+                "network_hidden_dim": model.reward_hidden_dim,
+                "network_num_layers": model.reward_num_layers,
+                "learning_rate": model.lr,
+                "seed": model.seed,
+            },
+        )
+
+
 def make_estimator(
     estimator_name: str,
     dgp: KnownTruthDGP,
@@ -1459,22 +1977,36 @@ def make_estimator(
 
         return MCEIRLEstimator(
             config=MCEIRLConfig(
-                outer_max_iter=30 if smoke else 300,
+                optimizer="root",
+                outer_max_iter=60 if smoke else 300,
+                outer_tol=1e-8,
                 inner_max_iter=1_000 if smoke else 10_000,
                 compute_se=False,
                 verbose=verbose,
             )
         )
+    if estimator_name == "MCE-IRL Deep":
+        return _MCEIRLNeuralKnownTruthAdapter(
+            dgp,
+            smoke=smoke,
+            verbose=verbose,
+        )
     if estimator_name == "TD-CCP":
         from econirl.estimation.td_ccp import TDCCPConfig, TDCCPEstimator
 
+        high_dim = dgp.config.state_mode == "high_dim"
         return TDCCPEstimator(
             config=TDCCPConfig(
                 method="semigradient",
-                basis_dim=min(8, dgp.feature_matrix.shape[-1]),
-                cross_fitting=False if smoke else True,
+                basis_type="encoded",
+                basis_dim=3,
+                basis_include_rewards=True,
+                ccp_smoothing=0.1 if high_dim else 0.01,
+                cross_fitting=False,
                 robust_se=False,
-                outer_max_iter=50 if smoke else 200,
+                outer_max_iter=50 if smoke else 500,
+                outer_tol=1e-6 if smoke else 1e-8,
+                theta_l2_penalty=1_000.0 if high_dim and not smoke else 0.0,
                 compute_se=False,
                 verbose=verbose,
             )
@@ -1798,6 +2330,148 @@ def recovery_gates(
             )
         return checks
 
+    if estimator_name == "MCE-IRL":
+        feature_residual = float(
+            summary.metadata.get(
+                "feature_difference",
+                summary.metadata.get("feature_diff", float("inf")),
+            )
+        )
+        occupancy_moment_residual = float(
+            summary.metadata.get("occupancy_moment_residual", float("inf"))
+        )
+        checks = [
+            _bool_gate("converged", bool(summary.converged), True),
+            _numeric_gate("feature_residual", feature_residual, "<=", 0.02),
+            _numeric_gate(
+                "occupancy_moment_residual",
+                occupancy_moment_residual,
+                "<=",
+                0.02,
+            ),
+            _numeric_gate(
+                "reward_normalized_rmse",
+                metrics["reward_normalized_rmse"],
+                "<=",
+                0.10,
+            ),
+            _numeric_gate("policy_tv", metrics["policy"].tv, "<=", 0.03),
+            _numeric_gate(
+                "value_normalized_rmse",
+                metrics["value_normalized_rmse"],
+                "<=",
+                0.10,
+            ),
+            _numeric_gate(
+                "q_normalized_rmse",
+                metrics["q_normalized_rmse"],
+                "<=",
+                0.10,
+            ),
+        ]
+        for kind, cf_metrics in sorted(metrics["counterfactuals"].items()):
+            checks.append(
+                _numeric_gate(f"{kind}_regret", cf_metrics.regret, "<=", 0.05)
+            )
+        return checks
+
+    if estimator_name == "MCE-IRL Deep":
+        occupancy_moment_residual = float(
+            summary.metadata.get("occupancy_moment_residual", float("inf"))
+        )
+        neural_reward_target = (
+            summary.metadata.get("reward_validation_target")
+            == "raw_neural_reward_matrix"
+            and metrics["parameters"] is None
+        )
+        reward_threshold = 0.15 if neural_reward_target else 0.10
+        policy_threshold = 0.05 if neural_reward_target else 0.03
+        value_threshold = 0.15 if neural_reward_target else 0.10
+        q_threshold = 0.15 if neural_reward_target else 0.10
+        cf_threshold = 0.08
+        checks = [
+            _bool_gate("converged", bool(summary.converged), True),
+            _numeric_gate(
+                "occupancy_moment_residual",
+                occupancy_moment_residual,
+                "<=",
+                0.03 if neural_reward_target else 0.02,
+            ),
+            _numeric_gate(
+                "reward_normalized_rmse",
+                metrics["reward_normalized_rmse"],
+                "<=",
+                reward_threshold,
+            ),
+            _numeric_gate("policy_tv", metrics["policy"].tv, "<=", policy_threshold),
+            _numeric_gate(
+                "value_normalized_rmse",
+                metrics["value_normalized_rmse"],
+                "<=",
+                value_threshold,
+            ),
+            _numeric_gate(
+                "q_normalized_rmse",
+                metrics["q_normalized_rmse"],
+                "<=",
+                q_threshold,
+            ),
+        ]
+        parameter_gates_apply = bool(
+            metrics["parameters"] is not None
+            and summary.metadata.get("projected_parameter_identified", True)
+        )
+        if parameter_gates_apply:
+            checks.insert(
+                2,
+                _numeric_gate(
+                    "projected_parameter_cosine",
+                    metrics["parameters"].cosine_similarity,
+                    ">=",
+                    0.98,
+                ),
+            )
+            checks.insert(
+                3,
+                _numeric_gate(
+                    "projected_parameter_relative_rmse",
+                    metrics["parameters"].relative_rmse,
+                    "<=",
+                    0.15,
+                ),
+            )
+        for kind, cf_metrics in sorted(metrics["counterfactuals"].items()):
+            checks.append(
+                _numeric_gate(f"{kind}_regret", cf_metrics.regret, "<=", cf_threshold)
+            )
+        return checks
+
+    if estimator_name == "TD-CCP":
+        checks = [
+            _bool_gate("converged", bool(summary.converged), True),
+            _numeric_gate(
+                "parameter_cosine",
+                metrics["parameters"].cosine_similarity,
+                ">=",
+                0.99,
+            ),
+            _numeric_gate(
+                "parameter_relative_rmse",
+                metrics["parameters"].relative_rmse,
+                "<=",
+                0.15,
+            ),
+            _numeric_gate("reward_rmse", metrics["reward_rmse"], "<=", 0.03),
+            _numeric_gate("policy_tv", metrics["policy"].tv, "<=", 0.02),
+            _numeric_gate("value_rmse", metrics["value_rmse"], "<=", 0.10),
+            _numeric_gate("q_rmse", metrics["q_rmse"], "<=", 0.10),
+        ]
+        for kind, cf_metrics in sorted(metrics["counterfactuals"].items()):
+            checks.append(
+                _numeric_gate(f"{kind}_regret", cf_metrics.regret, "<=", 0.01)
+            )
+        return checks
+
     if estimator_name != "NFXP":
         raise NotImplementedError(
             f"No hard non-smoke recovery gates are implemented for {estimator_name}"
@@ -1904,7 +2578,7 @@ def to_jsonable(value: Any) -> Any:
 @dataclass(frozen=True)
 class KnownTruthCell:
     cell_id: str
-    dgp_config: KnownTruthDGPConfig
+    dgp_config: KnownTruthDGPConfig | ShapeshifterKnownTruthConfig
     simulation_config: SimulationConfig = field(default_factory=SimulationConfig)
     description: str = ""
 
@@ -1965,6 +2639,94 @@ DEFAULT_CELLS: tuple[KnownTruthCell, ...] = (
         ),
         description="Universal DGP preset: latent-segment benchmark for heterogeneous estimators.",
     ),
+    KnownTruthCell(
+        cell_id="deep_mce_neural_reward",
+        dgp_config=ShapeshifterKnownTruthConfig(
+            env_config=ShapeshifterConfig(
+                num_states=32,
+                num_actions=3,
+                num_features=4,
+                reward_type="neural",
+                feature_type="linear",
+                action_dependent=True,
+                stochastic_transitions=True,
+                stochastic_rewards=False,
+                num_periods=None,
+                discount_factor=0.95,
+                scale_parameter=1.0,
+                state_dim=1,
+                network_width=32,
+                network_depth=2,
+                reward_scale=3.0,
+                seed=146,
+            ),
+        ),
+        simulation_config=SimulationConfig(n_individuals=2_000, n_periods=80, seed=146),
+        description=(
+            "Deep MCE primary Shapeshifter cell: frozen nonlinear neural "
+            "reward with action 0 anchored to zero, linear features, known "
+            "stochastic transitions, and full state-action reward-map validation."
+        ),
+    ),
+    KnownTruthCell(
+        cell_id="deep_mce_neural_features",
+        dgp_config=ShapeshifterKnownTruthConfig(
+            env_config=ShapeshifterConfig(
+                num_states=32,
+                num_actions=3,
+                num_features=4,
+                reward_type="linear",
+                feature_type="neural",
+                action_dependent=True,
+                stochastic_transitions=True,
+                stochastic_rewards=False,
+                num_periods=None,
+                discount_factor=0.95,
+                scale_parameter=1.0,
+                state_dim=1,
+                network_width=32,
+                network_depth=2,
+                reward_scale=3.0,
+                seed=147,
+            ),
+        ),
+        simulation_config=SimulationConfig(n_individuals=2_000, n_periods=80, seed=147),
+        description=(
+            "Deep MCE Shapeshifter finite-theta cell: frozen neural features "
+            "with action 0 anchored to zero and a linear reward, retained to "
+            "test structural theta recovery when the feature matrix is the "
+            "true reward basis."
+        ),
+    ),
+    KnownTruthCell(
+        cell_id="deep_mce_neural_reward_features",
+        dgp_config=ShapeshifterKnownTruthConfig(
+            env_config=ShapeshifterConfig(
+                num_states=32,
+                num_actions=3,
+                num_features=4,
+                reward_type="neural",
+                feature_type="neural",
+                action_dependent=True,
+                stochastic_transitions=True,
+                stochastic_rewards=False,
+                num_periods=None,
+                discount_factor=0.95,
+                scale_parameter=1.0,
+                state_dim=1,
+                network_width=32,
+                network_depth=2,
+                reward_scale=3.0,
+                seed=148,
+            ),
+        ),
+        simulation_config=SimulationConfig(n_individuals=2_000, n_periods=80, seed=148),
+        description=(
+            "Deep MCE hard Shapeshifter stress test: frozen neural reward and "
+            "frozen neural features with action 0 anchored to zero. Failures "
+            "are retained as failed gates, not converted into success prose."
+        ),
+    ),
 )
 
 
@@ -1973,6 +2735,7 @@ CELL_ALIASES: dict[str, str] = {
     "low_state_state_only_reward": "canonical_low_state_only",
     "high_state_high_reward": "canonical_high_action",
     "latent_segments": "canonical_latent_segments",
+    "deep_mce_state_reward_32": "deep_mce_neural_reward",
 }
 
 

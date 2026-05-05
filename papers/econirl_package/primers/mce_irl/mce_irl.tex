@@ -1,6 +1,6 @@
 \documentclass[10pt]{article}
 \usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
-\input{notation}
+\input{../notation}
 \usepackage[ruled,lined]{algorithm2e}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
@@ -8,8 +8,6 @@
 
 \newcommand{\calL}{\mathcal{L}}
 \newcommand{\calC}{\mathcal{C}}
-\DeclareMathOperator*{\argmin}{arg\,min}
-\DeclareMathOperator*{\argmax}{arg\,max}
 
 \title{Primer: Maximum Causal Entropy IRL (MCE-IRL)}
 \author{econirl package documentation}
@@ -23,7 +21,7 @@
 \section{Problem and Motivation}
 %% ============================================================
 
-Standard maximum entropy IRL \citep{ziebart2008} uses non-causal state visitation frequencies that propagate future information backward, violating the agent's information structure. \citet{ziebart2010} introduced Maximum Causal Entropy IRL (MCE-IRL), which conditions each action only on information available at decision time by replacing Shannon entropy $H(A^T)$ with causal entropy $H(A_t | S_{1:t}, A_{1:t-1})$. The resulting softmax Bellman equation is simultaneously the MCE optimal policy (Theorem 1 of \citealt{ziebart2010}) and the structural logit choice model of \citet{rust1987}, making MCE-IRL the bridge between econometrics and IRL.
+\citet{ziebart2010} introduced Maximum Causal Entropy IRL (MCE-IRL), which conditions each action only on information available at decision time by replacing Shannon entropy $H(A^T)$ with causal entropy $H(A_t | S_{1:t}, A_{1:t-1})$. This avoids non-causal visitation calculations that can propagate future information backward. The resulting softmax Bellman equation is simultaneously the MCE optimal policy (Theorem 1 of \citealt{ziebart2010}) and the structural logit choice model of \citet{rust1987}, making MCE-IRL the bridge between econometrics and IRL.
 
 
 %% ============================================================
@@ -212,18 +210,28 @@ Bootstrap SEs by resampling individuals and re-estimating\;
 
 \input{mce_irl_results}
 
-We run MCE-IRL, NFXP, and behavioral cloning on a \mceGridSize$\times$\mceGridSize\ gridworld with \mceNstates\ states, 5 actions, and three action-dependent features (step penalty, terminal reward, distance weight). Data consists of \mceNobs\ observations at $\beta = \mceBeta$.
+The validation uses the shared known-truth DGP rather than a real-data
+example. The DGP supplies the true reward, transition law, value function,
+policy, occupancy measures, and Type A/B/C counterfactual oracles. The success
+claim is therefore structural recovery under known transitions and known
+action-dependent reward features, not a high likelihood value by itself.
 
-MCE-IRL and NFXP achieve identical policy accuracy (\mcePolicyAcc\% and \mceNfxpPolicyAcc\%), confirming that they solve the same MLE. Both substantially outperform behavioral cloning (\mceBcPolicyAcc\%), which does not learn from MDP structure. Policy accuracy is the correct evaluation metric for IRL because rewards are identified only up to an additive constant and scale.
+Reward, value, and \(Q\) recovery are reported after the standard IRL
+location-and-scale normalization. The policy and counterfactual gates are not
+normalized: they test whether the recovered reward actually induces the right
+behavior in the baseline and intervention environments. Raw parameter cosine is
+not used as a gate for MCE-IRL.
 
 \paragraph{Code.}
-The companion script \texttt{mce\_irl\_results.py} in this folder generates Table~\ref{tab:mce_results}. The MCE-IRL estimator is implemented in \texttt{src/econirl/estimation/mce\_irl.py}. To regenerate:
+The companion script \texttt{mce\_irl\_run.py} in this folder generates the
+JSON and \LaTeX{} artifacts. The MCE-IRL estimator is implemented in
+\texttt{src/econirl/estimation/mce\_irl.py}. To regenerate:
 \begin{verbatim}
-python papers/econirl_package/primers/mce_irl/mce_irl_results.py
+PYTHONPATH=src:. python papers/econirl_package/primers/mce_irl/mce_irl_run.py --enforce-gates
 \end{verbatim}
 
 
 \bibliographystyle{plainnat}
-\bibliography{references}
+\bibliography{../references}
 
 \end{document}

@@ -48,28 +48,42 @@
 
 - Paper conditions: features must be **action-dependent** (varying across actions for at least some states), per Ziebart 2010 Section 3.2. With state-only features, `phi(s, a) = phi(s)` for all a, and the moment-matching condition is satisfied trivially by any `theta` that integrates to `mu_E`. The likelihood surface collapses.
 
-- Code enforcement: the underlying `MCEIRLEstimator` accepts an action-dependent feature matrix and works correctly when one is supplied. **The wrapper layer is broken**: when `feature_matrix=None` is passed (the documented default in the docstring), the wrapper falls back to a single state-only scalar feature, silently constructing an unidentified model. This is documented in VALIDATION_LOG.md ("MCE-IRL on rust-small": **Fail**, "MCE-IRL on ziebart-small": **Fail**).
+- Code enforcement: the underlying `MCEIRLEstimator` accepts an action-dependent feature matrix and the shared known-truth harness now validates that low-level path directly. The sklearn-style wrapper no longer silently treats `feature_matrix=None` as a validated multi-action structural default: `fit()` raises unless the user passes a `RewardSpec` or an explicit `feature_matrix`.
 
-- Match: **wrapper diverges from paper**.
+- Match: **yes for the validated low-level path; wrapper guard fixed**.
 
 ### Hyperparameter defaults vs paper defaults
 
-- `MCEIRLConfig.learning_rate`: 0.01 (gradient-descent path).
+- `MCEIRLConfig.learning_rate`: 0.02 (gradient/Adam path; not used by the
+  gated root run).
 - `MCEIRLConfig.outer_max_iter`: 200.
-- `MCEIRLConfig.inner_max_iter`: 200 (for the soft VI inner solver).
+- `MCEIRLConfig.inner_max_iter`: 10000 (for the soft VI inner solver).
+- Known-truth validation override: `optimizer="root"`, `outer_tol=1e-8`,
+  `compute_se=False`.
 - `MCEIRLConfig.occupancy_tol`: dual stopping criterion borrowed from imitation, controls the L-infinity threshold between demo and policy state visitation.
 
 Match: **yes** for the configurable knobs. The defaults are reasonable for medium panels.
 
 ### Findings / fixes applied
 
-- **Wrapper-default fix recommended.** The wrapper should either:
-  (a) raise an error when `feature_matrix is None` and `panel.num_actions > 1`, or
-  (b) auto-construct an action-dependent default like NFXP's `linear_cost` template, or
-  (c) require the user to pass `feature_matrix` explicitly with no default.
+- **Known-truth validation added.** `experiments/known_truth.py` now runs
+  `MCEIRLEstimator` with `MCEIRLConfig(optimizer="root", compute_se=False)` on
+  action-dependent known-truth features. The non-smoke gates are convergence,
+  feature residual, occupancy moment residual, normalized reward/value/Q RMSE,
+  policy TV, and Type A/B/C counterfactual regret. Raw parameter cosine is not
+  a gate.
 
-  The Tier 2 and Tier 4 cells already pass an action-dependent `feature_matrix` via the `LinearUtility.from_environment` path, so the cells are not affected by the wrapper bug. The bug bites only ad-hoc users who follow the wrapper docstring.
+- **Moment bug fixed.** Empirical MCE feature moments now use discounted
+  state-action occupancy, matching the infinite-horizon expected occupancy
+  side. The old unweighted panel average could match moments while recovering
+  the wrong reward and policy.
 
-- The fix is a wrapper-layer change, not a core-estimator change. Tracked for follow-up; not applied in this audit pass to keep the scope tight (changing the wrapper signature is a breaking API change that needs a separate decision).
+- **Wrapper-default guard applied.** The wrapper keeps constructor
+  compatibility but raises at `fit()` for multi-action models without an
+  explicit reward specification or feature matrix. It also accepts 3D
+  state-action feature matrices.
 
-- VALIDATION_LOG.md status: **Fail (wrapper default unidentified)** — unchanged.
+- VALIDATION_LOG.md status: **Pass**. The generated artifact
+  `papers/econirl_package/primers/mce_irl/mce_irl_results.json` passes 20/20
+  gates across the canonical sanity cell and the primary
+  `mce_low_high_reward` cell.

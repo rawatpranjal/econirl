@@ -12,12 +12,28 @@ import pytest
 import jax
 import jax.numpy as jnp
 import numpy as np
+from types import SimpleNamespace
 
+from econirl.core.bellman import SoftBellmanOperator
+from econirl.core.solvers import value_iteration
 from econirl.core.types import DDCProblem, Panel, Trajectory
+from econirl.environments.shapeshifter import ShapeshifterConfig, ShapeshifterEnvironment
 from econirl.environments.rust_bus import RustBusEnvironment
-from econirl.estimation.td_ccp import TDCCPEstimator, TDCCPConfig, _EVComponentNetwork
+from econirl.estimation.td_ccp import (
+    TDCCPEstimator,
+    TDCCPConfig,
+    _EVComponentNetwork,
+    make_state_action_tabular_utility,
+)
 from econirl.preferences.linear import LinearUtility
 from econirl.simulation.synthetic import simulate_panel
+from papers.econirl_package.primers.tdccp.tdccp_run import (
+    build_paper_hard_case_dgp,
+    evaluate_hard_case_summary,
+    evaluate_paper_hard_case_summary,
+    tdccp_hard_case_gates,
+    tdccp_paper_hard_case_gates,
+)
 
 
 # ============================================================================
@@ -233,6 +249,240 @@ class TestSemigradientSolve:
         assert np.all(np.isfinite(h_table))
         assert np.all(np.isfinite(g_table))
 
+    def test_encoded_basis_uses_state_encoder(self):
+        """Encoded basis should use problem.state_encoder, not scalar labels."""
+        state_features = jnp.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.5, 0.5],
+            ],
+            dtype=jnp.float64,
+        )
+        problem = DDCProblem(
+            num_states=3,
+            num_actions=2,
+            discount_factor=0.9,
+            state_dim=2,
+            state_encoder=lambda states: state_features[states],
+        )
+        estimator = TDCCPEstimator(
+            config=TDCCPConfig(
+                method="semigradient",
+                basis_type="encoded",
+                basis_dim=2,
+            )
+        )
+
+        actions = np.array([0, 1, 0], dtype=np.int32)
+        states = np.array([0, 1, 2], dtype=np.int32)
+        phi = estimator._build_basis_functions(
+            actions, states, problem.num_states, problem.num_actions, problem
+        )
+
+        # Per action: intercept + two first-order encoded features +
+        # two second-order encoded features.
+        assert phi.shape == (3, 10)
+        np.testing.assert_allclose(phi[0, 1:3], np.array([1.0, 0.0]))
+        np.testing.assert_allclose(phi[1, 6:8], np.array([0.0, 1.0]))
+        assert np.all(phi[1, :5] == 0.0)
+
+    def test_g_uses_next_period_entropy_target(self):
+        """The g semi-gradient target should be beta * e(a', x')."""
+        estimator = TDCCPEstimator(
+            config=TDCCPConfig(
+                method="semigradient",
+                basis_type="tabular",
+                basis_ridge=0.0,
+            )
+        )
+        gamma = 0.5
+        ccps = np.array([[0.8, 0.2]], dtype=np.float64)
+        actions = np.array([0, 1], dtype=np.int32)
+        states = np.array([0, 0], dtype=np.int32)
+        next_actions = np.array([1, 0], dtype=np.int32)
+        next_states = np.array([0, 0], dtype=np.int32)
+        feature_matrix = np.zeros((1, 2, 1), dtype=np.float64)
+
+        _, g_table = estimator._semigradient_solve(
+            actions,
+            states,
+            next_actions,
+            next_states,
+            feature_matrix,
+            ccps,
+            num_states=1,
+            num_actions=2,
+            gamma=gamma,
+        )
+
+        euler = 0.5772156649015329
+        e0 = euler - np.log(ccps[0, 0])
+        e1 = euler - np.log(ccps[0, 1])
+        phi = np.eye(2)
+        phi_next = phi[[1, 0]]
+        A = (phi.T @ (phi - gamma * phi_next)) / 2
+        b = (phi.T @ (gamma * np.array([e1, e0]))) / 2
+        expected = np.linalg.solve(A, b)
+
+        np.testing.assert_allclose(g_table[0], expected, atol=1e-10)
+
+
+class TestTDCCPHardCaseComponents:
+    """Component tests for the shapeshifter neural/neural hard-case runner."""
+
+    def test_paper_hard_case_has_finite_theta_neural_feature_utility(self):
+        """Paper hard case should have finite theta and exact linear rewards."""
+        dgp = build_paper_hard_case_dgp(seed=11)
+        utility = dgp["utility"]
+        true_params = dgp["true_params"]
+        true_reward = dgp["true_reward"]
+
+        reconstructed = utility.compute(true_params)
+        np.testing.assert_allclose(
+            np.asarray(reconstructed),
+            np.asarray(true_reward),
+            atol=1e-10,
+        )
+        assert utility.num_parameters == 8
+        assert dgp["basis_metadata"]["action_normalization"] == (
+            "action 0 reward features fixed to zero"
+        )
+        np.testing.assert_allclose(
+            np.asarray(utility.feature_matrix[:, 0, :]),
+            np.zeros((utility.num_states, utility.num_parameters)),
+            atol=1e-12,
+        )
+
+    def test_paper_hard_case_metrics_and_gates_use_parameter_truth(self):
+        """Finite-theta hard-case gates should include structural theta checks."""
+        dgp = build_paper_hard_case_dgp(seed=13)
+        env = dgp["env"]
+        utility = dgp["utility"]
+        true_params = dgp["true_params"]
+        true_reward = dgp["true_reward"]
+        truth = value_iteration(
+            SoftBellmanOperator(env.problem_spec, env.transition_matrices),
+            true_reward,
+            tol=1e-10,
+            max_iter=10_000,
+        )
+        summary = SimpleNamespace(
+            parameters=true_params,
+            policy=truth.policy,
+            value_function=truth.V,
+            converged=True,
+        )
+
+        metrics = evaluate_paper_hard_case_summary(
+            env,
+            utility,
+            true_params,
+            true_reward,
+            summary,
+            truth=truth,
+        )
+        gates = tdccp_paper_hard_case_gates(summary, metrics)
+        gate_names = {gate.name for gate in gates}
+
+        assert metrics["parameters"]["cosine_similarity"] == pytest.approx(1.0)
+        assert metrics["reward_normalized_rmse"] == pytest.approx(0.0, abs=1e-10)
+        assert "parameter_cosine" in gate_names
+        assert "parameter_relative_rmse" in gate_names
+        assert all(gate.passed for gate in gates)
+
+    def test_tabular_reward_utility_reconstructs_reward_matrix(self):
+        """One-hot state-action utility should reconstruct any reward matrix."""
+        reward = jnp.array(
+            [
+                [0.1, -0.2, 0.3],
+                [0.4, 0.0, -0.5],
+                [-0.7, 0.8, 0.9],
+                [1.1, -1.2, 1.3],
+            ],
+            dtype=jnp.float64,
+        )
+        utility = make_state_action_tabular_utility(
+            reward.shape[0],
+            reward.shape[1],
+        )
+
+        reconstructed = utility.compute(reward.reshape(-1))
+
+        np.testing.assert_allclose(np.asarray(reconstructed), np.asarray(reward))
+
+    def test_hard_case_metrics_use_shapeshifter_reward_and_solver_truth(self):
+        """Hard-case metrics should compare against environment reward/solver truth."""
+        env = ShapeshifterEnvironment(
+            ShapeshifterConfig(
+                num_states=5,
+                num_actions=2,
+                num_features=3,
+                reward_type="neural",
+                feature_type="neural",
+                action_dependent=True,
+                stochastic_transitions=True,
+                stochastic_rewards=False,
+                num_periods=None,
+                discount_factor=0.9,
+                seed=7,
+            )
+        )
+        truth = value_iteration(
+            SoftBellmanOperator(env.problem_spec, env.transition_matrices),
+            env.true_reward_matrix,
+            tol=1e-10,
+            max_iter=10_000,
+        )
+        summary = SimpleNamespace(
+            parameters=jnp.asarray(env.true_reward_matrix).reshape(-1),
+            policy=truth.policy,
+            value_function=truth.V,
+            converged=True,
+        )
+
+        metrics = evaluate_hard_case_summary(env, summary, truth=truth)
+
+        assert metrics["reward_rmse"] == pytest.approx(0.0, abs=1e-10)
+        assert metrics["reward_normalized_rmse"] == pytest.approx(0.0, abs=1e-10)
+        assert metrics["policy_tv"] == pytest.approx(0.0, abs=1e-10)
+        assert metrics["value_normalized_rmse"] == pytest.approx(0.0, abs=1e-10)
+        assert metrics["q_normalized_rmse"] == pytest.approx(0.0, abs=1e-10)
+        assert set(metrics["counterfactuals"]) == {"type_a", "type_b", "type_c"}
+        for cf_metrics in metrics["counterfactuals"].values():
+            assert cf_metrics["regret"] == pytest.approx(0.0, abs=1e-8)
+
+    def test_neural_hard_case_gates_skip_parameter_cosine(self):
+        """Neural-reward gates should not include finite-theta recovery checks."""
+        summary = SimpleNamespace(converged=True)
+        metrics = {
+            "reward_normalized_rmse": 0.0,
+            "policy_tv": 0.0,
+            "value_normalized_rmse": 0.0,
+            "q_normalized_rmse": 0.0,
+            "counterfactuals": {
+                "type_a": {"regret": 0.0},
+                "type_b": {"regret": 0.0},
+                "type_c": {"regret": 0.0},
+            },
+        }
+
+        gates = tdccp_hard_case_gates(summary, metrics)
+        gate_names = {gate.name for gate in gates}
+
+        assert "parameter_cosine" not in gate_names
+        assert "parameter_relative_rmse" not in gate_names
+        assert {
+            "converged",
+            "reward_normalized_rmse",
+            "policy_tv",
+            "value_normalized_rmse",
+            "q_normalized_rmse",
+            "type_a_regret",
+            "type_b_regret",
+            "type_c_regret",
+        }.issubset(gate_names)
+
 
 # ============================================================================
 # NN component tests
@@ -257,6 +507,26 @@ class TestEVComponentNetwork:
         x = jnp.ones((10, 3))
         out = jax.vmap(net)(x)
         assert out.shape == (10,)
+
+    def test_output_shift_initializes_predictions(self):
+        """AVI constant initialization should shift initial network values."""
+        key = jax.random.PRNGKey(0)
+        net_unshifted = _EVComponentNetwork(
+            input_dim=3,
+            hidden_dim=16,
+            num_hidden_layers=1,
+            key=key,
+            output_shift=0.0,
+        )
+        net_shifted = _EVComponentNetwork(
+            input_dim=3,
+            hidden_dim=16,
+            num_hidden_layers=1,
+            key=key,
+            output_shift=2.5,
+        )
+        x = jnp.ones(3)
+        assert np.isclose(float(net_shifted(x) - net_unshifted(x)), 2.5)
 
     def test_gradient_flows(self):
         """Gradients should flow through the network."""

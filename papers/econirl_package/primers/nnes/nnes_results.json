@@ -169,7 +169,7 @@
       "summary": {
         "converged": true,
         "convergence_message": "NNES-NPL (3 outer iters): Converged",
-        "estimation_time": 37.44028902053833,
+        "estimation_time": 36.96871280670166,
         "log_likelihood": -174875.80929267284,
         "metadata": {
           "n_outer_iterations": 3,
@@ -369,7 +369,7 @@
       "summary": {
         "converged": true,
         "convergence_message": "NNES-NPL (3 outer iters): Converged",
-        "estimation_time": 37.11698603630066,
+        "estimation_time": 37.06153607368469,
         "log_likelihood": -160272.88031279508,
         "metadata": {
           "n_outer_iterations": 3,

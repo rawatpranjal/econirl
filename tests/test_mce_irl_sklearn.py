@@ -13,6 +13,41 @@ from econirl.core.types import Panel, Trajectory
 from econirl.estimators.mce_irl import MCEIRL
 
 
+def _default_feature_matrix(n_states: int = 20) -> np.ndarray:
+    return (np.arange(n_states, dtype=float).reshape(-1, 1) / max(n_states - 1, 1))
+
+
+@pytest.fixture
+def mce_irl_sample_df() -> pd.DataFrame:
+    rng = np.random.default_rng(123)
+    rows = []
+    n_states = 20
+    for i in range(8):
+        state = int(rng.integers(0, 3))
+        for t in range(10):
+            action = int(state > 12 or rng.random() < 0.08)
+            rows.append({"id": i, "period": t, "state": state, "action": action})
+            if action:
+                state = 0
+            else:
+                state = min(state + int(rng.choice([0, 1, 2], p=[0.2, 0.7, 0.1])), n_states - 1)
+    return pd.DataFrame(rows)
+
+
+@pytest.fixture
+def mce_irl_fitted_estimator(mce_irl_sample_df) -> MCEIRL:
+    model = MCEIRL(
+        n_states=20,
+        discount=0.95,
+        feature_matrix=_default_feature_matrix(20),
+        feature_names=["f0"],
+        verbose=False,
+        se_method="hessian",
+        inner_max_iter=500,
+    )
+    return model.fit(mce_irl_sample_df, state="state", action="action", id="id")
+
+
 class TestMCEIRLInit:
     """Tests for MCEIRL initialization."""
 
@@ -72,6 +107,8 @@ class TestMCEIRLFit:
         estimator = MCEIRL(
             n_states=20,
             discount=0.95,
+            feature_matrix=_default_feature_matrix(20),
+            feature_names=["f0"],
             verbose=False,
             se_method="hessian",  # Faster than bootstrap for testing
             inner_max_iter=500,
@@ -98,6 +135,8 @@ class TestMCEIRLFit:
         estimator = MCEIRL(
             n_states=n_states,
             discount=0.95,
+            feature_matrix=_default_feature_matrix(n_states),
+            feature_names=["f0"],
             verbose=False,
             se_method="hessian",
             inner_max_iter=500,
@@ -143,6 +182,24 @@ class TestMCEIRLFit:
 
         assert result is estimator
         assert len(estimator.params_) == n_features
+
+    def test_mce_irl_fit_without_reward_spec_raises_for_multi_action(self, mce_irl_sample_df):
+        estimator = MCEIRL(
+            n_states=20,
+            n_actions=2,
+            discount=0.95,
+            verbose=False,
+            se_method="hessian",
+            inner_max_iter=500,
+        )
+
+        with pytest.raises(ValueError, match="explicit reward specification"):
+            estimator.fit(
+                data=mce_irl_sample_df,
+                state="state",
+                action="action",
+                id="id",
+            )
 
 
 class TestMCEIRLAttributes:
@@ -428,6 +485,8 @@ class TestMCEIRLMethodChaining:
         model = MCEIRL(
             n_states=20,
             discount=0.95,
+            feature_matrix=_default_feature_matrix(20),
+            feature_names=["f0"],
             verbose=False,
             se_method="hessian",
             inner_max_iter=500,

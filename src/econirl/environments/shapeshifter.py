@@ -83,6 +83,7 @@ class ShapeshifterConfig:
     network_width: int = 32
     network_depth: int = 2
     max_total_states: int = 4096
+    reward_scale: float = 1.0
 
     @property
     def total_states(self) -> int:
@@ -173,7 +174,11 @@ class ShapeshifterEnvironment(DDCEnvironment):
 
         # True theta (linear reward) or full reward matrix (neural).
         if config.reward_type == "linear":
-            self._theta = jax.random.normal(key_theta, shape=(self._K,)) * 0.5
+            self._theta = (
+                jax.random.normal(key_theta, shape=(self._K,))
+                * 0.5
+                * config.reward_scale
+            )
             self._reward_matrix = jnp.einsum(
                 "sak,k->sa", self._feature_matrix_arr, self._theta
             )
@@ -317,12 +322,17 @@ class ShapeshifterEnvironment(DDCEnvironment):
         """Construct phi(s, a) of shape (S, A, K).
 
         ``feature_type="linear"`` produces polynomial features in the
-        state coordinate(s); ``feature_type="neural"`` evaluates a
+        state coordinate(s). ``feature_type="neural"`` evaluates a
         frozen tanh MLP on the (state-coords, action-one-hot)
-        concatenation. ``action_dependent=False`` collapses the action
-        dimension by tiling the state-only features across all actions.
+        concatenation when action dependence is requested.
+        ``action_dependent=False`` collapses the action dimension by
+        tiling state-only features across all actions.
         """
         cfg = self._config
+
+        if cfg.feature_type == "neural" and cfg.action_dependent:
+            features = self._neural_action_features(key)
+            return features.at[:, 0, :].set(0.0)
 
         if cfg.feature_type == "linear":
             base_features = self._linear_state_features()  # (S, K)
@@ -330,18 +340,16 @@ class ShapeshifterEnvironment(DDCEnvironment):
             base_features = self._neural_state_features(key)  # (S, K)
 
         if cfg.action_dependent:
-            # Mix action one-hot into the features by adding a
-            # small action-specific shift to one feature column. This
-            # is the canonical trick that makes MCE-IRL identifiable.
+            # Use action 0 as the normalized outside action. Other
+            # actions carry the state features plus an action-specific
+            # shift, giving finite-theta estimators an identified gauge.
             features = np.zeros(
                 (self._S, self._A, self._K), dtype=np.float32
             )
             base = np.asarray(base_features)
-            for a in range(self._A):
+            for a in range(1, self._A):
                 features[:, a, :] = base
-                # Anchor action 0; perturb others on the last column.
-                if a > 0:
-                    features[:, a, -1] += float(a) - (self._A - 1) / 2.0
+                features[:, a, -1] += float(a)
             features_arr = jnp.asarray(features)
         else:
             # State-only: tile the same K-vector across actions.
@@ -385,8 +393,44 @@ class ShapeshifterEnvironment(DDCEnvironment):
         out = jax.vmap(net)(self._coords)
         return out.astype(jnp.float32)
 
+    def _neural_action_features(self, key: jax.Array) -> jnp.ndarray:
+        """Frozen MLP from (state coords, action one-hot) to K features."""
+        net = _frozen_mlp(
+            in_dim=self._config.state_dim + self._A,
+            out_dim=self._K,
+            width=self._config.network_width,
+            depth=self._config.network_depth,
+            key=key,
+        )
+
+        def feature_fn(coord: jnp.ndarray, a_onehot: jnp.ndarray) -> jnp.ndarray:
+            x = jnp.concatenate([coord, a_onehot])
+            return net(x)
+
+        per_state = jax.vmap(
+            lambda c: jax.vmap(lambda a: feature_fn(c, a))(self._action_one_hot)
+        )
+        return per_state(self._coords).astype(jnp.float32)
+
     def _build_neural_reward_matrix(self, key: jax.Array) -> jnp.ndarray:
         """Frozen MLP from (state coords, action one-hot) to scalar reward."""
+        if not self._config.action_dependent:
+            net = _frozen_mlp(
+                in_dim=self._config.state_dim,
+                out_dim=1,
+                width=self._config.network_width,
+                depth=self._config.network_depth,
+                key=key,
+            )
+            rewards_s = jax.vmap(lambda coord: net(coord)[0])(self._coords)
+            return (
+                self._config.reward_scale
+                * jnp.broadcast_to(
+                    rewards_s[:, None],
+                    (self._S, self._A),
+                )
+            ).astype(jnp.float32)
+
         net = _frozen_mlp(
             in_dim=self._config.state_dim + self._A,
             out_dim=1,
@@ -404,7 +448,13 @@ class ShapeshifterEnvironment(DDCEnvironment):
         per_state = jax.vmap(
             lambda c: jax.vmap(lambda a: reward_fn(c, a))(self._action_one_hot)
         )
-        return per_state(coords).astype(jnp.float32)
+        rewards = per_state(coords)
+        return (
+            (self._config.reward_scale * rewards)
+            .at[:, 0]
+            .set(0.0)
+            .astype(jnp.float32)
+        )
 
     def _build_transition_matrices(self, key: jax.Array) -> jnp.ndarray:
         """Random sparse stochastic matrix per action, optionally collapsed.

@@ -39,6 +39,7 @@ import pandas as pd
 from scipy.stats import norm as scipy_norm
 
 from econirl.core.bellman import SoftBellmanOperator
+from econirl.core.occupancy import compute_state_action_visitation
 from econirl.core.reward_spec import RewardSpec
 from econirl.core.solvers import hybrid_iteration, value_iteration
 from econirl.core.types import DDCProblem, Panel, TrajectoryPanel
@@ -230,6 +231,11 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         Dimension of state features.  Required if state_encoder is provided.
     feature_names : list of str, optional
         Names for features when projecting rewards onto linear features.
+    anchor_action : int, optional
+        Action whose reward is fixed to zero. This is useful for identified
+        action-dependent IRL designs with a normalized outside/exit action.
+    absorbing_state : int, optional
+        State whose reward row is fixed to zero.
     seed : int, default=0
         Random seed for network initialization.
     verbose : bool, default=False
@@ -300,6 +306,8 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         state_dim: int | None = None,
         # Projection
         feature_names: list[str] | None = None,
+        anchor_action: int | None = None,
+        absorbing_state: int | None = None,
         seed: int = 0,
         verbose: bool = False,
     ):
@@ -322,6 +330,8 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         self.state_encoder = state_encoder
         self.state_dim = state_dim
         self.feature_names = feature_names
+        self.anchor_action = anchor_action
+        self.absorbing_state = absorbing_state
         self.seed = seed
         self.verbose = verbose
 
@@ -336,6 +346,8 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         self.projection_r2_: float | None = None
         self.converged_: bool | None = None
         self.n_epochs_: int | None = None
+        self.feature_difference_: float | None = None
+        self.occupancy_moment_residual_: float | None = None
 
         # Internal state
         self._reward_net = None
@@ -343,6 +355,8 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         self._state_dim: int | None = None
         self._n_states: int | None = None
         self._n_actions: int | None = None
+        self._empirical_sa: jnp.ndarray | None = None
+        self._initial_distribution: jnp.ndarray | None = None
 
     def fit(
         self,
@@ -389,12 +403,20 @@ class MCEIRLNeural(NeuralEstimatorMixin):
             )
 
         # --- Step 1: Extract arrays from data ---
-        all_states, all_actions, all_next = self._extract_data(
+        panel, all_states, all_actions, all_next = self._extract_data(
             data, state, action, id
         )
 
         n_states = self.n_states or int(all_states.max()) + 1
         n_actions = self.n_actions or int(all_actions.max()) + 1
+        if self.anchor_action is not None and not 0 <= self.anchor_action < n_actions:
+            raise ValueError(
+                f"anchor_action must be in [0, {n_actions}), got {self.anchor_action}"
+            )
+        if self.absorbing_state is not None and not 0 <= self.absorbing_state < n_states:
+            raise ValueError(
+                f"absorbing_state must be in [0, {n_states}), got {self.absorbing_state}"
+            )
         self._n_states = n_states
         self._n_actions = n_actions
 
@@ -406,7 +428,11 @@ class MCEIRLNeural(NeuralEstimatorMixin):
 
         # --- Step 3: Compute empirical state-action occupancy ---
         empirical_sa = self._compute_empirical_occupancy(
-            all_states, all_actions, n_states, n_actions
+            panel, n_states, n_actions, discount=self.discount
+        )
+        self._empirical_sa = empirical_sa
+        self._initial_distribution = self._compute_initial_distribution(
+            panel, n_states
         )
 
         # --- Step 4: Build reward network ---
@@ -457,7 +483,7 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         state: str | None,
         action: str | None,
         id: str | None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[TrajectoryPanel, np.ndarray, np.ndarray, np.ndarray]:
         """Extract state/action/next_state arrays from input data."""
         if isinstance(data, pd.DataFrame):
             if state is None or action is None or id is None:
@@ -472,16 +498,17 @@ class MCEIRLNeural(NeuralEstimatorMixin):
             all_actions = np.asarray(panel.all_actions, dtype=np.int64)
             all_next = np.asarray(panel.all_next_states, dtype=np.int64)
         elif isinstance(data, (Panel, TrajectoryPanel)):
-            all_states = np.asarray(data.get_all_states(), dtype=np.int64)
-            all_actions = np.asarray(data.get_all_actions(), dtype=np.int64)
-            all_next = np.asarray(data.get_all_next_states(), dtype=np.int64)
+            panel = TrajectoryPanel.from_panel(data)
+            all_states = np.asarray(panel.get_all_states(), dtype=np.int64)
+            all_actions = np.asarray(panel.get_all_actions(), dtype=np.int64)
+            all_next = np.asarray(panel.get_all_next_states(), dtype=np.int64)
         else:
             raise TypeError(
                 f"data must be a DataFrame, Panel, or TrajectoryPanel, "
                 f"got {type(data)}"
             )
 
-        return all_states, all_actions, all_next
+        return panel, all_states, all_actions, all_next
 
     # ------------------------------------------------------------------
     # Encoder setup
@@ -508,10 +535,10 @@ class MCEIRLNeural(NeuralEstimatorMixin):
 
     def _compute_empirical_occupancy(
         self,
-        states: np.ndarray,
-        actions: np.ndarray,
+        panel: TrajectoryPanel,
         n_states: int,
         n_actions: int,
+        discount: float = 1.0,
     ) -> jnp.ndarray:
         """Compute empirical state-action occupancy from demonstrations.
 
@@ -522,12 +549,41 @@ class MCEIRLNeural(NeuralEstimatorMixin):
             Normalized to sum to 1.
         """
         sa_counts = np.zeros((n_states, n_actions), dtype=np.float32)
-        for s, a in zip(states, actions):
-            sa_counts[int(s), int(a)] += 1
-        total = sa_counts.sum()
+        total = 0.0
+        for traj in panel.trajectories:
+            states = np.asarray(traj.states, dtype=np.int64)
+            actions = np.asarray(traj.actions, dtype=np.int64)
+            if len(states) == 0:
+                continue
+            if discount == 1.0:
+                weights = np.ones(len(states), dtype=np.float32)
+            else:
+                weights = np.power(float(discount), np.arange(len(states))).astype(
+                    np.float32
+                )
+            flat_idx = states * n_actions + actions
+            np.add.at(sa_counts.ravel(), flat_idx, weights)
+            total += float(weights.sum())
         if total > 0:
             sa_counts = sa_counts / total
         return jnp.array(sa_counts)
+
+    def _compute_initial_distribution(
+        self,
+        panel: TrajectoryPanel,
+        n_states: int,
+    ) -> jnp.ndarray:
+        """Compute the empirical initial-state distribution."""
+        counts = np.zeros(n_states, dtype=np.float32)
+        for traj in panel.trajectories:
+            if len(traj.states):
+                counts[int(traj.states[0])] += 1.0
+        total = counts.sum()
+        if total > 0:
+            counts = counts / total
+        else:
+            counts[:] = 1.0 / n_states
+        return jnp.asarray(counts)
 
     # ------------------------------------------------------------------
     # Training
@@ -542,12 +598,17 @@ class MCEIRLNeural(NeuralEstimatorMixin):
     ) -> jax.Array:
         """Compute R(s,a) for all states and actions."""
         if self.reward_type == "state_action":
-            return reward_net.all_actions(state_feat)
+            rewards = reward_net.all_actions(state_feat)
         else:
             rewards_s = jax.vmap(reward_net)(state_feat)
-            return jnp.broadcast_to(
+            rewards = jnp.broadcast_to(
                 rewards_s[:, None], (n_states, n_actions)
             )
+        if self.absorbing_state is not None:
+            rewards = rewards.at[int(self.absorbing_state), :].set(0.0)
+        if self.anchor_action is not None:
+            rewards = rewards.at[:, int(self.anchor_action)].set(0.0)
+        return rewards
 
     def _train_mce(
         self,
@@ -619,18 +680,15 @@ class MCEIRLNeural(NeuralEstimatorMixin):
                 )
             policy = result.policy
 
-            # 3. Compute state visitation frequencies via forward pass
-            D = self._forward_pass(
+            # 3. Compute state-action occupancy via discounted forward pass
+            policy_sa = self._forward_pass(
                 policy, transitions, n_states, self.discount
             )
 
-            # 4. State-action occupancy under current policy
-            policy_sa = D[:, None] * policy
-
-            # 5. Feature matching gradient w.r.t. R(s,a)
+            # 4. Feature matching gradient w.r.t. R(s,a)
             grad_r = policy_sa - empirical_sa
 
-            # 6. Compute network parameter gradients via surrogate loss.
+            # 5. Compute network parameter gradients via surrogate loss.
             #    The surrogate loss L = sum(R * grad_r) has gradient
             #    dL/d_params = sum(grad_r * dR/d_params), which is exactly
             #    the chain rule for the MCE-IRL objective.
@@ -676,6 +734,7 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         self._reward_net = best_net
         self.converged_ = patience_counter >= patience or epoch == self.max_epochs - 1
         self.n_epochs_ = epoch + 1
+        self.feature_difference_ = float(np.sqrt(best_loss))
 
     def _forward_pass(
         self,
@@ -684,9 +743,7 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         n_states: int,
         discount: float,
     ) -> jnp.ndarray:
-        """Compute state visitation frequencies via forward message passing.
-
-        D(s) = rho_0(s) + gamma * sum_{s',a} D(s') pi(a|s') P(s|s',a)
+        """Compute normalized discounted state-action visitation.
 
         Parameters
         ----------
@@ -702,23 +759,20 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         Returns
         -------
         jnp.ndarray
-            State visitation frequencies, shape (n_states,).
+            State-action visitation frequencies, shape (n_states, n_actions).
         """
-        rho0 = jnp.ones(n_states, dtype=jnp.float32) / n_states
-        D = rho0
-
-        # Policy-weighted transition: P_pi(s'|s) = sum_a pi(a|s) P(s'|s,a)
-        P_pi = jnp.einsum("sa,ast->st", policy, transitions)
-
-        for _ in range(500):
-            D_new = rho0 + discount * (P_pi.T @ D)
-            delta = float(jnp.abs(D_new - D).max())
-            D = D_new
-            if delta < 1e-8:
-                break
-
-        # Normalize
-        return D / D.sum()
+        problem = DDCProblem(
+            num_states=n_states,
+            num_actions=policy.shape[1],
+            discount_factor=discount,
+            scale_parameter=1.0,
+        )
+        return compute_state_action_visitation(
+            policy,
+            transitions,
+            problem,
+            self._initial_distribution,
+        )
 
     # ------------------------------------------------------------------
     # Post-training extraction
@@ -770,6 +824,16 @@ class MCEIRLNeural(NeuralEstimatorMixin):
         else:
             rewards_s = jax.vmap(self._reward_net)(state_feat)
             self.reward_ = np.asarray(rewards_s)
+        if self._empirical_sa is not None:
+            policy_sa = self._forward_pass(
+                result.policy,
+                transitions,
+                n_states,
+                self.discount,
+            )
+            residual = self._empirical_sa - policy_sa
+            self.feature_difference_ = float(jnp.linalg.norm(residual))
+            self.occupancy_moment_residual_ = float(jnp.max(jnp.abs(residual)))
 
     def _project_onto_features(
         self,
@@ -948,6 +1012,8 @@ class MCEIRLNeural(NeuralEstimatorMixin):
                 f"Reward type: {self.reward_type}",
                 f"Reward network: {self.reward_num_layers} layers x {self.reward_hidden_dim} hidden",
                 f"Inner solver: {self.inner_solver}",
+                f"Anchor action: {self.anchor_action}",
+                f"Absorbing state: {self.absorbing_state}",
             ],
         )
 

@@ -1,44 +1,1158 @@
 {
-  "bc": {
-    "acc": 0.97,
-    "time": 0.5550901889801025
-  },
-  "ccp": {
-    "5": {
-      "theta_v": 4.666993618011475,
-      "theta_fc": -0.963056206703186,
-      "rmse": 0.23691569630170708,
-      "acc": 0.99,
-      "time": 5.470569133758545
+  "estimator": "TD-CCP",
+  "hard_case": {
+    "case_id": "shapeshifter_linear_reward_neural_features",
+    "environment_config": {
+      "action_dependent": false,
+      "discount_factor": 0.95,
+      "feature_type": "neural",
+      "max_total_states": 4096,
+      "network_depth": 2,
+      "network_width": 32,
+      "num_actions": 3,
+      "num_features": 4,
+      "num_periods": null,
+      "num_states": 32,
+      "reward_type": "linear",
+      "scale_parameter": 1.0,
+      "seed": 42,
+      "state_dim": 1,
+      "stochastic_reward_scale": 0.3,
+      "stochastic_rewards": false,
+      "stochastic_transitions": true,
+      "transition_branching": 4
     },
-    "100": {
-      "theta_v": 4.289330005645752,
-      "theta_fc": -0.7247629761695862,
-      "rmse": 0.5388911115255524,
-      "acc": 0.97,
-      "time": 4.14782190322876
+    "estimator": "TD-CCP",
+    "estimator_config": {
+      "basis_type": "tabular",
+      "compute_se": false,
+      "cross_fitting": false,
+      "method": "semigradient",
+      "n_policy_iterations": 1,
+      "outer_max_iter": 1000,
+      "outer_tol": 1e-08,
+      "robust_se": false
+    },
+    "gates": [
+      {
+        "name": "converged",
+        "operator": "is",
+        "passed": true,
+        "threshold": true,
+        "value": true
+      },
+      {
+        "name": "parameter_cosine",
+        "operator": ">=",
+        "passed": true,
+        "threshold": 0.99,
+        "value": 0.999982196901693
+      },
+      {
+        "name": "parameter_relative_rmse",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.15,
+        "value": 0.006953474067307793
+      },
+      {
+        "name": "reward_normalized_rmse",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.1,
+        "value": 0.006953474067307803
+      },
+      {
+        "name": "policy_tv",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.03,
+        "value": 0.0016965841156896776
+      },
+      {
+        "name": "value_normalized_rmse",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.1,
+        "value": 0.0024523986567400406
+      },
+      {
+        "name": "q_normalized_rmse",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.1,
+        "value": 0.0025592250869593937
+      },
+      {
+        "name": "type_a_regret",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.05,
+        "value": 0.00023790313424898457
+      },
+      {
+        "name": "type_b_regret",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.05,
+        "value": 0.00017709834571477678
+      },
+      {
+        "name": "type_c_regret",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.05,
+        "value": 0.0002680276699784656
+      }
+    ],
+    "metrics": {
+      "counterfactuals": {
+        "type_a": {
+          "description": "state-progress reward shift with baseline transitions",
+          "policy_tv": 0.0017048967276939086,
+          "regret": 0.00023790313424898457,
+          "value_rmse": 0.0002381416799419934
+        },
+        "type_b": {
+          "description": "action-0 transition skip with baseline reward",
+          "policy_tv": 0.001463305707440379,
+          "regret": 0.00017709834571477678,
+          "value_rmse": 0.00017743566286768434
+        },
+        "type_c": {
+          "description": "disable action 1 with a large reward penalty",
+          "policy_tv": 0.0017868850188096914,
+          "regret": 0.0002680276699784656,
+          "value_rmse": 0.0002688108123816305
+        }
+      },
+      "parameters": {
+        "cosine_similarity": 0.999982196901693,
+        "max_abs_error": 0.05353514854556374,
+        "relative_rmse": 0.006953474067307793,
+        "rmse": 0.027457327675329
+      },
+      "policy_tv": 0.0016965841156896776,
+      "q_normalized_rmse": 0.0025592250869593937,
+      "q_rmse": 0.04132627519154631,
+      "q_truth_rms": 16.147964242037776,
+      "reward_normalized_rmse": 0.006953474067307803,
+      "reward_rmse": 0.00792624776228949,
+      "reward_truth_rms": 1.1398975081470777,
+      "value_normalized_rmse": 0.0024523986567400406,
+      "value_rmse": 0.043051872161940063,
+      "value_truth_rms": 17.555005603847732
+    },
+    "notes": "Paper-faithful hard case: frozen neural features enter a finite linear utility with action-0 normalization, so theta, reward, policy, value, Q, and counterfactual gates are meaningful.",
+    "passed": true,
+    "simulation": {
+      "n_individuals": 4000,
+      "n_periods": 80,
+      "seed": 42
+    },
+    "summary": {
+      "converged": true,
+      "convergence_message": "TD-CCP (semigradient): Converged",
+      "estimation_time": 4.447590112686157,
+      "log_likelihood": -274682.73325385817,
+      "metadata": {
+        "basis_type": "tabular",
+        "ccp_method": "frequency",
+        "ccp_smoothing": 0.01,
+        "cross_fitting": false,
+        "method": "semigradient",
+        "robust_se": false
+      },
+      "num_iterations": 14,
+      "num_observations": 320000,
+      "parameter_names": [
+        "action_1_psi_0",
+        "action_1_psi_1",
+        "action_1_psi_2",
+        "action_1_psi_3",
+        "action_2_psi_0",
+        "action_2_psi_1",
+        "action_2_psi_2",
+        "action_2_psi_3"
+      ],
+      "parameters": [
+        7.336310347189545,
+        -5.8537110409610955,
+        3.872108877916124,
+        -1.925524100318897,
+        1.4740172448766378,
+        -1.4089090164931992,
+        0.928299699805693,
+        3.4695747427323367
+      ],
+      "standard_errors": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "truth": {
+      "parameter_names": [
+        "action_1_psi_0",
+        "action_1_psi_1",
+        "action_1_psi_2",
+        "action_1_psi_3",
+        "action_2_psi_0",
+        "action_2_psi_1",
+        "action_2_psi_2",
+        "action_2_psi_3"
+      ],
+      "parameters": [
+        7.355447403452194,
+        -5.872803538707462,
+        3.8803221938969363,
+        -1.9634789528699514,
+        1.4533067481885196,
+        -1.4278613492308003,
+        0.9818348483512568,
+        3.4813361729742103
+      ]
+    },
+    "utility_config": {
+      "action_normalization": "action 0 reward features fixed to zero",
+      "basis_source": "orthonormalized frozen neural state features",
+      "feature_rank": 4,
+      "singular_values": [
+        1.2575818386920004,
+        0.2260624752492968,
+        0.008236726156162437,
+        0.0013331440082963721
+      ],
+      "theta_scale": 4.0
     }
   },
-  "tdccp": {
-    "theta_v": 4.965275887310002,
-    "theta_fc": -0.9300927562497213,
-    "se_theta_v": 0.05399878717072391,
-    "se_theta_fc": 0.023258968532488152,
-    "rmse": 0.05519414249206426,
-    "acc": 0.99,
-    "time": 2.085637092590332
+  "primary_cell_id": "canonical_low_action",
+  "raw_neural_diagnostic": {
+    "case_id": "shapeshifter_neural_neural",
+    "environment_config": {
+      "action_dependent": true,
+      "discount_factor": 0.95,
+      "feature_type": "neural",
+      "max_total_states": 4096,
+      "network_depth": 2,
+      "network_width": 32,
+      "num_actions": 3,
+      "num_features": 4,
+      "num_periods": null,
+      "num_states": 32,
+      "reward_type": "neural",
+      "scale_parameter": 1.0,
+      "seed": 42,
+      "state_dim": 1,
+      "stochastic_reward_scale": 0.3,
+      "stochastic_rewards": false,
+      "stochastic_transitions": true,
+      "transition_branching": 4
+    },
+    "estimator": "TD-CCP",
+    "estimator_config": {
+      "basis_type": "tabular",
+      "compute_se": false,
+      "cross_fitting": false,
+      "method": "semigradient",
+      "n_policy_iterations": 1,
+      "outer_max_iter": 500,
+      "outer_tol": 1e-08,
+      "robust_se": false
+    },
+    "gates": [
+      {
+        "name": "converged",
+        "operator": "is",
+        "passed": false,
+        "threshold": true,
+        "value": false
+      },
+      {
+        "name": "reward_normalized_rmse",
+        "operator": "<=",
+        "passed": false,
+        "threshold": 0.1,
+        "value": 0.9533723730888567
+      },
+      {
+        "name": "policy_tv",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.03,
+        "value": 0.005810113593177438
+      },
+      {
+        "name": "value_normalized_rmse",
+        "operator": "<=",
+        "passed": false,
+        "threshold": 0.1,
+        "value": 0.18304756971960628
+      },
+      {
+        "name": "q_normalized_rmse",
+        "operator": "<=",
+        "passed": false,
+        "threshold": 0.1,
+        "value": 0.19456076578384174
+      },
+      {
+        "name": "type_a_regret",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.05,
+        "value": 0.0019056420407254082
+      },
+      {
+        "name": "type_b_regret",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.05,
+        "value": 0.0032931862388121402
+      },
+      {
+        "name": "type_c_regret",
+        "operator": "<=",
+        "passed": true,
+        "threshold": 0.05,
+        "value": 0.001413405919749755
+      }
+    ],
+    "metrics": {
+      "counterfactuals": {
+        "type_a": {
+          "description": "state-progress reward shift with baseline transitions",
+          "policy_tv": 0.005822517924307805,
+          "regret": 0.0019056420407254082,
+          "value_rmse": 0.0019079202885308908
+        },
+        "type_b": {
+          "description": "action-0 transition skip with baseline reward",
+          "policy_tv": 0.007133479664538806,
+          "regret": 0.0032931862388121402,
+          "value_rmse": 0.003301357565700765
+        },
+        "type_c": {
+          "description": "disable action 1 with a large reward penalty",
+          "policy_tv": 0.004973955374492817,
+          "regret": 0.001413405919749755,
+          "value_rmse": 0.0014182319780391755
+        }
+      },
+      "policy_tv": 0.005810113593177438,
+      "q_normalized_rmse": 0.19456076578384174,
+      "q_rmse": 3.404180520050696,
+      "q_truth_rms": 17.496747128518,
+      "reward_normalized_rmse": 0.9533723730888567,
+      "reward_rmse": 0.17236038279603705,
+      "reward_truth_rms": 0.18079020082950592,
+      "value_normalized_rmse": 0.18304756971960628,
+      "value_rmse": 3.404143117263129,
+      "value_truth_rms": 18.59704077184757
+    },
+    "notes": "Neural reward has no finite true theta; parameter-cosine gates are intentionally omitted.",
+    "passed": false,
+    "simulation": {
+      "n_individuals": 4000,
+      "n_periods": 80,
+      "seed": 42
+    },
+    "summary": {
+      "converged": false,
+      "convergence_message": "TD-CCP (semigradient): Maximum iterations reached",
+      "estimation_time": 8.103815793991089,
+      "log_likelihood": -350980.3283517087,
+      "metadata": {
+        "basis_type": "tabular",
+        "ccp_method": "frequency",
+        "ccp_smoothing": 0.01,
+        "cross_fitting": false,
+        "method": "semigradient",
+        "robust_se": false
+      },
+      "num_iterations": 9,
+      "num_observations": 320000,
+      "parameter_names": [
+        "r_0_0",
+        "r_0_1",
+        "r_0_2",
+        "r_1_0",
+        "r_1_1",
+        "r_1_2",
+        "r_2_0",
+        "r_2_1",
+        "r_2_2",
+        "r_3_0",
+        "r_3_1",
+        "r_3_2",
+        "r_4_0",
+        "r_4_1",
+        "r_4_2",
+        "r_5_0",
+        "r_5_1",
+        "r_5_2",
+        "r_6_0",
+        "r_6_1",
+        "r_6_2",
+        "r_7_0",
+        "r_7_1",
+        "r_7_2",
+        "r_8_0",
+        "r_8_1",
+        "r_8_2",
+        "r_9_0",
+        "r_9_1",
+        "r_9_2",
+        "r_10_0",
+        "r_10_1",
+        "r_10_2",
+        "r_11_0",
+        "r_11_1",
+        "r_11_2",
+        "r_12_0",
+        "r_12_1",
+        "r_12_2",
+        "r_13_0",
+        "r_13_1",
+        "r_13_2",
+        "r_14_0",
+        "r_14_1",
+        "r_14_2",
+        "r_15_0",
+        "r_15_1",
+        "r_15_2",
+        "r_16_0",
+        "r_16_1",
+        "r_16_2",
+        "r_17_0",
+        "r_17_1",
+        "r_17_2",
+        "r_18_0",
+        "r_18_1",
+        "r_18_2",
+        "r_19_0",
+        "r_19_1",
+        "r_19_2",
+        "r_20_0",
+        "r_20_1",
+        "r_20_2",
+        "r_21_0",
+        "r_21_1",
+        "r_21_2",
+        "r_22_0",
+        "r_22_1",
+        "r_22_2",
+        "r_23_0",
+        "r_23_1",
+        "r_23_2",
+        "r_24_0",
+        "r_24_1",
+        "r_24_2",
+        "r_25_0",
+        "r_25_1",
+        "r_25_2",
+        "r_26_0",
+        "r_26_1",
+        "r_26_2",
+        "r_27_0",
+        "r_27_1",
+        "r_27_2",
+        "r_28_0",
+        "r_28_1",
+        "r_28_2",
+        "r_29_0",
+        "r_29_1",
+        "r_29_2",
+        "r_30_0",
+        "r_30_1",
+        "r_30_2",
+        "r_31_0",
+        "r_31_1",
+        "r_31_2"
+      ],
+      "parameters": [
+        -0.036843370531618604,
+        -0.06269968840448434,
+        0.034366982725755474,
+        0.01838247650325714,
+        -0.01584317033764027,
+        0.07678439948462806,
+        0.0019384834105103889,
+        -0.030944552315828034,
+        0.11451837632840771,
+        -0.009876067282031865,
+        -0.07362481560372447,
+        0.051318002462285524,
+        0.016839592928354546,
+        -0.0507058306557004,
+        0.0822390488588951,
+        -0.043203856911271606,
+        -0.11302836440968832,
+        0.07364554055180063,
+        -0.011113767186750436,
+        -0.04943897761543615,
+        0.062349540239115375,
+        0.04518798317507766,
+        -0.045377871432934376,
+        0.0821049996125578,
+        -0.01388333930960643,
+        -0.05693203302549617,
+        0.07304131522982893,
+        -0.018985881130056212,
+        -0.06933875967338729,
+        0.04106372199063943,
+        0.0065084851528093525,
+        -0.0469493606823553,
+        0.07401843217462026,
+        -0.02075270305630735,
+        -0.12771944677667282,
+        0.034353764686026134,
+        -0.03462947145889354,
+        -0.04296796257073981,
+        0.07916660045429984,
+        0.010763196774592686,
+        -0.045828747383553685,
+        0.04548379165498961,
+        0.012933427797703529,
+        -0.06422972248160243,
+        0.04325258444358687,
+        -0.010138409424093713,
+        -0.058711621803275174,
+        0.07047487280597632,
+        -0.025478900863827644,
+        -0.015032073558932222,
+        0.06155037949867,
+        -0.058039670894468987,
+        -0.03470167671360096,
+        0.08159147945798499,
+        -0.0290620060930412,
+        -0.07971860037701184,
+        0.08100307456902535,
+        0.00830114680817354,
+        -0.06224023440479784,
+        0.045875631343872326,
+        -0.0346320719596693,
+        -0.06670165617064805,
+        0.08299337836875949,
+        -0.02998587715198784,
+        -0.0713567973013701,
+        0.03853617930816244,
+        0.01642457872752015,
+        -0.07751177972669664,
+        0.04941008677096423,
+        -0.017298430975741616,
+        -0.06513658825948977,
+        0.057019209599473666,
+        -0.048061854157787534,
+        -0.06972812901952487,
+        0.05081628482462253,
+        0.00785014526428729,
+        -0.07838569238782013,
+        0.08976766964850563,
+        0.013608141006118514,
+        -0.07591810658145111,
+        0.10247899971012175,
+        -0.0033938699523882246,
+        -0.038797504104403996,
+        0.06860884519733636,
+        0.015037157772188267,
+        -0.02253596497363939,
+        0.08640552124083288,
+        0.0034916857901833858,
+        -0.05925679576241607,
+        0.09094806390529674,
+        0.012970181630941201,
+        -0.02677134714817598,
+        0.08299259202973576,
+        -0.032255008546375474,
+        -0.05203288226346908,
+        0.029391886889031705
+      ],
+      "standard_errors": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    "truth": null,
+    "utility_config": null
   },
-  "mc": {
-    "cov_v": 0.5333333333333333,
-    "cov_fc": 0.5333333333333333,
-    "bias_v": 0.022352062785356796,
-    "bias_fc": 0.0020098086311821453,
-    "rmse_v": 0.12970583909845565,
-    "rmse_fc": 0.055032850239832495,
-    "mean_se_v": 0.05538727222522983,
-    "mean_se_fc": 0.023853100699160523,
-    "n_reps": 30,
-    "n_obs": 15000,
-    "n_fine": 100
-  }
+  "results": [
+    {
+      "cell_id": "canonical_low_action",
+      "compatibility": {
+        "compatible": true,
+        "errors": [],
+        "estimator": "TD-CCP",
+        "warnings": []
+      },
+      "diagnostics": {
+        "action_shares": [
+          0.3451625,
+          0.329925,
+          0.3249125
+        ],
+        "anchor_valid": true,
+        "condition_number": 4.512181117222974,
+        "errors": [],
+        "feature_rank": 4,
+        "is_action_dependent": true,
+        "max_transition_row_error": 2.421438694000244e-08,
+        "min_action_share": 0.3249125,
+        "min_positive_ccp": 0.15275590551181104,
+        "num_features": 4,
+        "num_states": 21,
+        "observed_states": 21,
+        "single_action_states": 0,
+        "state_action_coverage": 1.0,
+        "warnings": []
+      },
+      "estimator": "TD-CCP",
+      "gates": [
+        {
+          "name": "converged",
+          "operator": "is",
+          "passed": true,
+          "threshold": true,
+          "value": true
+        },
+        {
+          "name": "parameter_cosine",
+          "operator": ">=",
+          "passed": true,
+          "threshold": 0.99,
+          "value": 0.997931755878258
+        },
+        {
+          "name": "parameter_relative_rmse",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.15,
+          "value": 0.07814484698561999
+        },
+        {
+          "name": "reward_rmse",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.03,
+          "value": 0.01176824473415314
+        },
+        {
+          "name": "policy_tv",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.02,
+          "value": 0.006790070158831283
+        },
+        {
+          "name": "value_rmse",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.1,
+          "value": 0.02506297728833909
+        },
+        {
+          "name": "q_rmse",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.1,
+          "value": 0.029064839298916154
+        },
+        {
+          "name": "type_a_regret",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.01,
+          "value": 0.0003213585034107965
+        },
+        {
+          "name": "type_b_regret",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.01,
+          "value": 0.000446700610688915
+        },
+        {
+          "name": "type_c_regret",
+          "operator": "<=",
+          "passed": true,
+          "threshold": 0.01,
+          "value": 8.874082182812506e-05
+        }
+      ],
+      "metrics": {
+        "counterfactuals": {
+          "type_a": {
+            "policy": {
+              "kl": 0.0001187551144216763,
+              "l1": 0.012391788474083964,
+              "linf": 0.023974443839685167,
+              "tv": 0.006195894237041982
+            },
+            "regret": 0.0003213585034107965,
+            "value_rmse": 0.00038971408323472986
+          },
+          "type_b": {
+            "policy": {
+              "kl": 0.00012341515575275532,
+              "l1": 0.012820175238629756,
+              "linf": 0.02344329679827417,
+              "tv": 0.006410087619314878
+            },
+            "regret": 0.000446700610688915,
+            "value_rmse": 0.00045892665767694276
+          },
+          "type_c": {
+            "policy": {
+              "kl": 3.9902214952585616e-05,
+              "l1": 0.007583940257146229,
+              "linf": 0.01384791946813374,
+              "tv": 0.0037919701285731144
+            },
+            "regret": 8.874082182812506e-05,
+            "value_rmse": 0.00010972174975850748
+          }
+        },
+        "parameters": {
+          "cosine_similarity": 0.997931755878258,
+          "max_abs_error": 0.03078145230086138,
+          "relative_rmse": 0.07814484698561999,
+          "rmse": 0.021400846197194796
+        },
+        "policy": {
+          "kl": 0.000141648765635971,
+          "l1": 0.013580140317662566,
+          "linf": 0.02494810686192045,
+          "tv": 0.006790070158831283
+        },
+        "q_rmse": 0.029064839298916154,
+        "reward_rmse": 0.01176824473415314,
+        "value_rmse": 0.02506297728833909
+      },
+      "simulation": {
+        "n_individuals": 2000,
+        "n_periods": 80,
+        "seed": 42,
+        "show_progress": false
+      },
+      "summary": {
+        "converged": true,
+        "convergence_message": "TD-CCP (semigradient): Converged",
+        "estimation_time": 3.0842597484588623,
+        "log_likelihood": -174875.89901315016,
+        "metadata": {
+          "basis_dim": 3,
+          "basis_include_rewards": true,
+          "basis_pinv_rcond": null,
+          "basis_ridge": 1e-08,
+          "basis_type": "encoded",
+          "ccp_method": "frequency",
+          "ccp_smoothing": 0.01,
+          "cross_fitting": false,
+          "method": "semigradient",
+          "robust_se": false,
+          "theta_l2_penalty": 0.0
+        },
+        "num_iterations": 13,
+        "num_observations": 160000,
+        "parameter_names": [
+          "action_0_intercept",
+          "action_0_progress",
+          "action_1_intercept",
+          "action_1_progress"
+        ],
+        "parameters": [
+          0.08096103048822048,
+          0.5307814523008614,
+          -0.02170916037584635,
+          -0.19287841572467584
+        ],
+        "standard_errors": [
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "cell_id": "canonical_high_action",
+      "compatibility": {
+        "compatible": true,
+        "errors": [],
+        "estimator": "TD-CCP",
+        "warnings": []
+      },
+      "diagnostics": {
+        "action_shares": [
+          0.33325625,
+          0.38551875,
+          0.281225
+        ],
+        "anchor_valid": true,
+        "condition_number": 1.376810450603823,
+        "errors": [],
+        "feature_rank": 32,
+        "is_action_dependent": true,
+        "max_transition_row_error": 2.421438694000244e-08,
+        "min_action_share": 0.281225,
+        "min_positive_ccp": 0.0005754843660080568,
+        "num_features": 32,
+        "num_states": 81,
+        "observed_states": 81,
+        "single_action_states": 0,
+        "state_action_coverage": 0.9588477366255144,
+        "warnings": []
+      },
+      "estimator": "TD-CCP",
+      "gates": [
+        {
+          "name": "converged",
+          "operator": "is",
+          "passed": false,
+          "threshold": true,
+          "value": false
+        },
+        {
+          "name": "parameter_cosine",
+          "operator": ">=",
+          "passed": false,
+          "threshold": 0.99,
+          "value": 0.9385072627587144
+        },
+        {
+          "name": "parameter_relative_rmse",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.15,
+          "value": 0.3462703224589525
+        },
+        {
+          "name": "reward_rmse",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.03,
+          "value": 0.1639492995365648
+        },
+        {
+          "name": "policy_tv",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.02,
+          "value": 0.06894219620045011
+        },
+        {
+          "name": "value_rmse",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.1,
+          "value": 0.9052168178910758
+        },
+        {
+          "name": "q_rmse",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.1,
+          "value": 0.7425426759513695
+        },
+        {
+          "name": "type_a_regret",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.01,
+          "value": 0.3176074004707395
+        },
+        {
+          "name": "type_b_regret",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.01,
+          "value": 0.5932460010318146
+        },
+        {
+          "name": "type_c_regret",
+          "operator": "<=",
+          "passed": false,
+          "threshold": 0.01,
+          "value": 0.01469746592594206
+        }
+      ],
+      "metrics": {
+        "counterfactuals": {
+          "type_a": {
+            "policy": {
+              "kl": 0.022608919297795838,
+              "l1": 0.13208100609247783,
+              "linf": 0.7966695576312783,
+              "tv": 0.06604050304623892
+            },
+            "regret": 0.3176074004707395,
+            "value_rmse": 0.7952303798710455
+          },
+          "type_b": {
+            "policy": {
+              "kl": 0.03348035139972463,
+              "l1": 0.1415525056369132,
+              "linf": 0.9109009448271812,
+              "tv": 0.0707762528184566
+            },
+            "regret": 0.5932460010318146,
+            "value_rmse": 1.3014202798280103
+          },
+          "type_c": {
+            "policy": {
+              "kl": 0.006044831057915251,
+              "l1": 0.07085079992385114,
+              "linf": 0.25975152244298805,
+              "tv": 0.03542539996192557
+            },
+            "regret": 0.01469746592594206,
+            "value_rmse": 0.03294848693926532
+          }
+        },
+        "parameters": {
+          "cosine_similarity": 0.9385072627587144,
+          "max_abs_error": 0.08915367693033598,
+          "relative_rmse": 0.3462703224589525,
+          "rmse": 0.03624185054484045
+        },
+        "policy": {
+          "kl": 0.02535687269533048,
+          "l1": 0.13788439240090022,
+          "linf": 0.8217724614647228,
+          "tv": 0.06894219620045011
+        },
+        "q_rmse": 0.7425426759513695,
+        "reward_rmse": 0.1639492995365648,
+        "value_rmse": 0.9052168178910758
+      },
+      "simulation": {
+        "n_individuals": 2000,
+        "n_periods": 80,
+        "seed": 44,
+        "show_progress": false
+      },
+      "summary": {
+        "converged": false,
+        "convergence_message": "TD-CCP (semigradient): Maximum iterations reached",
+        "estimation_time": 4.809799909591675,
+        "log_likelihood": -160437.14831674262,
+        "metadata": {
+          "basis_dim": 3,
+          "basis_include_rewards": true,
+          "basis_pinv_rcond": null,
+          "basis_ridge": 1e-08,
+          "basis_type": "encoded",
+          "ccp_method": "frequency",
+          "ccp_smoothing": 0.1,
+          "cross_fitting": false,
+          "method": "semigradient",
+          "robust_se": false,
+          "theta_l2_penalty": 1000.0
+        },
+        "num_iterations": 18,
+        "num_observations": 160000,
+        "parameter_names": [
+          "theta_0",
+          "theta_1",
+          "theta_2",
+          "theta_3",
+          "theta_4",
+          "theta_5",
+          "theta_6",
+          "theta_7",
+          "theta_8",
+          "theta_9",
+          "theta_10",
+          "theta_11",
+          "theta_12",
+          "theta_13",
+          "theta_14",
+          "theta_15",
+          "theta_16",
+          "theta_17",
+          "theta_18",
+          "theta_19",
+          "theta_20",
+          "theta_21",
+          "theta_22",
+          "theta_23",
+          "theta_24",
+          "theta_25",
+          "theta_26",
+          "theta_27",
+          "theta_28",
+          "theta_29",
+          "theta_30",
+          "theta_31"
+        ],
+        "parameters": [
+          -0.09504244908410156,
+          0.18600659170374073,
+          -0.07028613737503647,
+          -0.13778924678358087,
+          -0.24208627768607346,
+          -0.13959180344988778,
+          -0.0949515320278721,
+          -0.2526598045469486,
+          0.17387140697413522,
+          -0.1983327109032161,
+          0.044689542519886424,
+          -0.006843986739341518,
+          -0.055580590295722196,
+          -0.035640506799327676,
+          0.06141168287830969,
+          -0.005888118268129622,
+          0.0664461891789085,
+          0.03549846053502589,
+          -0.051701709765441035,
+          0.0033878276952306473,
+          0.015283104015755077,
+          0.05766669771905186,
+          -0.0023460274363145644,
+          0.0346182020503586,
+          -0.05988380819913544,
+          -0.06450426221165989,
+          -0.02003551238863938,
+          -0.009369318397505015,
+          0.009401499930290205,
+          0.01705030260248804,
+          -0.023578339326943126,
+          -0.07633179872590826
+        ],
+        "standard_errors": [
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    }
+  ]
 }

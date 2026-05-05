@@ -293,12 +293,15 @@ class MCEIRLEstimator(BaseEstimator):
         panel: Panel,
         n_states: int,
         n_actions: int,
+        discount: float = 1.0,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Compute empirical state and state-action occupancy from demonstrations.
 
         Following Ziebart (2008) and the imitation library: count how often
-        each state (and state-action pair) appears in the demonstrations,
-        normalized to a distribution.
+        each state (and state-action pair) appears in the demonstrations.
+        Infinite-horizon MCE feature matching uses discounted occupancy
+        measures, so callers may pass ``discount=problem.discount_factor`` to
+        weight period ``t`` by ``discount ** t`` before normalization.
 
         Returns
         -------
@@ -307,24 +310,28 @@ class MCEIRLEstimator(BaseEstimator):
         D_demo_sa : jnp.ndarray
             State-action occupancy, shape (n_states, n_actions). Sums to 1.
         """
-        all_states = panel.get_all_states()
-        all_actions = panel.get_all_actions()
-        total_obs = len(all_states)
+        D_s_np = np.zeros(n_states, dtype=np.float64)
+        D_sa_np = np.zeros((n_states, n_actions), dtype=np.float64)
+        total_weight = 0.0
 
-        # Use numpy for scatter-add operations, then convert to JAX
-        all_states_np = np.asarray(all_states)
-        all_actions_np = np.asarray(all_actions)
+        for traj in panel.trajectories:
+            states_np = np.asarray(traj.states, dtype=np.int64)
+            actions_np = np.asarray(traj.actions, dtype=np.int64)
+            if len(states_np) == 0:
+                continue
+            if discount == 1.0:
+                weights = np.ones(len(states_np), dtype=np.float64)
+            else:
+                weights = np.power(float(discount), np.arange(len(states_np)))
 
-        D_s_np = np.zeros(n_states, dtype=np.float32)
-        D_sa_np = np.zeros((n_states, n_actions), dtype=np.float32)
+            np.add.at(D_s_np, states_np, weights)
+            idx_flat = states_np * n_actions + actions_np
+            np.add.at(D_sa_np.ravel(), idx_flat, weights)
+            total_weight += float(weights.sum())
 
-        np.add.at(D_s_np, all_states_np, 1.0)
-        idx_flat = all_states_np * n_actions + all_actions_np
-        np.add.at(D_sa_np.ravel(), idx_flat, 1.0)
-
-        if total_obs > 0:
-            D_s_np = D_s_np / total_obs
-            D_sa_np = D_sa_np / total_obs
+        if total_weight > 0:
+            D_s_np = D_s_np / total_weight
+            D_sa_np = D_sa_np / total_weight
 
         return jnp.array(D_s_np), jnp.array(D_sa_np)
 
@@ -334,6 +341,7 @@ class MCEIRLEstimator(BaseEstimator):
         reward_fn: BaseUtilityFunction,
         n_states: int | None = None,
         n_actions: int | None = None,
+        discount: float = 1.0,
     ) -> jnp.ndarray:
         """Compute empirical feature expectations using state-action occupancy.
 
@@ -359,21 +367,19 @@ class MCEIRLEstimator(BaseEstimator):
         if feature_matrix.ndim == 3:
             _ns, _na = feature_matrix.shape[0], feature_matrix.shape[1]
             D_s, D_sa = self._compute_empirical_state_occupancy(
-                panel, n_states or _ns, n_actions or _na
+                panel, n_states or _ns, n_actions or _na, discount=discount
             )
             # μ_D = Σ_s Σ_a D_demo(s,a) φ(s,a,k)
             return jnp.einsum("sa,sak->k", D_sa, feature_matrix)
         else:
             _ns = feature_matrix.shape[0]
             # For state-only features, compute state occupancy directly
-            all_states = panel.get_all_states()
-            total_obs = len(all_states)
-            all_states_np = np.asarray(all_states)
-            D_s_np = np.zeros(_ns, dtype=np.float32)
-            np.add.at(D_s_np, all_states_np, 1.0)
-            if total_obs > 0:
-                D_s_np = D_s_np / total_obs
-            D_s = jnp.array(D_s_np)
+            D_s, _ = self._compute_empirical_state_occupancy(
+                panel,
+                n_states or _ns,
+                n_actions or getattr(reward_fn, "num_actions", 1),
+                discount=discount,
+            )
             return D_s @ feature_matrix
 
     def _compute_expected_features(
@@ -588,15 +594,25 @@ class MCEIRLEstimator(BaseEstimator):
             params = jnp.array(initial_params)
 
         # Compute empirical features (constant) — all in float64 for precision
-        empirical_features = self._compute_empirical_features(panel, reward_fn).astype(jnp.float64)
+        empirical_features = self._compute_empirical_features(
+            panel,
+            reward_fn,
+            problem.num_states,
+            problem.num_actions,
+            discount=problem.discount_factor,
+        ).astype(jnp.float64)
         initial_dist = self._compute_initial_distribution(panel, problem.num_states).astype(jnp.float64)
 
         # Compute empirical state occupancy (constant) for occupancy distance check
         # Following Gleave & Toyer (2022): convergence when max|D_demo - D_policy| < tol
-        D_demo, _ = self._compute_empirical_state_occupancy(
-            panel, problem.num_states, problem.num_actions
+        D_demo, D_sa_demo = self._compute_empirical_state_occupancy(
+            panel,
+            problem.num_states,
+            problem.num_actions,
+            discount=problem.discount_factor,
         )
         D_demo = D_demo.astype(jnp.float64)
+        D_sa_demo = D_sa_demo.astype(jnp.float64)
 
         self._log(f"Empirical features: {empirical_features}")
         self._log(f"Initial distribution entropy: {-(initial_dist * jnp.log(initial_dist + 1e-10)).sum():.3f}")
@@ -680,6 +696,8 @@ class MCEIRLEstimator(BaseEstimator):
             reward_matrix = reward_fn.compute(final_params).astype(jnp.float64)
             V, policy, _ = self._soft_value_iteration(operator, reward_matrix)
             D = self._compute_state_visitation(policy, transitions_f64, problem, initial_dist)
+            D_sa = D[:, None] * policy
+            occupancy_moment_residual = float(jnp.max(jnp.abs(D_sa_demo - D_sa)))
             final_expected = self._compute_expected_features(
                 panel, policy, reward_fn,
                 transitions=transitions_f64, initial_dist=initial_dist,
@@ -720,6 +738,10 @@ class MCEIRLEstimator(BaseEstimator):
                     "empirical_features": np.asarray(empirical_features).tolist(),
                     "final_expected_features": np.asarray(final_expected).tolist(),
                     "feature_diff": feature_diff,
+                    "feature_difference": feature_diff,
+                    "occupancy_moment_residual": occupancy_moment_residual,
+                    "state_visitation": np.asarray(D).tolist(),
+                    "state_action_visitation": np.asarray(D_sa).tolist(),
                 },
             )
 
@@ -777,12 +799,28 @@ class MCEIRLEstimator(BaseEstimator):
                     transitions=transitions_f64, initial_dist=initial_dist,
                     discount=problem.discount_factor,
                 )
+                D = jnp.zeros(problem.num_states, dtype=jnp.float64)
+                D_sa = jnp.zeros((problem.num_states, problem.num_actions), dtype=jnp.float64)
+                occupancy_moment_residual = None
+                ll = 0.0
+                V = V[0] if V.ndim > 1 else V
+                policy = policy[0] if policy.ndim > 2 else policy
             else:
                 final_expected = self._compute_expected_features(
                     panel, policy, reward_fn,
                     transitions=transitions_f64, initial_dist=initial_dist,
                     discount=problem.discount_factor,
                 )
+                D = self._compute_state_visitation(
+                    policy,
+                    transitions_f64,
+                    problem,
+                    initial_dist,
+                )
+                D_sa = D[:, None] * policy
+                occupancy_moment_residual = float(jnp.max(jnp.abs(D_sa_demo - D_sa)))
+                log_probs = operator.compute_log_choice_probabilities(reward_matrix, V)
+                ll = float(log_probs[panel.get_all_states(), panel.get_all_actions()].sum())
             feature_diff = float(jnp.linalg.norm(empirical_features - final_expected))
             elapsed = time.time() - start_time
             self._log(
@@ -791,17 +829,22 @@ class MCEIRLEstimator(BaseEstimator):
             )
             return EstimationResult(
                 parameters=params,
-                log_likelihood=0.0,
+                log_likelihood=ll,
                 value_function=V,
                 policy=policy,
                 converged=converged,
                 num_iterations=n_function_evals,
                 metadata={
+                    "optimizer": self.config.optimizer,
                     "estimator": "MCE-IRL (root)",
                     "elapsed_seconds": elapsed,
                     "empirical_features": np.asarray(empirical_features).tolist(),
                     "final_expected_features": np.asarray(final_expected).tolist(),
                     "feature_diff": feature_diff,
+                    "feature_difference": feature_diff,
+                    "occupancy_moment_residual": occupancy_moment_residual,
+                    "state_visitation": np.asarray(D).tolist(),
+                    "state_action_visitation": np.asarray(D_sa).tolist(),
                 },
             )
 
@@ -954,6 +997,8 @@ class MCEIRLEstimator(BaseEstimator):
                 discount=problem.discount_factor,
             )
             D = jnp.zeros(problem.num_states)
+            D_sa = jnp.zeros((problem.num_states, problem.num_actions))
+            occupancy_moment_residual = None
 
             # Finite-horizon LL: use period-specific policies
             sigma = problem.scale_parameter
@@ -972,6 +1017,8 @@ class MCEIRLEstimator(BaseEstimator):
             policy = policy[0] if policy.ndim > 2 else policy
         else:
             D = self._compute_state_visitation(policy, transitions_f64, problem, initial_dist)
+            D_sa = D[:, None] * policy
+            occupancy_moment_residual = float(jnp.max(jnp.abs(D_sa_demo - D_sa)))
             final_expected = self._compute_expected_features(
                 panel, policy, reward_fn,
                 transitions=transitions_f64, initial_dist=initial_dist,
@@ -1024,7 +1071,10 @@ class MCEIRLEstimator(BaseEstimator):
                 "empirical_features": np.asarray(empirical_features).tolist(),
                 "final_expected_features": np.asarray(final_expected).tolist(),
                 "feature_difference": feature_diff,
+                "feature_diff": feature_diff,
+                "occupancy_moment_residual": occupancy_moment_residual,
                 "state_visitation": np.asarray(D).tolist(),
+                "state_action_visitation": np.asarray(D_sa).tolist(),
                 "inner_not_converged": inner_not_converged,
                 "standard_errors": np.asarray(standard_errors).tolist() if standard_errors is not None else None,
             },
@@ -1059,7 +1109,13 @@ class MCEIRLEstimator(BaseEstimator):
             boot_panel = Panel(trajectories=boot_trajectories)
 
             # Compute empirical features for bootstrap sample
-            empirical_features = self._compute_empirical_features(boot_panel, reward_fn)
+            empirical_features = self._compute_empirical_features(
+                boot_panel,
+                reward_fn,
+                problem.num_states,
+                problem.num_actions,
+                discount=problem.discount_factor,
+            )
             boot_initial = self._compute_initial_distribution(boot_panel, problem.num_states)
 
             # Quick optimization from point estimate

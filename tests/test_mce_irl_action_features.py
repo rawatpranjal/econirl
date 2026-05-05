@@ -6,6 +6,7 @@ from econirl.environments.rust_bus import RustBusEnvironment
 from econirl.preferences.action_reward import ActionDependentReward
 from econirl.estimation.mce_irl import MCEIRLEstimator, MCEIRLConfig
 from econirl.simulation import simulate_panel
+from econirl.core.types import DDCProblem, Panel, Trajectory
 
 
 class TestMCEIRLActionFeatures:
@@ -106,9 +107,16 @@ class TestMCEIRLActionFeatures:
             initial_params=true_params,
         )
 
-        # Feature matching objective should be very small when starting from true params
+        # With finite Rust panels, discounted MCE moments have sampling and
+        # truncation error; the warm start should still keep the moment gap
+        # controlled relative to the empirical feature norm.
         feature_diff = result.metadata.get("feature_difference", float("inf"))
-        assert feature_diff < 0.1, f"Feature difference too large: {feature_diff}"
+        empirical_norm = float(jnp.linalg.norm(jnp.asarray(result.metadata["empirical_features"])))
+        relative_feature_diff = feature_diff / max(empirical_norm, 1e-12)
+        assert relative_feature_diff < 0.30, (
+            f"Feature difference too large: {feature_diff} "
+            f"(relative {relative_feature_diff:.3f})"
+        )
 
         # Parameters should stay close to true values (within factor of 5)
         # Note: MCE IRL identifies parameters up to scale, so exact match not expected
@@ -155,3 +163,90 @@ class TestMCEIRLActionFeatures:
             f"Ratio mismatch: estimated={float(estimated_ratio):.6f}, "
             f"true={float(true_ratio):.6f}, relative_error={float(relative_error):.2%}"
         )
+
+
+def test_empirical_features_use_discounted_state_action_occupancy():
+    """Empirical moments for (S,A,K) features must use D_demo(s,a)."""
+
+    features = jnp.array(
+        [
+            [[1.0, 0.0], [0.0, 1.0]],
+            [[2.0, 0.0], [0.0, 2.0]],
+            [[3.0, 0.0], [0.0, 3.0]],
+        ],
+        dtype=jnp.float32,
+    )
+    reward = ActionDependentReward(features, ["left", "right"])
+    panel = Panel(
+        trajectories=[
+            Trajectory(
+                states=jnp.array([0, 1, 1], dtype=jnp.int32),
+                actions=jnp.array([0, 1, 0], dtype=jnp.int32),
+                next_states=jnp.array([1, 1, 2], dtype=jnp.int32),
+            )
+        ]
+    )
+    estimator = MCEIRLEstimator(MCEIRLConfig(compute_se=False))
+
+    empirical = estimator._compute_empirical_features(
+        panel,
+        reward,
+        n_states=3,
+        n_actions=2,
+        discount=0.5,
+    )
+    weights = jnp.array([1.0, 0.5, 0.25])
+    expected = (
+        weights[0] * features[0, 0]
+        + weights[1] * features[1, 1]
+        + weights[2] * features[1, 0]
+    ) / weights.sum()
+
+    assert jnp.allclose(empirical, expected, atol=1e-7)
+
+
+def test_expected_features_match_analytic_discounted_occupancy():
+    """Expected MCE moments should equal analytic discounted occupancy moments."""
+
+    transitions = jnp.zeros((2, 2, 2), dtype=jnp.float32)
+    transitions = transitions.at[0, :, 0].set(1.0)
+    transitions = transitions.at[1, :, 1].set(1.0)
+    policy = jnp.array([[0.75, 0.25], [0.20, 0.80]], dtype=jnp.float32)
+    initial_dist = jnp.array([1.0, 0.0], dtype=jnp.float32)
+    problem = DDCProblem(num_states=2, num_actions=2, discount_factor=0.5)
+    features = jnp.array(
+        [
+            [[1.0, 0.0], [0.0, 1.0]],
+            [[2.0, 0.0], [0.0, 2.0]],
+        ],
+        dtype=jnp.float32,
+    )
+    reward = ActionDependentReward(features, ["a0", "a1"])
+    panel = Panel(
+        trajectories=[
+            Trajectory(
+                states=jnp.array([0], dtype=jnp.int32),
+                actions=jnp.array([0], dtype=jnp.int32),
+                next_states=jnp.array([0], dtype=jnp.int32),
+            )
+        ]
+    )
+    estimator = MCEIRLEstimator(MCEIRLConfig(compute_se=False))
+
+    expected = estimator._compute_expected_features(
+        panel,
+        policy,
+        reward,
+        transitions=transitions,
+        initial_dist=initial_dist,
+        discount=problem.discount_factor,
+    )
+    d = estimator._compute_state_visitation(
+        policy,
+        transitions,
+        problem,
+        initial_dist,
+    )
+    analytic = jnp.einsum("s,sa,sak->k", d, policy, features)
+
+    assert jnp.allclose(expected, analytic, atol=1e-7)

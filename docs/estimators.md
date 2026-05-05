@@ -5,10 +5,10 @@ the estimator-specific reference PDF. The PDFs are built from dedicated TeX
 files and use the shared known-truth synthetic DGP harness rather than real
 data examples.
 
-NFXP, CCP, MPEC, SEES, and NNES are fully migrated estimator pages and PDFs.
-Each migrated structural estimator now reports enforced known-truth gates. The
-remaining estimator pages are kept compact while their known-truth PDFs are
-migrated.
+NFXP, CCP, MPEC, SEES, NNES, TD-CCP, MCE-IRL, and Deep MCE-IRL are
+fully migrated estimator pages and PDFs. Each migrated estimator reports
+enforced known-truth gates. The remaining estimator pages are kept compact
+while their known-truth PDFs are migrated.
 
 ```{toctree}
 :caption: Structural Econometrics
@@ -27,6 +27,7 @@ estimators/tdccp
 :maxdepth: 1
 
 estimators/mce_irl
+estimators/deep_mce_irl
 estimators/airl
 estimators/airl_het
 estimators/f_irl

@@ -1,12 +1,11 @@
 \documentclass[10pt]{article}
 \usepackage[left=1in,right=1in,top=0.9in,bottom=0.9in]{geometry}
-\input{notation}
+\input{../notation}
+\usepackage{graphicx}
 \usepackage[ruled,lined]{algorithm2e}
 \usepackage{titling}
 \setlength{\droptitle}{-2em}
 \posttitle{\par\end{center}\vspace{-1em}}
-
-\DeclareMathOperator*{\argmin}{arg\,min}
 
 \title{Primer: Deep Maximum Causal Entropy IRL}
 \author{econirl package documentation}
@@ -15,196 +14,117 @@
 \begin{document}
 \maketitle
 
+\section{Problem}
 
-%% ============================================================
-\section{Problem and Motivation}
-%% ============================================================
+Linear MCE-IRL \citep{ziebart2010} uses a reward
+$R(s,a)=\theta^\top\phi(s,a)$ and solves the maximum causal entropy
+control problem under known transitions. Wulfmeier, Ondruska, and Posner
+\citep{wulfmeier2015} replace the linear state reward with a neural map
+from supplied state features to rewards. The Bellman recursion and
+occupancy matching logic stay the same; only the reward parameterization
+changes.
 
-Linear MCE-IRL \citep{ziebart2010} assumes that the reward function takes the form $R(s,a) = \theta^\top\phi(s,a)$, where $\phi$ is a hand-designed feature vector and $\theta$ is an unknown weight vector recovered from data. This linear parameterization works well when the analyst knows the correct reward features in advance. When the true reward depends on higher-order interactions or nonlinear transformations of state variables, however, a linear model misspecifies the reward and produces suboptimal policies.
+The package implementation validated here is \texttt{MCEIRLNeural}. The
+primary Shapeshifter validation uses a frozen nonlinear neural reward,
+known stochastic transitions, supplied state encodings, and action 0 as a
+zero-reward anchor. The gated artifact for neural-reward truth is the
+learned raw \texttt{reward\_matrix}, not a projected finite $\theta$. The
+raw neural network weights are not treated as finite economic parameters.
+When the truth is linear in a supplied feature matrix, the post-fit
+projection is reported and parameter gates apply only when that projection
+is numerically identifiable. Counterfactual gates apply the same affine IRL
+reward normalization convention before adding intervention deltas.
 
-\citet{wulfmeier2016} introduced Deep MCE-IRL, which replaces the linear reward with a neural network $R_\psi(s,a)$. The network learns both the reward function and the features that represent it directly from demonstration data. The MCE framework stays the same. The soft Bellman recursion stays the same. The occupancy measure computation stays the same. The only change is the reward parameterization and how the gradient propagates through it.
-
-The motivation is environments where the reward depends on complex spatial or relational structure that is difficult to specify as hand-crafted features. The Objectworld environment \citep{wulfmeier2016} is the canonical test case. The reward there depends nonlinearly on distances to multiple colored objects, so no linear combination of continuous distance features can recover it exactly. A neural network can in principle learn this nonlinear mapping, though doing so on small discrete grids introduces its own challenges that we discuss in the Results section.
-
-
-%% ============================================================
-\section{Model and Notation}
-%% ============================================================
+\section{Objective}
 
 \commonnotation
 
-The agent solves the same maximum causal entropy problem as in linear MCE-IRL
+For a neural reward $R_\psi$, the soft control problem is
 \begin{equation}
-\label{eq:mce_objective}
-\max_\pi \; \E_\pi\!\left[\sum_{t=0}^{\infty} \beta^t \bigl(R_\psi(s_t, a_t) + \sigma \calH(\pi(\cdot | s_t))\bigr)\right]
+\max_\pi \;
+\E_\pi\!\left[
+  \sum_{t=0}^{\infty}\beta^t
+  \bigl(R_\psi(s_t,a_t) + \sigma \calH(\pi(\cdot \mid s_t))\bigr)
+\right].
 \end{equation}
-subject to the feature matching constraint. The only difference is that $R_\psi(s,a)$ is a neural network rather than $\theta^\top\phi(s,a)$.
-
-\begin{table}[H]
-\centering\small
-\caption{Neural reward architecture. The network maps discrete state and action indices to a scalar reward through learned embeddings and a feedforward MLP.}
-\label{tab:architecture}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}} l l l}
-\toprule
-Component & Shape & Description \\
-\midrule
-State encoder & $(|\calS|, d_{\text{embed}})$ or $f: s \to \R^{d_s}$ & Learned embedding or normalized coordinates \\
-Action encoder & $(|\calA|, d_{\text{embed}})$ or one-hot & Learned embedding or one-hot encoding \\
-Hidden layers & $[\text{concat}] \to d_h \to d_h$ & ReLU activations, typically 2 layers of 64 units \\
-Output & $d_h \to 1$ & Scalar reward $R_\psi(s,a)$ \\
-\bottomrule
-\end{tabular*}
-\end{table}
-
-The \texttt{MCEIRLNeural} estimator in econirl uses a state encoder that maps state indices to normalized coordinates and concatenates them with one-hot action encodings. The \texttt{DeepMaxEntIRLEstimator} in \texttt{econirl.contrib} uses learned embedding matrices for both states and actions. Both produce a reward matrix $R_\psi(s,a)$ of shape $(|\calS|, |\calA|)$ that feeds into the same soft Bellman solver used by linear MCE-IRL.
-
-
-%% ============================================================
-\section{Derivation}
-%% ============================================================
-
-\subsection{The MCE-IRL Gradient for Neural Rewards}
-
-The MCE-IRL objective is the dual of the maximum causal entropy problem. For linear rewards $R = \theta^\top\phi$, the gradient of the dual loss is the feature matching residual (Theorem 2 of the MCE-IRL primer)
-\begin{equation}
-\nabla_\theta L = \bar\phi_\pi(\theta) - \bar\phi_{\text{data}},
-\end{equation}
-where $\bar\phi_\pi = \sum_s D_\pi(s) \sum_a \pi(a|s)\,\phi(s,a)$ are the expected features under the current policy and $\bar\phi_{\text{data}}$ are the empirical feature expectations.
-
-For a neural reward $R_\psi(s,a)$, we need the gradient with respect to the network parameters $\psi$. The chain rule gives
-\begin{equation}
-\label{eq:neural_gradient}
-\nabla_\psi L = \sum_{s,a} \bigl(\mu_\pi(s,a) - \mu_D(s,a)\bigr)\, \nabla_\psi R_\psi(s,a),
-\end{equation}
-where $\mu_D(s,a) = D_{\text{data}}(s)\,\hat\pi_{\text{data}}(a|s)$ is the empirical state-action occupancy and $\mu_\pi(s,a) = D_\pi(s)\,\pi(a|s)$ is the model occupancy under the current policy. The term $(\mu_\pi - \mu_D)$ plays the same role as the feature matching residual, but now it weights the gradient of each individual reward value $R_\psi(s,a)$ rather than aggregating through linear features.
-
-
-\subsection{The Surrogate Loss}
-
-Computing Equation~\eqref{eq:neural_gradient} directly would require differentiating through the soft Bellman fixed point to obtain $\nabla_\psi \mu_\pi$. This is computationally expensive and numerically unstable. Instead, we use the fact that the occupancy mismatch $(\mu_\pi - \mu_D)$ does not depend on $\psi$ for a fixed policy. We treat it as a constant and define the surrogate loss
-\begin{equation}
-\label{eq:surrogate}
-\mathcal{L}(\psi) = -\sum_{s,a} \underbrace{\bigl[\mu_D(s,a) - \mu_\pi(s,a)\bigr]}_{\text{stop gradient}} \cdot R_\psi(s,a).
-\end{equation}
-The gradient of this surrogate loss with respect to $\psi$ is exactly $\nabla_\psi L$ from Equation~\eqref{eq:neural_gradient}, because the stop-gradient term is treated as a constant coefficient. This is the standard approach in both \citet{wulfmeier2016} and the \texttt{imitation} library.
-
-
-\subsection{Backward and Forward Passes}
-
-The backward pass solves the soft Bellman equations
+Given a current reward surface, the backward pass solves
 \begin{align}
-Q(s,a) &= R_\psi(s,a) + \beta \sum_{s'} P(s'|s,a)\, V(s'), \\
-V(s) &= \sigma \log \sum_a \exp\bigl(Q(s,a)/\sigma\bigr), \\
-\pi(a|s) &= \exp\bigl((Q(s,a) - V(s))/\sigma\bigr).
+Q(s,a) &= R_\psi(s,a) + \beta \sum_{s'} P(s' \mid s,a)V(s'), \\
+V(s) &= \sigma \log \sum_a \exp(Q(s,a)/\sigma), \\
+\pi(a\mid s) &= \exp((Q(s,a)-V(s))/\sigma).
 \end{align}
-This is identical to linear MCE-IRL. The only difference is that $R_\psi(s,a)$ comes from a neural network forward pass rather than a matrix product $\theta^\top\phi$.
-
-The forward pass computes the occupancy measure
+The forward pass computes the normalized discounted state-action occupancy
+$\mu_\pi(s,a)$. The neural update uses the same occupancy mismatch as
+linear MCE-IRL:
 \begin{equation}
-D_\pi = (I - \beta\, F_\pi^\top)^{-1}\, \rho_0,
+\nabla_\psi L
+ =
+\sum_{s,a} \bigl(\mu_\pi(s,a)-\mu_D(s,a)\bigr)
+\nabla_\psi R_\psi(s,a).
 \end{equation}
-where $F_\pi[s,s'] = \sum_a \pi(a|s)\, P(s'|s,a)$ and $\rho_0$ is the initial state distribution. This is also identical to linear MCE-IRL.
 
-The gradient computation is the only step that differs. In the linear case, the gradient is the feature matching residual $\bar\phi_\pi - \bar\phi_{\text{data}}$, which is a $K$-dimensional vector. In the neural case, the gradient flows through the network via the surrogate loss in Equation~\eqref{eq:surrogate}, producing updates for all network parameters $\psi$.
+\section{Identification}
 
+Neural rewards inherit the usual IRL normalization problem. Additive shifts,
+positive rescaling, and richer potential-like reward transformations can leave
+the induced policy nearly unchanged \citep{ng1999,kim2021}. In action-dependent
+DDC cells we therefore anchor action 0 at zero reward. The validation separates
+four objects:
 
-%% ============================================================
-\section{Identification and Interpretability}
-%% ============================================================
+\begin{itemize}
+  \item raw neural reward matrix: the gated object when the truth is a frozen
+  neural reward;
+  \item neural weights: diagnostic only, not structural parameters;
+  \item projected reward: used for finite linear truths when the projection
+  basis is well conditioned;
+  \item induced behavior: policy, value, Q, occupancy, and counterfactual
+  performance under the recovered reward map.
+\end{itemize}
 
-Neural rewards inherit the same identification limitations as linear rewards. Rewards are identified only up to potential-based shaping \citep{ng1999}. For any function $h: \calS \to \R$, the shaped reward $R'(s,a) = R(s,a) + h(s) - \beta \sum_{s'} P(s'|s,a)\, h(s')$ produces the same optimal policy \citep{kim2021}. The neural network can absorb any such shaping function into its parameters without changing the induced policy.
+The success claim below is nonlinear reward-map recovery over supplied state
+encodings and known transitions. It is not a claim that raw network weights are
+uniquely identified. It is also not a claim that the package learns raw
+Objectworld-style spatial features with a convolutional FCNN; that would require
+a convolutional reward network rather than the current MLP over supplied
+encodings.
 
-Post-hoc interpretability is achieved through sieve projection. After training, the neural reward surface $R_\psi(s,a)$ is projected onto a linear feature basis via least squares
-\begin{equation}
-\hat\theta = \argmin_\theta \sum_{s,a} \bigl(R_\psi(s,a) - \theta^\top\phi(s,a)\bigr)^2.
-\end{equation}
-The projection $R^2$ measures how well the neural reward can be explained by the chosen linear features. A high $R^2$ (above 0.8) suggests that the true reward is approximately linear and the neural network was unnecessary. A low $R^2$ (below 0.5) suggests genuine nonlinearities that linear models cannot capture.
-
-Standard errors from the projection regression are pseudo standard errors only. They do not account for estimation error in $R_\psi$ itself, because the neural reward has no closed-form Hessian. Valid inference requires bootstrap resampling of the full training procedure, which is computationally expensive.
-
-
-%% ============================================================
 \section{Algorithm}
-%% ============================================================
 
 \begin{algorithm}[H]
 \DontPrintSemicolon
-\caption{Deep MCE-IRL \citep{wulfmeier2016}}
-\label{alg:deep_mce_irl}
-\KwIn{Demonstrations $\{(s_i, a_i)\}_{i=1}^N$, transitions $P(s'|s,a)$, discount $\beta$, scale $\sigma$, learning rate $\alpha$}
-\BlankLine
-
-\tcp{Step 1: Compute empirical state-action occupancy}
-$\mu_D(s,a) = \frac{1}{N} \sum_{i=1}^N \mathbf{1}[s_i = s, a_i = a]$\;
-Compute initial state distribution $\rho_0$ from first observations\;
-\BlankLine
-
-\tcp{Step 2: Initialize neural reward network}
-$R_\psi \leftarrow \text{MLP}(\text{state\_encoder}, \text{action\_encoder}, \text{hidden\_layers})$\;
-$\text{optimizer} \leftarrow \text{Adam}(\alpha, \text{gradient\_clip}=1.0)$\;
-\BlankLine
-
-\tcp{Step 3: Iterate until convergence or early stopping}
-\For{$k = 0, 1, \ldots, \text{max\_epochs}$}{
-    \BlankLine
-    \tcp{3a. Compute reward matrix from neural network}
-    $R[s,a] \leftarrow R_\psi(s,a) \quad \forall (s,a)$\;
-    \BlankLine
-    \tcp{3b. Backward pass: soft value iteration (no gradient)}
-    Solve $V = T_\sigma(V; R)$ via hybrid iteration to get $V$, $Q$, $\pi$\;
-    \BlankLine
-    \tcp{3c. Forward pass: occupancy measure (no gradient)}
-    $F_\pi[s,s'] = \sum_a \pi(a|s)\, P(s'|s,a)$\;
-    $D_\pi = (I - \beta\, F_\pi^\top)^{-1}\, \rho_0$\;
-    $\mu_\pi(s,a) = D_\pi(s) \cdot \pi(a|s)$\;
-    \BlankLine
-    \tcp{3d. Surrogate loss with stop-gradient occupancy mismatch}
-    $\mathcal{L}(\psi) = -\sum_{s,a} [\mu_D(s,a) - \mu_\pi(s,a)]_{\text{sg}} \cdot R_\psi(s,a)$\;
-    \BlankLine
-    \tcp{3e. Backpropagate through neural network}
-    $g_\psi = \nabla_\psi \mathcal{L}(\psi)$\;
-    Clip $\|g_\psi\| \leq 1.0$\;
-    $\psi \leftarrow \text{Adam\_step}(\psi, g_\psi)$\;
-    \BlankLine
-    \tcp{3f. Early stopping}
-    Track best model by feature matching residual $\|\mu_D - \mu_\pi\|^2$\;
-    \lIf{no improvement for 100 epochs}{\textbf{break}, restore best model}
+\caption{Deep MCE-IRL with Anchored Reward-Map Validation}
+\KwIn{Demonstrations, known transitions $P$, discount $\beta$, state encoder, optional action or absorbing-state anchor}
+Compute discounted empirical occupancy $\mu_D(s,a)$ from trajectories\;
+Initialize neural reward network $R_\psi$\;
+\For{epochs}{
+  Compute anchored reward matrix $R_\psi(s,a)$\;
+  Solve the soft Bellman equations for $V$, $Q$, and $\pi$\;
+  Compute model occupancy $\mu_\pi(s,a)$ from the empirical initial distribution\;
+  Update $\psi$ with surrogate loss
+  $\sum_{s,a} R_\psi(s,a)(\mu_\pi(s,a)-\mu_D(s,a))$\;
 }
-\BlankLine
-
-\tcp{Step 4: Sieve projection (optional)}
-\lIf{features $\phi$ provided}{$\hat\theta = \argmin_\theta \|R_\psi - \Phi\theta\|^2$, compute $R^2$}
-\BlankLine
-
-\KwOut{$R_\psi$ (neural reward), $V^*$, $\pi^*$, optional $\hat\theta$ and $R^2$}
+If the truth is a finite linear feature model and the projection is identified,
+compute $\hat\theta=\argmin_\theta\|R_\psi-\Phi\theta\|^2$\;
+\KwOut{Reward matrix, optional projected parameters, policy, value, Q, and counterfactual metrics}
 \end{algorithm}
 
-%% ============================================================
 \section{Results}
-%% ============================================================
 
 \input{deep_mce_irl_results}
 
-We run Deep MCE-IRL (\texttt{MCEIRLNeural}), linear MCE-IRL, and behavioral cloning on a \deepGridSize$\times$\deepGridSize\ Objectworld with \deepNstates\ states, 5 actions, and 2 continuous distance features. Data consists of \deepNobs\ observations from \deepNdemos\ trajectories of length \deepTrajLen\ at $\beta = \deepBeta$.
-
-Linear MCE-IRL achieves \deepMcePolicyAcc\% policy accuracy despite the fact that the Objectworld reward is nonlinear in the continuous distance features. Behavioral cloning reaches \deepBcPolicyAcc\%. The deep variant achieves only \deepDeepPolicyAcc\% after \deepDeepEpochs\ epochs, substantially underperforming both baselines.
-
-The Objectworld has only 64 states, so the neural network has far more parameters than needed, and the occupancy mismatch provides only a 320-dimensional gradient signal per iteration. The neural network overfits to noise in the occupancy rather than learning the true reward structure. The projection $R^2$ of \deepDeepProjectionR\ confirms this. Linear MCE-IRL outperforms the deep variant here because 2 linear parameters cannot overfit, while the deep model has thousands of parameters and insufficient training signal. Deep MCE-IRL is expected to outperform linear MCE-IRL on larger state spaces (32x32 or larger) where nonlinear reward structure matters more.
-
-
-%% ============================================================
 \section{Code}
-%% ============================================================
 
-The neural MCE-IRL estimator is implemented in two files. The \texttt{MCEIRLNeural} class at \texttt{src/econirl/estimators/mceirl\_neural.py} uses a state encoder with one-hot action concatenation and supports both state-only and state-action reward types. The \texttt{DeepMaxEntIRLEstimator} class at \texttt{src/econirl/contrib/deep\_maxent\_irl.py} uses learned embedding matrices for states and actions following the \texttt{BaseEstimator} interface. Both estimators share the same MCE-IRL training loop with stop-gradient occupancy mismatch.
-
-The companion script \texttt{deep\_mce\_irl\_results.py} in this folder generates Table~\ref{tab:deep_results}. To regenerate:
+The estimator is implemented in
+\texttt{src/econirl/estimators/mceirl\_neural.py}. The shared known-truth
+adapter and gates live in \texttt{experiments/known\_truth.py}. The generated
+tables are produced by:
 \begin{verbatim}
-python papers/econirl_package/primers/deep_mce_irl/deep_mce_irl_results.py
+PYTHONPATH=src:. python \
+  papers/econirl_package/primers/deep_mce_irl/deep_mce_irl_run.py \
+  --enforce-gates
 \end{verbatim}
 
-
 \bibliographystyle{plainnat}
-\bibliography{references}
+\bibliography{../references}
 
 \end{document}

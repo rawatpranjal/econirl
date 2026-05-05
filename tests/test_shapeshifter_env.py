@@ -62,6 +62,15 @@ def test_neural_reward_shape() -> None:
     assert env.parameter_names == []
 
 
+def test_state_only_neural_reward_collapses_action_dim() -> None:
+    env = ShapeshifterEnvironment(
+        _spine_config(reward_type="neural", action_dependent=False)
+    )
+    reward = np.asarray(env.true_reward_matrix)
+    for a in range(1, reward.shape[1]):
+        np.testing.assert_allclose(reward[:, 0], reward[:, a])
+
+
 def test_neural_features_shape() -> None:
     env = ShapeshifterEnvironment(_spine_config(feature_type="neural"))
     assert env.feature_matrix.shape == (16, 3, 4)
@@ -132,6 +141,16 @@ def test_action_dependent_features_differ_across_actions() -> None:
     env = ShapeshifterEnvironment(_spine_config(action_dependent=True))
     phi = np.asarray(env.feature_matrix)
     assert not np.array_equal(phi[:, 0, :], phi[:, 1, :])
+    np.testing.assert_array_equal(phi[:, 0, :], np.zeros_like(phi[:, 0, :]))
+
+
+def test_action_dependent_neural_reward_anchors_action_zero() -> None:
+    env = ShapeshifterEnvironment(
+        _spine_config(reward_type="neural", action_dependent=True)
+    )
+    reward = np.asarray(env.true_reward_matrix)
+    np.testing.assert_array_equal(reward[:, 0], np.zeros_like(reward[:, 0]))
+    assert not np.array_equal(reward[:, 0], reward[:, 1])
 
 
 # ---------------------------------------------------------------------------
